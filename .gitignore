@@ -1,0 +1,23 @@
+node_modules/
+.runtime/
+*.log
+
+# Build output: publish the tarball as a GitHub Release asset, not in git.
+dist/
+
+# Local dev tracker, private evidence and agent settings.
+.scratch/
+outputs/
+work/
+.claude/settings.local.json
+
+# Credentials and deploy state.
+.env*
+*.pem
+*.key
+.wrangler/
+auth.json
+state.json
+
+.DS_Store
+._*

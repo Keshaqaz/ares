@@ -1,0 +1,54 @@
+name: Auto reset
+on:
+  # Daily fallback only (ADR-0002); never rewritten. The external timer wakes windows via dispatch.
+  # The markers let pins before the timer plan read this workflow back during Upgrade.
+  # auto-reset:schedule:start
+  schedule:
+    - cron: '41 5 * * *'
+  # auto-reset:schedule:end
+  workflow_dispatch:
+    inputs:
+      command:
+        description: 'Empty, {"command":"status"} or a sealed installer admin command; open control is refused. Dispatch is unconfirmed until its ID appears in Summary/state'
+        required: false
+        default: ''
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: auto-reset-installation-writer
+  cancel-in-progress: false
+  queue: max
+jobs:
+  writer:
+    if: >-
+      github.event.repository.private == true &&
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch) &&
+      (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: __PROGRAM_COMMIT__
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '26.10.0'
+          package-manager-cache: false
+      - name: Install pinned dependencies and App Server
+        run: |
+          bash scripts/install-linux-prerequisites.sh
+          npm ci --ignore-scripts --no-audit --no-fund
+          node scripts/install-app-server.mjs
+      - name: Serialized private job
+        env:
+          AUTO_RESET_PROGRAM_COMMIT: __PROGRAM_COMMIT__
+          AUTO_RESET_GITHUB_TOKEN: ${{ secrets.AUTO_RESET_GITHUB_TOKEN }}
+          AUTO_RESET_AUTH_BUNDLE: ${{ secrets.AUTO_RESET_AUTH_BUNDLE }}
+          AUTO_RESET_QUOTA_RECEIPT: ${{ vars.AUTO_RESET_QUOTA_RECEIPT }}
+          AUTO_RESET_BILLING_POLICY: ${{ vars.AUTO_RESET_BILLING_POLICY }}
+          AUTO_RESET_PILOT_APPROVED: ${{ vars.AUTO_RESET_PILOT_APPROVED }}
+          AUTO_RESET_COMMAND: ${{ inputs.command }}
+          AUTO_RESET_LANGUAGE: ${{ vars.AUTO_RESET_LANGUAGE }}
+        run: node src/private-cli.mjs
