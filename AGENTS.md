@@ -10,4 +10,4 @@
 
 ### Domain docs
 
-Используется single-context: корневой `CONTEXT.md` и `docs/adr/`. Перед изучением проекта прочитайте `docs/agents/domain.md`.
+Используется single-context: `docs/CONTEXT.md` и `docs/adr/`. Перед изучением проекта прочитайте `docs/agents/domain.md`.

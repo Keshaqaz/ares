@@ -13,13 +13,13 @@
 Работает в вашем private repo на GitHub. Компьютер может быть выключен.
 
 [![version](https://img.shields.io/badge/version-0.1.0-8A2BE2)](NOTICES.md)
-[![platform](https://img.shields.io/badge/installer-macOS-000?logo=apple)](docs/installation.md)
-[![node](https://img.shields.io/badge/node-26.10.0-339933?logo=nodedotjs&logoColor=white)](docs/installation.md)
-[![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![platform](https://img.shields.io/badge/installer-macOS-000?logo=apple)](installation.md)
+[![node](https://img.shields.io/badge/node-26.10.0-339933?logo=nodedotjs&logoColor=white)](installation.md)
+[![license](https://img.shields.io/badge/license-MIT-blue)](../LICENSE)
 
-[English](README.md) · **Русский**
+[English](../README.md) · **Русский**
 
-<img src="docs/assets/monitor-ru.png" width="760" alt="Монитор ARES: выданные сбросы, общие правила и диалог «Применить сейчас»">
+<img src="assets/monitor-ru.png" width="760" alt="Монитор ARES: выданные сбросы, общие правила и диалог «Применить сейчас»">
 
 </div>
 
@@ -46,7 +46,7 @@ flowchart LR
 ```
 
 Целевой момент — `expiresAt − Δ`; попытки повторяются раз в 5 минут до успеха или истечения.
-Подробнее: [ADR-0002 внешний таймер](docs/adr/0002-external-timer.md), [private workflow](docs/internals/private-workflow.md).
+Подробнее: [ADR-0002 внешний таймер](adr/0002-external-timer.md), [private workflow](internals/private-workflow.md).
 
 ## Быстрый старт
 
@@ -61,11 +61,11 @@ npm run install:macos
 Мастер (`i`) проводит по шагам: private repo → токен установки → установка → вход ChatGPT →
 квота → внешний таймер. Включение (`6`) — отдельное решение владельца: сначала задайте
 repository variable `AUTO_RESET_PILOT_APPROVED` = `owner/repo`.
-Полная инструкция: [docs/installation.md](docs/installation.md).
+Полная инструкция: [docs/installation.md](installation.md).
 
 ## Монитор
 
-<img src="docs/assets/status-ru.png" width="760" alt="Экран статуса ARES: подключение, прогноз квоты и журнал">
+<img src="assets/status-ru.png" width="760" alt="Экран статуса ARES: подключение, прогноз квоты и журнал">
 
 | Клавиша | Действие |
 | --- | --- |
@@ -84,16 +84,16 @@ repository variable `AUTO_RESET_PILOT_APPROVED` = `owner/repo`.
 - Рассчитано на платные планы ChatGPT (пятичасовое и недельное окна).
 - Принятая команда ≠ применение; неподтверждённый исход останавливает новые попытки.
 
-Что проверено вживую, а что нет — [таблица поддержки](docs/support.md).
+Что проверено вживую, а что нет — [таблица поддержки](support.md).
 
 ## Документация
 
-[Установка](docs/installation.md) ·
-[Поддержка](docs/support.md) ·
-[Private workflow](docs/internals/private-workflow.md) ·
-[Auth и storage](docs/internals/auth-storage.md) ·
-[Циклы сбросов](docs/internals/reset-cycle-state.md) ·
-[Планировщик и квота](docs/internals/schedule-planner.md) ·
+[Установка](installation.md) ·
+[Поддержка](support.md) ·
+[Private workflow](internals/private-workflow.md) ·
+[Auth и storage](internals/auth-storage.md) ·
+[Циклы сбросов](internals/reset-cycle-state.md) ·
+[Планировщик и квота](internals/schedule-planner.md) ·
 [Словарь](CONTEXT.md)
 
 ## Разработка
@@ -111,7 +111,7 @@ src/
 worker/       Worker внешнего таймера Cloudflare
 templates/    шаблон private workflow
 test/         тесты; support/ — фикстуры и contract runner
-docs/         руководства; internals/, adr/
+docs/         руководства, словарь, notices; internals/, adr/, schema/
 ```
 
 ```sh
@@ -123,5 +123,5 @@ node scripts/release-package.mjs --verify
 
 ## Лицензия
 
-[MIT](LICENSE) · сторонние компоненты — [NOTICES.md](NOTICES.md).
+[MIT](../LICENSE) · сторонние компоненты — [NOTICES.md](NOTICES.md).
 Неофициальный проект, не связан с OpenAI.

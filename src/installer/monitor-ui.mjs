@@ -5,7 +5,7 @@ import { POLICY } from '../schedule/schedule-planner.mjs';
 // Monitor of the installer (`m`): issued resets, global rules, apply now, status and journal.
 // Inline in the ordinary terminal flow, redrawn in place; no alternate screen. Visual language
 // of the .scratch/terminal-ui concept; boot-log tags and the bounce spinner are adapted from
-// https://ascii.rest (MIT, © @Shubham / bas3line), see NOTICES.md.
+// https://ascii.rest (MIT, © @Shubham / bas3line), see docs/NOTICES.md.
 export const monitorMessages = {
   ru: { resets: 'ВЫДАННЫЕ СБРОСЫ', rules: 'ОБЩИЕ ПРАВИЛА', connection: 'ПОДКЛЮЧЕНИЕ', quota: 'КВОТА', journal: 'ЖУРНАЛ',
     beforeExpiry: `за ${BEFORE_EXPIRY_SECONDS / 60} минут до истечения`, weekly: 'автоматически при исчерпании недельной квоты',

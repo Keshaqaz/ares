@@ -12,12 +12,12 @@
 **Auto-RESets for Codex** — applies your issued rate-limit resets before they expire.<br>
 Runs in your own private GitHub repo. Your Mac can be off.
 
-[![version](https://img.shields.io/badge/version-0.1.0-8A2BE2)](NOTICES.md)
+[![version](https://img.shields.io/badge/version-0.1.0-8A2BE2)](docs/NOTICES.md)
 [![platform](https://img.shields.io/badge/installer-macOS-000?logo=apple)](docs/installation.en.md)
 [![node](https://img.shields.io/badge/node-26.10.0-339933?logo=nodedotjs&logoColor=white)](docs/installation.en.md)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-**English** · [Русский](README.ru.md)
+**English** · [Русский](docs/README.ru.md)
 
 <img src="docs/assets/monitor-en.png" width="760" alt="ARES monitor: issued resets, global rules and the apply-now dialog">
 
@@ -94,7 +94,7 @@ What was verified live and what was not: [support table](docs/support.md).
 [Auth & storage](docs/internals/auth-storage.md) ·
 [Reset cycles](docs/internals/reset-cycle-state.md) ·
 [Planner & quota](docs/internals/schedule-planner.md) ·
-[Glossary](CONTEXT.md)
+[Glossary](docs/CONTEXT.md)
 
 ## Development
 
@@ -111,7 +111,7 @@ src/
 worker/       Cloudflare timer Worker
 templates/    private workflow template
 test/         tests; support/ — fixtures and contract runner
-docs/         guides; internals/, adr/
+docs/         guides, glossary, notices; internals/, adr/, schema/
 ```
 
 ```sh
@@ -123,5 +123,5 @@ node scripts/release-package.mjs --verify
 
 ## License
 
-[MIT](LICENSE) · third-party notices in [NOTICES.md](NOTICES.md).
+[MIT](LICENSE) · third-party notices in [NOTICES.md](docs/NOTICES.md).
 Unofficial project, not affiliated with OpenAI.
