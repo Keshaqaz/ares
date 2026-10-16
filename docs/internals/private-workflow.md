@@ -15,7 +15,7 @@ revoke проверены в пилоте 21 ([границы](../support.md)); 
 В шаблоне нет credentials, а единственный cron — статический суточный резерв
 `41 5 * * *` (тикет 37). Окна планировщик публикует не в workflow, а в файл плана
 внешнего таймера; workflow меняет только явный Upgrade. Actions checkout/setup-node закреплены полными SHA; Node 26.10.0,
-App Server 0.160.1 Linux x64 с SHA256 из `runtime-lock.json`, OS prerequisite
+App Server 0.160.1 Linux x64 с SHA256 из `src/runtime-lock.json`, OS prerequisite
 `bubblewrap` и штатный AppArmor профиль, npm lockfile и
 `--ignore-scripts` сохраняются. Runner — ubuntu-24.04; один job, permissions
 `contents: read`; PAT получает только шаг программы. Checkout credentials не
@@ -184,7 +184,7 @@ auth/storage/consume сохраняет приоритет. Подтверждё
 ## Внешний таймер и резервный запуск
 
 С тикета 37 ([ADR-0002](../adr/0002-external-timer.md)) окна будит Worker Cloudflare
-([`worker/`](../../worker/README.md)): на каждом тике он читает
+([`src/worker/`](../../src/worker/README.md)): на каждом тике он читает
 `.auto-reset-timer-plan.json` на `main` и в минуты плана отправляет пустой
 `workflow_dispatch`. Пустой input — обычный reconcile/run, поэтому повтор,
 `nextAttemptAt`, граница и quota guard работают как раньше; поздний или двойной

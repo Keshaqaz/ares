@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { generateKeyPairSync, verify } from 'node:crypto';
 import { TIMER_PLAN_PATH, renderTimerPlan } from '../../src/schedule/managed-schedule.mjs';
-import { tick } from '../../worker/index.mjs';
+import { tick } from '../../src/worker/index.mjs';
 
 // Synthetic timer app (ticket 42): the Worker holds the PKCS#8 key as one base64 line, exactly
 // as the installer pipes it to TIMER_APP_KEY; GitHub checks the JWT with the public half.

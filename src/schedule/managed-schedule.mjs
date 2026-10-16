@@ -1,7 +1,7 @@
 import { StateFailure, integer } from '../core/state-failure.mjs';
 
 // Restricted UTC cron dialect and the timer plan. No Node imports: the planner, the GitHub
-// writer and the Cloudflare timer (worker/index.mjs) parse one plan the same way.
+// writer and the Cloudflare timer (src/worker/index.mjs) parse one plan the same way.
 export const MAX_SECONDS = 400 * 86400; // 365 days plus the end of the last supplied billing period.
 // The plan lives on the default branch outside .github/workflows: the planner writes it with
 // Contents: write, the timer reads it with Contents: read, and no plan edit re-registers a cron.

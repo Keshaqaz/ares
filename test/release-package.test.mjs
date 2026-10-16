@@ -8,8 +8,8 @@ import { spawnSync } from 'node:child_process';
 async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), 'release-package-'));
   t.after(() => rm(root, { recursive: true, force: true }));
-  for (const dir of ['src', 'scripts', 'test', 'templates', 'docs/agents', 'worker']) await mkdir(join(root, dir), { recursive: true });
-  for (const file of ['package.json', 'package-lock.json', 'runtime-lock.json']) await cp(new URL(`../${file}`, import.meta.url), join(root, file));
+  for (const dir of ['src', 'scripts', 'test', 'templates', 'docs/agents']) await mkdir(join(root, dir), { recursive: true });
+  for (const file of ['package.json', 'package-lock.json', 'src/runtime-lock.json']) await cp(new URL(`../${file}`, import.meta.url), join(root, file));
   for (const file of ['LICENSE', 'README.md']) await writeFile(join(root, file), 'fixture\n');
   await cp(new URL('../scripts/release-package.mjs', import.meta.url), join(root, 'scripts/release-package.mjs'));
   await writeFile(join(root, 'src/demo.mjs'), 'export const demo = true;\n');

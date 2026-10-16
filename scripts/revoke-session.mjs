@@ -8,7 +8,7 @@ import { validateRevokePlan } from '../src/session/revoke-verifier.mjs';
 import { readGitHubQuota } from '../src/github/github-quota.mjs';
 import { readQuotaReceipt } from '../src/workflow/private-job.mjs';
 import { admitObserverQuota } from '../src/schedule/schedule-planner.mjs';
-const pins = JSON.parse(await readFile(new URL('../runtime-lock.json', import.meta.url), 'utf8'));
+const pins = JSON.parse(await readFile(new URL('../src/runtime-lock.json', import.meta.url), 'utf8'));
 try {
   if (process.version !== `v${pins.node}`) throw new StateFailure('node_version_mismatch');
   if (process.argv.length !== 5 || process.argv[2] !== '--authorized-current-ci-revoke' ||

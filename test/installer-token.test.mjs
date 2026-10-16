@@ -194,7 +194,7 @@ test('an expired token is replaced by putting the new one into the Secret, then 
 });
 
 test('workflow and job pass no billing Secret: billing is read with AUTO_RESET_GITHUB_TOKEN', async () => {
-  const root = new URL('../', import.meta.url);
+  const root = new URL('..', import.meta.url);
   for (const file of ['templates/private-auto-reset.yml', 'src/workflow/private-cli.mjs', 'scripts/revoke-session.mjs']) {
     assert.ok(!(await readFile(new URL(file, root), 'utf8')).includes('AUTO_RESET_BILLING_TOKEN'), file);
   }

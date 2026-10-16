@@ -188,7 +188,7 @@ test('observer-only publication manifest binds exact immutable source hashes and
   const { readFile } = await import('node:fs/promises');
   const { renderPrivateWorkflow, WORKFLOW_PATH } = await import('../src/workflow/private-workflow.mjs');
   const paths = ['src/account/check-observer.mjs','src/session/host-auth-session.mjs','src/installer/installer-admin.mjs',
-    'src/workflow/private-cli.mjs','src/installer/installer-report.mjs','src/schedule/schedule-planner.mjs','runtime-lock.json'];
+    'src/workflow/private-cli.mjs','src/installer/installer-report.mjs','src/schedule/schedule-planner.mjs','src/runtime-lock.json'];
   const sources = Object.fromEntries(await Promise.all(paths.map(async path => [path,await readFile(new URL(`../${path}`,import.meta.url),'utf8')])));
   sources['src/installer/installer-admin.mjs'] += '\n// Reviewed observer-only build over installed base.\n';
   const manifest = {schema:1,programCommit:PROGRAM_COMMIT,sourceHashes:Object.fromEntries(paths.map(path => [path,createHash('sha256').update(sources[path]).digest('hex')]))};

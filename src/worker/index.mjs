@@ -4,10 +4,10 @@
 // private workflow. Access comes from the timer app (ADR-0003, ticket 42): TIMER_APP_KEY signs
 // a JWT for an installation token narrowed to the repo, Actions: write and Contents: read.
 // Neither the key nor a token is ever logged.
-import { StateFailure } from '../src/core/state-failure.mjs';
-import { TIMER_PLAN_PATH, expandCron, readTimerPlan } from '../src/schedule/managed-schedule.mjs';
-import { CADENCE } from '../src/schedule/schedule-time.mjs';
-import { importAppKey, appJwt, tokenRequest, readInstallationToken } from '../src/schedule/timer-app.mjs';
+import { StateFailure } from '../core/state-failure.mjs';
+import { TIMER_PLAN_PATH, expandCron, readTimerPlan } from '../schedule/managed-schedule.mjs';
+import { CADENCE } from '../schedule/schedule-time.mjs';
+import { importAppKey, appJwt, tokenRequest, readInstallationToken } from '../schedule/timer-app.mjs';
 
 const BRANCH = 'main';
 const WORKFLOW = 'auto-reset.yml';

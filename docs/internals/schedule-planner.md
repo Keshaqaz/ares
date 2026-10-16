@@ -22,7 +22,7 @@ workflow остаётся только статический суточный �
 - `src/schedule/managed-schedule.mjs`: ограниченный UTC cron (`expandCron`), формат плана
   таймера (`renderTimerPlan`/`readTimerPlan`) и чтение старого workflow region
   (`readManagedSchedule`) без Node-зависимостей; тот же разбор импортирует внешний
-  таймер [`worker/`](../../worker/README.md) (тикет 36).
+  таймер [`src/worker/`](../../src/worker/README.md) (тикет 36).
 - `src/github/github-schedule.mjs`: Contents CAS файла плана на текущем default branch,
   проверка state version перед PUT, условное создание отсутствующего файла и
   exact-content readback. Workflow этот writer не меняет.

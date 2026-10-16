@@ -8,7 +8,7 @@ import { StdioRpc } from '../../src/account/stdio.mjs';
 import { AccountAdapter } from '../../src/account/account.mjs';
 
 const exec = promisify(execFile);
-export const pins = JSON.parse(await readFile(new URL('../../runtime-lock.json', import.meta.url), 'utf8'));
+export const pins = JSON.parse(await readFile(new URL('../../src/runtime-lock.json', import.meta.url), 'utf8'));
 
 export async function bench({ binary = process.env.AUTO_RESET_CODEX_BIN ?? 'codex', timeoutMs = 15_000, authMode = 'managed' } = {}) {
   if (!['managed', 'external'].includes(authMode)) throw new Error('invalid_fixture_auth_mode');

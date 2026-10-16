@@ -51,7 +51,7 @@ async function awaitProbe() {
 }
 try {
   if (process.platform !== 'darwin') throw new StateFailure('installer_requires_macos');
-  const pins = JSON.parse(await readFile(new URL('../../runtime-lock.json', import.meta.url), 'utf8'));
+  const pins = JSON.parse(await readFile(new URL('../runtime-lock.json', import.meta.url), 'utf8'));
   if (process.version !== `v${pins.node}`) throw new StateFailure('node_version_mismatch');
   const journalPath = resolve(process.env.AUTO_RESET_INSTALLER_JOURNAL ?? join(homedir(), '.config/auto-reset/installer.json'));
   let saved = null;

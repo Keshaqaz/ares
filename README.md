@@ -108,7 +108,8 @@ src/
   workflow/   private Actions job entry point
   installer/  macOS installer, wizard, monitor
   cli.mjs     synthetic CLI
-worker/       Cloudflare timer Worker
+  worker/     Cloudflare timer Worker
+  runtime-lock.json  pinned Node and Codex versions
 templates/    private workflow template
 test/         tests; support/ — fixtures and contract runner
 docs/         guides, glossary, notices; internals/, adr/, schema/

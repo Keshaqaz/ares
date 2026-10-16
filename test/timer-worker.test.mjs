@@ -6,7 +6,7 @@ import { timerFixture, TIMER_APP, TIMER_APP_KEY, INSTALLATION_TOKEN, checkAppJwt
 import { compileSlots, windowSlots, DISCOVERY_CRON } from '../src/schedule/schedule-planner.mjs';
 import { TIMER_PLAN_PATH, renderTimerPlan } from '../src/schedule/managed-schedule.mjs';
 import { firstSlot } from '../src/schedule/schedule-time.mjs';
-import worker, { tick } from '../worker/index.mjs';
+import worker, { tick } from '../src/worker/index.mjs';
 import { appJwt, importAppKey } from '../src/schedule/timer-app.mjs';
 
 const utc = value => Date.parse(value) / 1000;
@@ -228,7 +228,7 @@ test('scheduled handler uses controller.scheduledTime', async () => {
 });
 
 test('wrangler config pins the planner grid, has no secrets and the deploy guide pins Wrangler', async () => {
-  const toml = await readFile(new URL('../worker/wrangler.toml', import.meta.url), 'utf8');
+  const toml = await readFile(new URL('../src/worker/wrangler.toml', import.meta.url), 'utf8');
   assert.deepEqual([...toml.matchAll(/^crons = (.+)$/gm)].map(m => JSON.parse(m[1])), [['2-57/5 * * * *']]);
   const minutes = Array.from({ length: 60 }, (_, m) => m).filter(m => firstSlot(m * 60) === m * 60);
   assert.deepEqual(minutes, Array.from({ length: 12 }, (_, i) => 2 + 5 * i));
@@ -236,7 +236,7 @@ test('wrangler config pins the planner grid, has no secrets and the deploy guide
   assert.match(toml, /^workers_dev = false$/m);
   for (const name of ['REPOSITORY', 'TIMER_APP_ID', 'TIMER_INSTALLATION_ID']) assert.match(toml, new RegExp(`^${name} = ""$`, 'm'));
   assert.ok(!/TOKEN|github_pat_|ghp_/.test(toml));
-  const guide = await readFile(new URL('../worker/README.md', import.meta.url), 'utf8');
+  const guide = await readFile(new URL('../src/worker/README.md', import.meta.url), 'utf8');
   const versions = [...guide.matchAll(/wrangler@([^\s`]+)/g)].map(m => m[1]);
   assert.ok(versions.length >= 2);
   assert.deepEqual([...new Set(versions)], ['4.139.0']);
@@ -244,7 +244,7 @@ test('wrangler config pins the planner grid, has no secrets and the deploy guide
 });
 
 test('Worker bundle imports only dependency-free repository modules', async () => {
-  const seen = new Set(), queue = [new URL('../worker/index.mjs', import.meta.url)];
+  const seen = new Set(), queue = [new URL('../src/worker/index.mjs', import.meta.url)];
   while (queue.length) {
     const url = queue.pop();
     if (seen.has(url.href)) continue;

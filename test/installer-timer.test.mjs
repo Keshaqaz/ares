@@ -365,8 +365,8 @@ test('Wrangler deploy pins the version, passes repo and app IDs as vars and the 
   await deployTimerWorker({ repository: 'synthetic/private', appId: 4242, installationId: 2424, key: TIMER_APP_KEY, root: '/program', spawnImpl: w.spawnImpl });
   assert.deepEqual(w.calls.map(c => [c.file, ...c.args]), [
     ['npx', '--yes', WRANGLER, 'deploy', '--var', 'REPOSITORY:synthetic/private', '--var', 'TIMER_APP_ID:4242',
-      '--var', 'TIMER_INSTALLATION_ID:2424', '--config', 'worker/wrangler.toml'],
-    ['npx', '--yes', WRANGLER, 'secret', 'put', 'TIMER_APP_KEY', '--config', 'worker/wrangler.toml']]);
+      '--var', 'TIMER_INSTALLATION_ID:2424', '--config', 'src/worker/wrangler.toml'],
+    ['npx', '--yes', WRANGLER, 'secret', 'put', 'TIMER_APP_KEY', '--config', 'src/worker/wrangler.toml']]);
   assert.equal(WRANGLER, 'wrangler@4.139.0');
   assert.ok(w.calls.every(c => c.options.cwd === '/program' && c.options.env === undefined));
   assert.equal(w.calls[0].options.stdio[0], 'inherit'); assert.equal(w.calls[1].input, TIMER_APP_KEY);
@@ -377,10 +377,10 @@ test('Wrangler deploy pins the version, passes repo and app IDs as vars and the 
   await assert.rejects(deployTimerWorker({ ...APP, repository: 'bad repo', key: 'k', root: '/p', spawnImpl: failed.spawnImpl }), /repository_invalid/);
   await assert.rejects(deployTimerWorker({ ...APP, appId: '4242', repository: 'synthetic/private', key: 'k', root: '/p', spawnImpl: failed.spawnImpl }), /invalid_command/);
   const migrated = fakeSpawn(); await deleteTimerTokenSecret({ root: '/program', spawnImpl: migrated.spawnImpl });
-  assert.deepEqual(migrated.calls[0].args, ['--yes', WRANGLER, 'secret', 'delete', 'TIMER_TOKEN', '--config', 'worker/wrangler.toml']);
+  assert.deepEqual(migrated.calls[0].args, ['--yes', WRANGLER, 'secret', 'delete', 'TIMER_TOKEN', '--config', 'src/worker/wrangler.toml']);
   assert.equal(migrated.calls[0].options.stdio[0], 'inherit'); // Wrangler asks the user to confirm.
   const removed = fakeSpawn(); await deleteTimerWorker({ root: '/program', spawnImpl: removed.spawnImpl });
-  assert.deepEqual(removed.calls[0].args, ['--yes', WRANGLER, 'delete', '--config', 'worker/wrangler.toml']);
+  assert.deepEqual(removed.calls[0].args, ['--yes', WRANGLER, 'delete', '--config', 'src/worker/wrangler.toml']);
 });
 
 // The step with fakes for GitHub and Wrangler; answers are typed lines.
@@ -462,7 +462,7 @@ test('installer texts agree with ADR-0002 and ADR-0003 in both languages', async
     assert.ok(!/Workflows|Secrets|Variables|PAT/.test(w.timerSteps.join(' '))); // The timer app is not the installation token.
     assert.match(w.timerAppDelete, /Delete GitHub App/);
   }
-  const workerReadme = await readFile(new URL('../worker/README.md', import.meta.url), 'utf8');
-  assert.ok(workerReadme.includes(`npx --yes ${WRANGLER} deploy --config worker/wrangler.toml`));
+  const workerReadme = await readFile(new URL('../src/worker/README.md', import.meta.url), 'utf8');
+  assert.ok(workerReadme.includes(`npx --yes ${WRANGLER} deploy --config src/worker/wrangler.toml`));
   assert.ok(workerReadme.includes('secret put TIMER_APP_KEY') && workerReadme.includes('openssl pkcs8 -topk8'));
 });

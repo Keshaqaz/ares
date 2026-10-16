@@ -174,7 +174,7 @@ for (const language of ['ru', 'en']) test(`${language} timer key hot swap: check
   const { result, text, calls, wrangler, kept } = await swap(language, ['{file}', 'YES']);
   assert.deepEqual(result, { fingerprint });
   assert.deepEqual(calls, [['open', appKeysUrl(TIMER.appSlug)], ['locate', 4242, true], ['verify', 4242, 2424, true]]);
-  assert.deepEqual(wrangler.map(c => [c.file, ...c.args]), [['npx', '--yes', WRANGLER, 'secret', 'put', 'TIMER_APP_KEY', '--config', 'worker/wrangler.toml']]);
+  assert.deepEqual(wrangler.map(c => [c.file, ...c.args]), [['npx', '--yes', WRANGLER, 'secret', 'put', 'TIMER_APP_KEY', '--config', 'src/worker/wrangler.toml']]);
   assert.equal(wrangler[0].input, TIMER_APP_KEY); assert.equal(wrangler[0].options.cwd, '/program');
   assert.ok(!JSON.stringify([wrangler[0].args, wrangler[0].options]).includes(TIMER_APP_KEY.slice(0, 40)));
   assert.ok(!text.includes(TIMER_APP_KEY.slice(0, 40)) && !text.includes('PRIVATE KEY'));

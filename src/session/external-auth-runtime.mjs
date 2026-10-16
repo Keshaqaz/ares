@@ -8,7 +8,7 @@ import { StdioRpc, RpcFailure } from '../account/stdio.mjs';
 import { validateAccountRequest } from '../account/account.mjs';
 
 const exec = promisify(execFile);
-const pins = JSON.parse(await readFile(new URL('../../runtime-lock.json', import.meta.url), 'utf8'));
+const pins = JSON.parse(await readFile(new URL('../runtime-lock.json', import.meta.url), 'utf8'));
 export async function assertPinnedBinary(binary) {
   if (process.version !== `v${pins.node}`) throw new AuthFailure('node_version_mismatch');
   try {

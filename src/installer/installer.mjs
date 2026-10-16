@@ -10,11 +10,12 @@ import { StateFailure } from '../core/state-store.mjs';
 export async function programFiles(root) {
   const files = {};
   // Explicit allowlist excludes local credentials, outputs, node_modules and desktop state.
-  for (const file of ['package.json', 'package-lock.json', 'runtime-lock.json', 'templates/private-auto-reset.yml', 'scripts/install-app-server.mjs', 'scripts/install-linux-prerequisites.sh']) {
+  for (const file of ['package.json', 'package-lock.json', 'templates/private-auto-reset.yml', 'scripts/install-app-server.mjs', 'scripts/install-linux-prerequisites.sh']) {
     files[file] = await readFile(join(root, file), 'utf8');
   }
+  // src/runtime-lock.json is part of the program; the Cloudflare timer (src/worker) is deployed separately.
   for (const file of (await readdir(join(root, 'src'), { recursive: true })).sort()) {
-    if (/\.(mjs|json)$/.test(file)) files[`src/${file}`] = await readFile(join(root, 'src', file), 'utf8');
+    if (/\.(mjs|json)$/.test(file) && !file.startsWith('worker/')) files[`src/${file}`] = await readFile(join(root, 'src', file), 'utf8');
   }
   return files;
 }

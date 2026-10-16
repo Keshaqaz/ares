@@ -5,7 +5,7 @@ import { join, resolve } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
-const pins = JSON.parse(await readFile(new URL('../runtime-lock.json', import.meta.url), 'utf8'));
+const pins = JSON.parse(await readFile(new URL('../src/runtime-lock.json', import.meta.url), 'utf8'));
 if (process.version !== `v${pins.node}`) throw new Error('node_version_mismatch');
 if (process.platform !== 'linux' || process.arch !== 'x64') throw new Error('installer_requires_linux_x64');
 const target = resolve('.runtime/codex');

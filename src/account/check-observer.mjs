@@ -4,7 +4,7 @@ import { parseRateLimits } from './account.mjs';
 import { readQuotaReceipt } from '../workflow/private-job.mjs';
 import { admitObserverQuota } from '../schedule/schedule-planner.mjs';
 
-const pins = JSON.parse(await readFile(new URL('../../runtime-lock.json', import.meta.url), 'utf8'));
+const pins = JSON.parse(await readFile(new URL('../runtime-lock.json', import.meta.url), 'utf8'));
 const reasons = new Set(['rate_limit_reached', 'workspace_member_usage_limit_reached', 'workspace_owner_usage_limit_reached',
   'workspace_owner_credits_depleted', 'workspace_member_credits_depleted']);
 const errors = new Set(['refresh_required', 'external_refresh_required', 'access_expired', 'rpc_error', 'rpc_timeout',

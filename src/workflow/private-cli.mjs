@@ -21,7 +21,7 @@ const now = () => Math.floor(Date.now() / 1000);
 let lease, root;
 let language = env.AUTO_RESET_LANGUAGE === 'ru' ? 'ru' : 'en';
 try {
-  const pins = JSON.parse(await readFile(new URL('../../runtime-lock.json', import.meta.url), 'utf8'));
+  const pins = JSON.parse(await readFile(new URL('../runtime-lock.json', import.meta.url), 'utf8'));
   if (process.version !== `v${pins.node}`) throw new StateFailure('node_version_mismatch');
   if (process.platform !== 'linux' || process.arch !== 'x64') throw new StateFailure('private_job_requires_linux_x64');
   // Shipped template has no approval value and only the static daily fallback cron.

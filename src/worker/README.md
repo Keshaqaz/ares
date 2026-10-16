@@ -1,7 +1,7 @@
 # Внешний таймер (Cloudflare Worker)
 
-Реализация [ADR-0002](../docs/adr/0002-external-timer.md), тикет 36; доступ к GitHub —
-через приложение таймера ([ADR-0003](../docs/adr/0003-single-token-timer-app.md), тикет 42). Worker только
+Реализация [ADR-0002](../../docs/adr/0002-external-timer.md), тикет 36; доступ к GitHub —
+через приложение таймера ([ADR-0003](../../docs/adr/0003-single-token-timer-app.md), тикет 42). Worker только
 будит приватную установку: он не хранит сессию ChatGPT, не решает о применении
 сброса и не передаёт команд. Повтор, `nextAttemptAt`, граница цикла и запрет
 раннего consume остаются в state и workflow, поэтому поздний или двойной тик
@@ -81,7 +81,7 @@ GitHub App пользователя, а не токен: установщик р
 Если Worker перестал будить установку, это замечает только суточный резервный
 запуск: он сравнивает последний пустой dispatch с плановыми слотами и при
 отставании больше 30 минут завершается с `external_timer_stale` в Summary
-([docs/internals/private-workflow.md](../docs/internals/private-workflow.md#внешний-таймер-и-резервный-запуск)).
+([docs/internals/private-workflow.md](../../docs/internals/private-workflow.md#внешний-таймер-и-резервный-запуск)).
 
 ## Развёртывание
 
@@ -89,8 +89,8 @@ Production выполняет установщик (шаг `c`): регистр�
 проверяет доступ узким токеном и вызывает Wrangler, закреплённый на версии из E1:
 
 ```sh
-npx --yes wrangler@4.139.0 deploy --config worker/wrangler.toml --var REPOSITORY:<owner>/<repo> --var TIMER_APP_ID:<app id> --var TIMER_INSTALLATION_ID:<installation id>
-npx --yes wrangler@4.139.0 secret put TIMER_APP_KEY --config worker/wrangler.toml
+npx --yes wrangler@4.139.0 deploy --config src/worker/wrangler.toml --var REPOSITORY:<owner>/<repo> --var TIMER_APP_ID:<app id> --var TIMER_INSTALLATION_ID:<installation id>
+npx --yes wrangler@4.139.0 secret put TIMER_APP_KEY --config src/worker/wrangler.toml
 ```
 
 - Ключ уходит в `secret put` только через stdin — не в аргументы, env или файлы.
@@ -100,16 +100,16 @@ npx --yes wrangler@4.139.0 secret put TIMER_APP_KEY --config worker/wrangler.tom
   (`repository_invalid`, `app_invalid`).
 - `workers_dev = false`: у Worker нет fetch handler и публичного URL.
 - Изменение Cron Trigger распространяется до 15 минут.
-- Лог: `npx --yes wrangler@4.139.0 tail --config worker/wrangler.toml`.
+- Лог: `npx --yes wrangler@4.139.0 tail --config src/worker/wrangler.toml`.
 - Замена ключа (утечка, потеря): установщик, `k Токены` → «Ключ таймера» — открывает
   страницу App (Private keys → Generate a private key), проверяет скачанный ключ на той же
   установке и передаёт его в `secret put TIMER_APP_KEY` через stdin без паузы, пробы и
-  повторного enable ([installation.md](../docs/installation.md#токены-k)). Вручную — то же
+  повторного enable ([installation.md](../../docs/installation.md#токены-k)). Вручную — то же
   через GitHub → Settings → Developer settings → GitHub Apps → приложение → Private keys →
   Generate a private key; затем из корня репозитория
 
   ```sh
-  openssl pkcs8 -topk8 -nocrypt -outform DER -in <скачанный>.pem | base64 | tr -d '\n' | npx --yes wrangler@4.139.0 secret put TIMER_APP_KEY --config worker/wrangler.toml
+  openssl pkcs8 -topk8 -nocrypt -outform DER -in <скачанный>.pem | base64 | tr -d '\n' | npx --yes wrangler@4.139.0 secret put TIMER_APP_KEY --config src/worker/wrangler.toml
   ```
 
   удалить скачанный `.pem` и прежний ключ на странице App. Проба не нужна: App и
@@ -117,8 +117,8 @@ npx --yes wrangler@4.139.0 secret put TIMER_APP_KEY --config worker/wrangler.tom
 - Переход с токена таймера (установки до тикета 42): Пауза → `c`. Установщик
   записывает `TIMER_APP_KEY`, удаляет secret `TIMER_TOKEN` (Wrangler спросит
   подтверждение) и ставит пробу; после подтверждения отзовите прежний токен таймера.
-  Вручную: `npx --yes wrangler@4.139.0 secret delete TIMER_TOKEN --config worker/wrangler.toml`.
-- Удаление: `npx --yes wrangler@4.139.0 delete --config worker/wrangler.toml`, затем
+  Вручную: `npx --yes wrangler@4.139.0 secret delete TIMER_TOKEN --config src/worker/wrangler.toml`.
+- Удаление: `npx --yes wrangler@4.139.0 delete --config src/worker/wrangler.toml`, затем
   удалить приложение таймера: Settings → Developer settings → GitHub Apps →
   приложение → Advanced → Delete GitHub App (установщик печатает прямую ссылку).
 

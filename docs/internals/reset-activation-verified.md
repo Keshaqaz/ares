@@ -19,7 +19,7 @@
 
 | Компонент | Проверенная конфигурация |
 | --- | --- |
-| Node | 26.10.0, см. [runtime-lock.json](../../runtime-lock.json) |
+| Node | 26.10.0, см. [src/runtime-lock.json](../../src/runtime-lock.json) |
 | Официальный Codex App Server | 0.160.1; собственная сборка не использовалась |
 | Живой runner | GitHub Actions ubuntu-24.04, Linux x64 |
 | Program pin успешного consume | `dabce8c87dbece8149ce45776b3e4720d4495178` |

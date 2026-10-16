@@ -108,7 +108,8 @@ src/
   workflow/   точка входа private Actions job
   installer/  установщик macOS, мастер, монитор
   cli.mjs     synthetic CLI
-worker/       Worker внешнего таймера Cloudflare
+  worker/     Worker внешнего таймера Cloudflare
+  runtime-lock.json  закреплённые версии Node и Codex
 templates/    шаблон private workflow
 test/         тесты; support/ — фикстуры и contract runner
 docs/         руководства, словарь, notices; internals/, adr/, schema/

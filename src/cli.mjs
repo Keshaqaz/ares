@@ -16,7 +16,7 @@ const validArgs = [2, 4].includes(args.length) && args[0] === '--mode' &&
 const mode = validArgs ? args[1] : null;
 const statePath = validArgs && args.length === 4 ? args[3] : null;
 const output = value => process.stdout.write(`${JSON.stringify(value)}\n`);
-const pins = JSON.parse(await readFile(new URL('../runtime-lock.json', import.meta.url), 'utf8'));
+const pins = JSON.parse(await readFile(new URL('./runtime-lock.json', import.meta.url), 'utf8'));
 if (process.version !== `v${pins.node}`) {
   output({ error: 'node_version_mismatch', required: pins.node });
   process.exitCode = 1;

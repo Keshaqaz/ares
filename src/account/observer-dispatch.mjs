@@ -16,7 +16,7 @@ async function verifyRuntime(github, state, manifest, revoke) {
   const pin = state.installation?.programCommit;
   if (!/^[a-f0-9]{40}$/.test(pin ?? '')) fail();
   const paths = ['src/account/check-observer.mjs', 'src/session/host-auth-session.mjs', 'src/installer/installer-admin.mjs',
-    'src/workflow/private-cli.mjs', 'src/installer/installer-report.mjs', 'src/schedule/schedule-planner.mjs', 'runtime-lock.json'];
+    'src/workflow/private-cli.mjs', 'src/installer/installer-report.mjs', 'src/schedule/schedule-planner.mjs', 'src/runtime-lock.json'];
   if (revoke) paths.push('src/session/revoke-verifier.mjs', 'src/session/auth-admin.mjs', 'src/session/host-oauth.mjs',
     'src/session/external-auth-runtime.mjs', 'src/account/stdio.mjs', 'src/session/auth-bundle.mjs', 'src/workflow/private-job.mjs',
     'src/github/github-quota.mjs', 'src/github/github-billing.mjs');

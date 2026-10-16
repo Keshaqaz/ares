@@ -9,7 +9,7 @@
 ## Закреплённый контракт
 
 Node **26.10.0**, официальный App Server **0.160.1**, commit
-`d27764b82f7118f674371e6d6e76271d9d606edb`; Linux URL/checksum — `runtime-lock.json`.
+`d27764b82f7118f674371e6d6e76271d9d606edb`; Linux URL/checksum — `src/runtime-lock.json`.
 Версия binary проверяется перед запуском, initialize проверяет userAgent. Собственной
 сборки и managed refresh в runner нет. LibSodium versions/integrity закреплены lockfile.
 

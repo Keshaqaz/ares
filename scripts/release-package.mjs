@@ -12,10 +12,10 @@ const args = process.argv.slice(2);
 if (args.length > 1 || args.some(a => a !== '--verify')) throw new Error('usage: node scripts/release-package.mjs [--verify]');
 const verify = args.includes('--verify');
 const pkg = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
-const lock = JSON.parse(await readFile(join(root, 'runtime-lock.json'), 'utf8'));
+const lock = JSON.parse(await readFile(join(root, 'src/runtime-lock.json'), 'utf8'));
 if (!/^[0-9]+\.[0-9]+\.[0-9]+$/.test(pkg.version)) throw new Error('invalid package version');
-const allow = ['package.json', 'package-lock.json', 'runtime-lock.json', 'LICENSE',
-  'README.md', 'src', 'scripts', 'test', 'templates', 'docs', 'worker'];
+const allow = ['package.json', 'package-lock.json', 'LICENSE',
+  'README.md', 'src', 'scripts', 'test', 'templates', 'docs'];
 const noise = n => n === '.DS_Store' || n.startsWith('._');
 const blocked = n => n.startsWith('.') || /^(auth|state|credentials?|tokens?|logs?|cache)([.-]|$)/i.test(n) && !n.endsWith('.mjs') && !n.endsWith('.md');
 async function walk(entry) {

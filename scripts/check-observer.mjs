@@ -4,7 +4,7 @@ import { InstallerGitHub } from '../src/installer/installer-github.mjs';
 import { StateFailure } from '../src/core/state-store.mjs';
 import { verifyObserverRuntime } from '../src/account/observer-dispatch.mjs';
 import { readFile } from 'node:fs/promises';
-const pins = JSON.parse(await readFile(new URL('../runtime-lock.json', import.meta.url), 'utf8'));
+const pins = JSON.parse(await readFile(new URL('../src/runtime-lock.json', import.meta.url), 'utf8'));
 try {
   if (process.version !== `v${pins.node}`) throw new StateFailure('node_version_mismatch');
   const minutes = Number(process.argv[2]);

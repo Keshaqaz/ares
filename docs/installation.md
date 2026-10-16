@@ -156,7 +156,7 @@ GitHub не обещает доставку `on: schedule` ни по задер�
    результат виден в `s`. Пока gate `AUTO_RESET_PILOT_APPROVED` закрыт, пустой dispatch выполняет только
    reconcile и подтверждение пробы, без account read — как резервный запуск.
 8. Если проба не подтвердилась, проверьте лог Worker
-   (`npx --yes wrangler@4.139.0 tail --config worker/wrangler.toml`), secret
+   (`npx --yes wrangler@4.139.0 tail --config src/worker/wrangler.toml`), secret
    `TIMER_APP_KEY` и установку приложения и повторите `c`: каждый повтор создаёт новое
    приложение и назначает новый слот; прежнее удалите по ссылке, которую покажет
    установщик. Пауза отменяет неподтверждённую пробу.
