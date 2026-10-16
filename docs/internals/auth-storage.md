@@ -19,7 +19,7 @@ Node **26.10.0**, официальный App Server **0.160.1**, commit
 отключены; timeout — 15 секунд. Environment overrides desktop не наследуются.
 Synthetic endpoint допускается только как явно переданный loopback URL.
 
-[Refresh source](https://github.com/openai/codex/blob/d27764b82f7118f674371e6d6e76271d9d606edb/codex-rs/login/src/session/manager.rs):
+[Refresh source](https://github.com/openai/codex/blob/d27764b82f7118f674371e6d6e76271d9d606edb/codex-rs/login/src/auth/manager.rs):
 отсутствующие/null optional access/id/refresh fields сохраняют прежние значения;
 присутствующий непустой string заменяет поле. Клиент отклоняет пустые, malformed и
 полностью пустые ответы. Полный bundle проверяется до публикации; `last_refresh`
@@ -74,7 +74,7 @@ flags и enable в своём сериализованном потоке; seed/
 `revokeSession(snapshot,grant,version,oauth)` допускается только для точного ready
 protocol 2 bundle при durable disabled+revoked. `HostOAuth.revoke` делает один JSON POST
 `token`, `token_type_hint=refresh_token`, `client_id` к `/oauth/revoke`, как
-[закреплённый revoke source](https://github.com/openai/codex/blob/d27764b82f7118f674371e6d6e76271d9d606edb/codex-rs/login/src/session/revoke.rs).
+[закреплённый revoke source](https://github.com/openai/codex/blob/d27764b82f7118f674371e6d6e76271d9d606edb/codex-rs/login/src/auth/revoke.rs).
 Результат — `revokeAccepted, propagation:unverified`; lost response/rejection фиксированы,
 автоматического повтора нет. При unknown rotation старый bundle не отправляется на
 revoke: завершение сессии пользователем — отдельный шаг 18/21. Delete Secret не
