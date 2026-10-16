@@ -4,11 +4,11 @@ import { readFile, writeFile, lstat, rm } from 'node:fs/promises';
 import { fork } from 'node:child_process';
 import { once } from 'node:events';
 import { join } from 'node:path';
-import { authFixture, authBytes, syntheticGrant } from '../testing/auth-fixture.mjs';
-import { AuthFailure, makeBundle, encodeBundle, decodeBundle, tuple, sameTuple } from '../src/auth-bundle.mjs';
-import { AuthAdmin } from '../src/auth-admin.mjs';
-import { ManagedAuthRuntime } from '../src/managed-auth-runtime.mjs';
-import { validateState } from '../src/state-store.mjs';
+import { authFixture, authBytes, syntheticGrant } from './support/auth-fixture.mjs';
+import { AuthFailure, makeBundle, encodeBundle, decodeBundle, tuple, sameTuple } from '../src/session/auth-bundle.mjs';
+import { AuthAdmin } from '../src/session/auth-admin.mjs';
+import { ManagedAuthRuntime } from '../src/session/managed-auth-runtime.mjs';
+import { validateState } from '../src/core/state-store.mjs';
 
 const request = session => session.request('account/read', { refreshToken: true });
 const noAuth = events => assert.ok(events.every(e => !e.startsWith('account.') && !e.startsWith('auth.')), events.join(', '));
@@ -213,7 +213,7 @@ for (const cut of ['inflight', 'rotation', 'publishing', 'secret', 'ready']) {
   test(`process killed at auth ${cut}: recovery uses disk journal and exact snapshot`, async t => {
     const w = await authFixture(t);
     await writeFile(join(w.root, 'snapshot.json'), encodeBundle(w.initial), { mode: 0o600 });
-    const child = fork(new URL('../testing/auth-crash-fixture.mjs', import.meta.url), [w.root, cut], {
+    const child = fork(new URL('./support/auth-crash-fixture.mjs', import.meta.url), [w.root, cut], {
       stdio: ['ignore', 'ignore', 'ignore', 'ipc'], execArgv: [],
       env: { PATH: process.env.PATH },
     });

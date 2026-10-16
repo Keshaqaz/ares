@@ -4,17 +4,17 @@ import { mkdtemp, rm, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { realpathSync, existsSync, readFileSync } from 'node:fs';
-import { fakeBackend } from '../testing/fake-backend.mjs';
-import { authBytes, syntheticGrant } from '../testing/auth-fixture.mjs';
-import { githubFixture } from '../testing/github-fixture.mjs';
-import { reserve } from '../testing/consume-reservation-fixture.mjs';
-import { bench, syntheticNetworkGuard } from '../testing/bench.mjs';
-import { makeBundle, encodeBundle, decodeBundle } from '../src/auth-bundle.mjs';
-import { HostOAuth, LocalAuthVault, prepareCiLogin } from '../src/host-oauth.mjs';
-import { HostAuthSession } from '../src/host-auth-session.mjs';
-import { ExternalAuthRuntime } from '../src/external-auth-runtime.mjs';
-import { runCheckObserver } from '../src/check-observer.mjs';
-import { parseRateLimits } from '../src/account.mjs';
+import { fakeBackend } from './support/fake-backend.mjs';
+import { authBytes, syntheticGrant } from './support/auth-fixture.mjs';
+import { githubFixture } from './support/github-fixture.mjs';
+import { reserve } from './support/consume-reservation-fixture.mjs';
+import { bench, syntheticNetworkGuard } from './support/bench.mjs';
+import { makeBundle, encodeBundle, decodeBundle } from '../src/session/auth-bundle.mjs';
+import { HostOAuth, LocalAuthVault, prepareCiLogin } from '../src/session/host-oauth.mjs';
+import { HostAuthSession } from '../src/session/host-auth-session.mjs';
+import { ExternalAuthRuntime } from '../src/session/external-auth-runtime.mjs';
+import { runCheckObserver } from '../src/account/check-observer.mjs';
+import { parseRateLimits } from '../src/account/account.mjs';
 
 const real = process.env.AUTO_RESET_CONTRACT_MODE === 'app-server';
 // Contract runner uses an installed absolute binary; never source credentials from its home.

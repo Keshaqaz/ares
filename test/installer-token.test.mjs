@@ -2,16 +2,16 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { PassThrough } from 'node:stream';
-import { tokenFormUrl, verifyInstallationToken, tokenReminder, openUrl, tokenExpiration, TOKEN_PERMISSIONS } from '../src/installer-token.mjs';
-import { TerminalUI, messages, promptInstallationToken, acceptInstallationToken, tokenRows } from '../src/installer-ui.mjs';
-import { Installer } from '../src/installer.mjs';
-import { sealAdmin, runInstallerAdmin } from '../src/installer-admin.mjs';
-import { renderInstallerReport } from '../src/installer-report.mjs';
-import { validateState } from '../src/state-store.mjs';
-import { privateWorkflowFixture, PROGRAM_COMMIT } from '../testing/private-workflow-fixture.mjs';
-import { syntheticGrant } from '../testing/auth-fixture.mjs';
-import { makeBundle, encodeBundle, grantFingerprint } from '../src/auth-bundle.mjs';
-import { hostBytes } from '../testing/host-auth-fixture.mjs';
+import { tokenFormUrl, verifyInstallationToken, tokenReminder, openUrl, tokenExpiration, TOKEN_PERMISSIONS } from '../src/installer/installer-token.mjs';
+import { TerminalUI, messages, promptInstallationToken, acceptInstallationToken, tokenRows } from '../src/installer/installer-ui.mjs';
+import { Installer } from '../src/installer/installer.mjs';
+import { sealAdmin, runInstallerAdmin } from '../src/installer/installer-admin.mjs';
+import { renderInstallerReport } from '../src/installer/installer-report.mjs';
+import { validateState } from '../src/core/state-store.mjs';
+import { privateWorkflowFixture, PROGRAM_COMMIT } from './support/private-workflow-fixture.mjs';
+import { syntheticGrant } from './support/auth-fixture.mjs';
+import { makeBundle, encodeBundle, grantFingerprint } from '../src/session/auth-bundle.mjs';
+import { hostBytes } from './support/host-auth-fixture.mjs';
 
 const NOW = 1_800_000_000, DAY = 86400;
 const header = at => new Date(at * 1000).toISOString().replace('T', ' ').replace(/\.000Z$/, ' UTC');
@@ -129,8 +129,8 @@ for (const language of ['ru', 'en']) test(`${language} rotation reminder: two we
 
 // Bootstrapped installation with a seeded session; `run` executes one sealed admin command as the job would.
 async function installed() {
-  const { installerGitHubFixture } = await import('../testing/installer-github-fixture.mjs');
-  const { GitHubStorage } = await import('../src/github-storage.mjs');
+  const { installerGitHubFixture } = await import('./support/installer-github-fixture.mjs');
+  const { GitHubStorage } = await import('../src/github/github-storage.mjs');
   const f = await installerGitHubFixture(), marker = await f.github.bootstrap({ 'src/demo.mjs': 'export {}' }, 'ru');
   f.store = new GitHubStorage({ repository: 'synthetic/private', token: syntheticGrant, fetchImpl: f.github.storage.fetch,
     serialization: f.actions.serialization });
@@ -160,8 +160,8 @@ test('state keeps the installation token expiry; rotate-grant carries the new on
 });
 
 test('init stores the expiry checked by the installer', async () => {
-  const { installerGitHubFixture } = await import('../testing/installer-github-fixture.mjs');
-  const { GitHubStorage } = await import('../src/github-storage.mjs');
+  const { installerGitHubFixture } = await import('./support/installer-github-fixture.mjs');
+  const { GitHubStorage } = await import('../src/github/github-storage.mjs');
   const f = await installerGitHubFixture(), marker = await f.github.bootstrap({ 'src/demo.mjs': 'export {}' }, 'en');
   const store = new GitHubStorage({ repository: 'synthetic/private', token: syntheticGrant, fetchImpl: f.github.storage.fetch,
     serialization: f.actions.serialization });
@@ -195,10 +195,10 @@ test('an expired token is replaced by putting the new one into the Secret, then 
 
 test('workflow and job pass no billing Secret: billing is read with AUTO_RESET_GITHUB_TOKEN', async () => {
   const root = new URL('../', import.meta.url);
-  for (const file of ['templates/private-auto-reset.yml', 'src/private-cli.mjs', 'scripts/revoke-session.mjs']) {
+  for (const file of ['templates/private-auto-reset.yml', 'src/workflow/private-cli.mjs', 'scripts/revoke-session.mjs']) {
     assert.ok(!(await readFile(new URL(file, root), 'utf8')).includes('AUTO_RESET_BILLING_TOKEN'), file);
   }
-  const cli = await readFile(new URL('src/private-cli.mjs', root), 'utf8');
+  const cli = await readFile(new URL('src/workflow/private-cli.mjs', root), 'utf8');
   assert.match(cli, /readGitHubQuota\(\{ storage, policy: env\.AUTO_RESET_BILLING_POLICY/);
   assert.match(cli, /code === 'stop_grant'/); // Expired token: a clear Summary line instead of a bare code.
 });

@@ -5,17 +5,17 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { existsSync, realpathSync } from 'node:fs';
-import { makeBundle, encodeBundle, decodeBundle, bundleBytes, hostCredentials, AuthFailure, readyAuth } from '../src/auth-bundle.mjs';
-import { HostAuthAdmin } from '../src/auth-admin.mjs';
-import { HostOAuth } from '../src/host-oauth.mjs';
-import { ExternalAuthRuntime } from '../src/external-auth-runtime.mjs';
-import { runInstallerAdmin, sealAdmin } from '../src/installer-admin.mjs';
-import { runRevokeValidation, createRevokeVerifier, validateRevokePlan } from '../src/revoke-verifier.mjs';
-import { githubFixture } from '../testing/github-fixture.mjs';
-import { authBytes, syntheticGrant } from '../testing/auth-fixture.mjs';
-import { fakeBackend } from '../testing/fake-backend.mjs';
-import { syntheticNetworkGuard } from '../testing/bench.mjs';
-import { addHistory } from '../testing/host-auth-fixture.mjs';
+import { makeBundle, encodeBundle, decodeBundle, bundleBytes, hostCredentials, AuthFailure, readyAuth } from '../src/session/auth-bundle.mjs';
+import { HostAuthAdmin } from '../src/session/auth-admin.mjs';
+import { HostOAuth } from '../src/session/host-oauth.mjs';
+import { ExternalAuthRuntime } from '../src/session/external-auth-runtime.mjs';
+import { runInstallerAdmin, sealAdmin } from '../src/installer/installer-admin.mjs';
+import { runRevokeValidation, createRevokeVerifier, validateRevokePlan } from '../src/session/revoke-verifier.mjs';
+import { githubFixture } from './support/github-fixture.mjs';
+import { authBytes, syntheticGrant } from './support/auth-fixture.mjs';
+import { fakeBackend } from './support/fake-backend.mjs';
+import { syntheticNetworkGuard } from './support/bench.mjs';
+import { addHistory } from './support/host-auth-fixture.mjs';
 const plan = { schema: 1, futureMinutes: 286, oldRefresh: false };
 const usage = id => ({ accountId: id, ordinaryUsageAllowed: true,
   rateLimits: { limitId: 'codex' }, rateLimitResetCredits: { availableCount: 0, credits: [] } });
@@ -218,12 +218,12 @@ test('probe deadline and stale tuple after child startup stop network; refresh 5
 
 test('revoke runtime publication checks all new immutable files and rejects old deployment before dispatch', async () => {
   const { readFile } = await import('node:fs/promises');
-  const { verifyRevokeRuntime } = await import('../src/observer-dispatch.mjs');
-  const { renderPrivateWorkflow } = await import('../src/private-workflow.mjs');
+  const { verifyRevokeRuntime } = await import('../src/account/observer-dispatch.mjs');
+  const { renderPrivateWorkflow } = await import('../src/workflow/private-workflow.mjs');
   let wrong = false; const pin = 'a'.repeat(40);
   const github = { repositoryInfo: async () => ({ default_branch: 'main' }), file: async (path, ref) => {
     const bytes = path === '.github/workflows/auto-reset.yml' ? await renderPrivateWorkflow(pin) :
-      wrong && path === 'src/revoke-verifier.mjs' ? 'old-source' : await readFile(new URL(`../${path}`, import.meta.url), 'utf8');
+      wrong && path === 'src/session/revoke-verifier.mjs' ? 'old-source' : await readFile(new URL(`../${path}`, import.meta.url), 'utf8');
     assert.equal(ref, path === '.github/workflows/auto-reset.yml' ? 'main' : pin);
     return { encoding: 'base64', content: Buffer.from(bytes).toString('base64') };
   } };

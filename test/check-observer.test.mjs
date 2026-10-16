@@ -1,13 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { privateWorkflowFixture, PROGRAM_COMMIT, confirmedTimer } from '../testing/private-workflow-fixture.mjs';
-import { hostBytes } from '../testing/host-auth-fixture.mjs';
-import { syntheticGrant } from '../testing/auth-fixture.mjs';
-import { AuthFailure, makeBundle, encodeBundle, hostCredentials } from '../src/auth-bundle.mjs';
-import { HostAuthSession } from '../src/host-auth-session.mjs';
-import { sealAdmin, runInstallerAdmin } from '../src/installer-admin.mjs';
-import { projectUsage } from '../src/check-observer.mjs';
-import { renderInstallerReport } from '../src/installer-report.mjs';
+import { privateWorkflowFixture, PROGRAM_COMMIT, confirmedTimer } from './support/private-workflow-fixture.mjs';
+import { hostBytes } from './support/host-auth-fixture.mjs';
+import { syntheticGrant } from './support/auth-fixture.mjs';
+import { AuthFailure, makeBundle, encodeBundle, hostCredentials } from '../src/session/auth-bundle.mjs';
+import { HostAuthSession } from '../src/session/host-auth-session.mjs';
+import { sealAdmin, runInstallerAdmin } from '../src/installer/installer-admin.mjs';
+import { projectUsage } from '../src/account/check-observer.mjs';
+import { renderInstallerReport } from '../src/installer/installer-report.mjs';
 
 const response = (clock, accountId) => ({ accountId, ordinaryUsageAllowed: false,
   rateLimits: { limitId: 'codex', primary: { usedPercent: 100, windowDurationMins: 300, resetsAt: clock + 100 },
@@ -166,15 +166,15 @@ test('invalid details cannot erase a received usage projection or become details
 });
 
 test('future dispatch refuses old source pin or workflow before sending an ignored observer payload', async () => {
-  const { verifyObserverRuntime } = await import('../src/observer-dispatch.mjs');
+  const { verifyObserverRuntime } = await import('../src/account/observer-dispatch.mjs');
   const { readFile } = await import('node:fs/promises');
-  const { renderPrivateWorkflow, WORKFLOW_PATH } = await import('../src/private-workflow.mjs');
+  const { renderPrivateWorkflow, WORKFLOW_PATH } = await import('../src/workflow/private-workflow.mjs');
   let wrongSource = false, wrongWorkflow = false;
   const github = { repositoryInfo: async () => ({ default_branch: 'main' }), file: async (path, ref) => {
     assert.equal(ref, path === WORKFLOW_PATH ? 'main' : PROGRAM_COMMIT);
     const content = path === WORKFLOW_PATH ? await renderPrivateWorkflow(PROGRAM_COMMIT) : await readFile(new URL(`../${path}`, import.meta.url), 'utf8');
     return { encoding: 'base64', content: Buffer.from(
-      wrongSource && path === 'src/installer-admin.mjs' || wrongWorkflow && path === WORKFLOW_PATH ? 'old-pin' : content).toString('base64') };
+      wrongSource && path === 'src/installer/installer-admin.mjs' || wrongWorkflow && path === WORKFLOW_PATH ? 'old-pin' : content).toString('base64') };
   } };
   const state = { installation: { programCommit: PROGRAM_COMMIT } };
   await verifyObserverRuntime(github, state);
@@ -183,18 +183,18 @@ test('future dispatch refuses old source pin or workflow before sending an ignor
 });
 
 test('observer-only publication manifest binds exact immutable source hashes and pin', async () => {
-  const { verifyObserverRuntime } = await import('../src/observer-dispatch.mjs');
+  const { verifyObserverRuntime } = await import('../src/account/observer-dispatch.mjs');
   const { createHash } = await import('node:crypto');
   const { readFile } = await import('node:fs/promises');
-  const { renderPrivateWorkflow, WORKFLOW_PATH } = await import('../src/private-workflow.mjs');
-  const paths = ['src/check-observer.mjs','src/host-auth-session.mjs','src/installer-admin.mjs',
-    'src/private-cli.mjs','src/installer-report.mjs','src/schedule-planner.mjs','runtime-lock.json'];
+  const { renderPrivateWorkflow, WORKFLOW_PATH } = await import('../src/workflow/private-workflow.mjs');
+  const paths = ['src/account/check-observer.mjs','src/session/host-auth-session.mjs','src/installer/installer-admin.mjs',
+    'src/workflow/private-cli.mjs','src/installer/installer-report.mjs','src/schedule/schedule-planner.mjs','runtime-lock.json'];
   const sources = Object.fromEntries(await Promise.all(paths.map(async path => [path,await readFile(new URL(`../${path}`,import.meta.url),'utf8')])));
-  sources['src/installer-admin.mjs'] += '\n// Reviewed observer-only build over installed base.\n';
+  sources['src/installer/installer-admin.mjs'] += '\n// Reviewed observer-only build over installed base.\n';
   const manifest = {schema:1,programCommit:PROGRAM_COMMIT,sourceHashes:Object.fromEntries(paths.map(path => [path,createHash('sha256').update(sources[path]).digest('hex')]))};
   const github = {repositoryInfo:async()=>({default_branch:'main'}),file:async path=>({encoding:'base64',content:Buffer.from(path === WORKFLOW_PATH ? await renderPrivateWorkflow(PROGRAM_COMMIT) : sources[path]).toString('base64')})};
   await verifyObserverRuntime(github,{installation:{programCommit:PROGRAM_COMMIT}},manifest);
   await assert.rejects(verifyObserverRuntime(github,{installation:{programCommit:'2'.repeat(40)}},manifest),/observer_runtime_not_published/);
-  sources['src/installer-admin.mjs'] += '// Foreign edit';
+  sources['src/installer/installer-admin.mjs'] += '// Foreign edit';
   await assert.rejects(verifyObserverRuntime(github,{installation:{programCommit:PROGRAM_COMMIT}},manifest),/observer_runtime_not_published/);
 });

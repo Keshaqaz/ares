@@ -15,7 +15,7 @@ const pkg = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
 const lock = JSON.parse(await readFile(join(root, 'runtime-lock.json'), 'utf8'));
 if (!/^[0-9]+\.[0-9]+\.[0-9]+$/.test(pkg.version)) throw new Error('invalid package version');
 const allow = ['package.json', 'package-lock.json', 'runtime-lock.json', 'LICENSE', 'NOTICES.md',
-  'README.md', 'README.ru.md', 'CONTEXT.md', 'src', 'scripts', 'test', 'testing', 'templates', 'schema', 'docs', 'worker'];
+  'README.md', 'README.ru.md', 'CONTEXT.md', 'src', 'scripts', 'test', 'templates', 'schema', 'docs', 'worker'];
 const noise = n => n === '.DS_Store' || n.startsWith('._');
 const blocked = n => n.startsWith('.') || /^(auth|state|credentials?|tokens?|logs?|cache)([.-]|$)/i.test(n) && !n.endsWith('.mjs') && !n.endsWith('.md');
 async function walk(entry) {

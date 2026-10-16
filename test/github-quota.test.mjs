@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readGitHubQuota } from '../src/github-quota.mjs';
+import { readGitHubQuota } from '../src/github/github-quota.mjs';
 
 const NOW = Date.UTC(2026, 9, 9, 3) / 1000;
 const iso = seconds => new Date(seconds * 1000).toISOString();

@@ -10,13 +10,13 @@
 ## Поведение
 
 - Cron Trigger `2-57/5 * * * *` — та же сетка `:02`/5 минут, что у планировщика
-  (`src/schedule-time.mjs`).
+  (`src/schedule/schedule-time.mjs`).
 - Каждый тик сначала получает installation token приложения таймера (см. ниже), затем
   читает опубликованный план окон (`readPlan` в [index.mjs](index.mjs)) —
   файл `.auto-reset-timer-plan.json` на `main` (тикет 37): одна каноническая
   JSON-строка `{"schema":1,"expressions":[…]}` с UTC cron планировщика, включая
   discovery. Файл вне `.github/workflows/`, поэтому его правка не перерегистрирует
-  нативный cron. Разбор — общий `src/managed-schedule.mjs`
+  нативный cron. Разбор — общий `src/schedule/managed-schedule.mjs`
   (`readTimerPlan`/`expandCron`), тот же, что у планировщика и writer; любая
   другая сериализация — `plan_invalid`.
 - Статический резервный cron workflow (`41 5 * * *`) в план не входит: его
@@ -81,7 +81,7 @@ GitHub App пользователя, а не токен: установщик р
 Если Worker перестал будить установку, это замечает только суточный резервный
 запуск: он сравнивает последний пустой dispatch с плановыми слотами и при
 отставании больше 30 минут завершается с `external_timer_stale` в Summary
-([docs/private-workflow.md](../docs/private-workflow.md#внешний-таймер-и-резервный-запуск)).
+([docs/internals/private-workflow.md](../docs/internals/private-workflow.md#внешний-таймер-и-резервный-запуск)).
 
 ## Развёртывание
 
@@ -125,6 +125,6 @@ npx --yes wrangler@4.139.0 secret put TIMER_APP_KEY --config worker/wrangler.tom
 ## Тесты
 
 `test/timer-worker.test.mjs` входит в общий `npm test`: настоящий `tick()` против
-fake GitHub (`testing/timer-fixture.mjs`) с production-шаблоном workflow, без сети
+fake GitHub (`test/support/timer-fixture.mjs`) с production-шаблоном workflow, без сети
 и без Cloudflare. Fake GitHub проверяет подпись JWT публичным ключом синтетического
 App, claims и тело запроса installation token; кеш токена — отдельный тест.

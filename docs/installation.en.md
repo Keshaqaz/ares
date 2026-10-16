@@ -42,7 +42,7 @@ your own separate decision. Every menu item below remains available by hand.
    budget of $0 and Stop usage: Yes and the plan; billing is read with the installation
    token (Plan: read). `b Check quota` reads the saved configuration in a new Actions job. Repeat
    setup after a budget/plan change. The API does not verify your personal budget
-   or guarantee a billing ceiling; see [billing](github-billing.md).
+   or guarantee a billing ceiling; see [billing](internals/github-billing.md).
 6. `5 Select reset` chooses an eligible ID and interval before expiry (default
    60 minutes). Missing/no expiry requires an explicit start; the cycle then
    lasts at most one hour. Partial metadata requires an explicit visible ID.
@@ -271,5 +271,5 @@ Delete the app; revoke the installation token, any old billing and timer tokens,
 separate ChatGPT CI session with the respective providers. Repository deletion is a separate manual step.
 A local revoked marker or account/logout does not prove remote refresh cessation.
 
-[Detailed Russian guide](installation.md), [cycle commands](reset-cycle-state.md),
-[host-owned auth](auth-storage.md), [private workflow](private-workflow.md).
+[Detailed Russian guide](installation.md), [cycle commands](internals/reset-cycle-state.md),
+[host-owned auth](internals/auth-storage.md), [private workflow](internals/private-workflow.md).

@@ -1,14 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { AccountAdapter, weeklyEvidence, weeklyCurrent, weeklyUsage } from '../src/account.mjs';
-import { MockRpc } from '../testing/mock-rpc.mjs';
-import { credit, syntheticAccountId } from '../testing/fake-backend.mjs';
+import { AccountAdapter, weeklyEvidence, weeklyCurrent, weeklyUsage } from '../src/account/account.mjs';
+import { MockRpc } from './support/mock-rpc.mjs';
+import { credit, syntheticAccountId } from './support/fake-backend.mjs';
 
 const real = process.env.AUTO_RESET_CONTRACT_MODE === 'app-server';
 const fixture = async t => {
   let b;
-  if (real) b = await (await import('../testing/bench.mjs')).bench();
+  if (real) b = await (await import('./support/bench.mjs')).bench();
   else { const rpc = new MockRpc(); b = { account: new AccountAdapter(rpc), rpc, backend: { state: rpc.state }, close: async () => {} }; }
   b.backend.state.weeklyExhausted = true;
   t.after(async () => {

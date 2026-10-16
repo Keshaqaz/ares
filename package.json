@@ -8,9 +8,9 @@
   },
   "scripts": {
     "test": "node --test test/*.test.mjs",
-    "test:contract": "node testing/contract.mjs",
+    "test:contract": "node test/support/contract.mjs",
     "start": "node src/cli.mjs",
-    "install:macos": "node src/install-cli.mjs"
+    "install:macos": "node src/installer/install-cli.mjs"
   },
   "dependencies": {
     "libsodium-wrappers": "0.7.15"

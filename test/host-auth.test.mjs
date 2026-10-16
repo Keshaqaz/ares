@@ -2,12 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile, writeFile, lstat } from 'node:fs/promises';
 import { join } from 'node:path';
-import { hostFixture, hostBytes, addHistory, NOW } from '../testing/host-auth-fixture.mjs';
-import { syntheticGrant } from '../testing/auth-fixture.mjs';
-import { AuthFailure, makeBundle, readyAuth, tuple, encodeBundle, bundleBytes } from '../src/auth-bundle.mjs';
-import { HostAuthAdmin, AuthAdmin } from '../src/auth-admin.mjs';
-import { AuthSession } from '../src/auth-session.mjs';
-import { FileStateStore } from '../src/state-store.mjs';
+import { hostFixture, hostBytes, addHistory, NOW } from './support/host-auth-fixture.mjs';
+import { syntheticGrant } from './support/auth-fixture.mjs';
+import { AuthFailure, makeBundle, readyAuth, tuple, encodeBundle, bundleBytes } from '../src/session/auth-bundle.mjs';
+import { HostAuthAdmin, AuthAdmin } from '../src/session/auth-admin.mjs';
+import { AuthSession } from '../src/session/auth-session.mjs';
+import { FileStateStore } from '../src/core/state-store.mjs';
 
 const request = session => session.request('account/read', { refreshToken: true });
 const noNetwork = w => assert.ok(!w.events.some(e => ['oauth.rotation', 'child.login', 'account.rpc'].includes(e)), w.events.join(','));
@@ -233,7 +233,7 @@ test('explicit external owner survives missing account type; account/read(true) 
   const w = await hostFixture(t);
   w.external.open = async () => { const handle = { closed: false, request: async () => ({ account: {} }),
     close: async () => { handle.closed = true; } }; return handle; };
-  const { AccountAdapter } = await import('../src/account.mjs');
+  const { AccountAdapter } = await import('../src/account/account.mjs');
   const account = new AccountAdapter(w.host());
   assert.deepEqual(await account.refresh(), { kind: 'accountRead', authType: 'chatgptAuthTokens', tokenRefresh: 'externalOwnerRequired' });
 });
@@ -251,7 +251,7 @@ for (const cut of ['inflight', 'rotation', 'local', 'publishing', 'secret', 'rea
     const { once } = await import('node:events');
     const w = await hostFixture(t);
     await writeFile(join(w.root, 'snapshot.json'), encodeBundle(w.initial), { mode: 0o600 });
-    const child = fork(new URL('../testing/host-auth-crash-fixture.mjs', import.meta.url), [w.root, cut], {
+    const child = fork(new URL('./support/host-auth-crash-fixture.mjs', import.meta.url), [w.root, cut], {
       stdio: ['ignore', 'ignore', 'ignore', 'ipc'], execArgv: [], env: { PATH: process.env.PATH } });
     t.after(() => child.kill('SIGKILL'));
     const exited = once(child, 'exit'), message = once(child, 'message');
@@ -260,7 +260,7 @@ for (const cut of ['inflight', 'rotation', 'local', 'publishing', 'secret', 'rea
       await Promise.race([message, exited.then(() => { throw new Error('missed_crash_boundary'); })]);
       child.kill('SIGKILL'); await exited;
     } finally { clearTimeout(guard); }
-    const { decodeBundle } = await import('../src/auth-bundle.mjs');
+    const { decodeBundle } = await import('../src/session/auth-bundle.mjs');
     w.secret = decodeBundle(await readFile(join(w.root, 'snapshot.json'), 'utf8'));
     if (['inflight', 'rotation'].includes(cut)) {
       await assert.rejects(w.host().admit(), /reconnect_required/);
@@ -275,7 +275,7 @@ for (const cut of ['inflight', 'rotation', 'local', 'publishing', 'secret', 'rea
 }
 
 test('consume requires current-job reservation proof; a prior unknown request or forged proof never permits replay', async t => {
-  const { reserve } = await import('../testing/consume-reservation-fixture.mjs');
+  const { reserve } = await import('./support/consume-reservation-fixture.mjs');
   const w = await hostFixture(t); const session = w.host();
   let reserved;
   const proof = await session.reserveConsume(async () => { reserved = await reserve(w.disk, 'selected-013', NOW); return reserved; });
@@ -306,7 +306,7 @@ test('explicit fresh reconnect after lost target keeps history and identity whil
 
 test('remote revoke seam requires exact durable disabled/revoked session; server acceptance does not prove propagation', async t => {
   const w = await hostFixture(t); const calls = [];
-  const { HostOAuth } = await import('../src/host-oauth.mjs');
+  const { HostOAuth } = await import('../src/session/host-oauth.mjs');
   const oauth = new HostOAuth({ fetchImpl: async (url, options) => {
     calls.push({ url, ...JSON.parse(options.body) }); return { status: 200 };
   } });
@@ -330,7 +330,7 @@ for (const outcome of ['accepted', 'rejected', 'lost-response']) {
     assert.equal(stopped.disabled, true); assert.equal(stopped.revoked, true);
     assert.equal(stopped.auth.reconnectReason, 'revoked');
     assert.deepEqual(history(stopped), history(before));
-    const { HostOAuth } = await import('../src/host-oauth.mjs');
+    const { HostOAuth } = await import('../src/session/host-oauth.mjs');
     let calls = 0;
     const oauth = new HostOAuth({ fetchImpl: async () => {
       calls++;

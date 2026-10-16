@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { GitHubBilling } from '../src/github-billing.mjs';
+import { GitHubBilling } from '../src/github/github-billing.mjs';
 
 const NOW = Date.UTC(2026, 9, 9, 3) / 1000;
 const row = (extra = {}) => ({ product: 'Actions', sku: 'actions_linux', unitType: 'minutes',

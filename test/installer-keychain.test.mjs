@@ -5,11 +5,11 @@ import { PassThrough } from 'node:stream';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Keychain, KEYCHAIN_SERVICE } from '../src/installer-keychain.mjs';
-import { messages, loadInstallationToken, keepInstallationToken } from '../src/installer-ui.mjs';
-import { Installer } from '../src/installer.mjs';
-import { sealAdmin, adminFingerprint } from '../src/installer-admin.mjs';
-import { StateFailure } from '../src/state-store.mjs';
+import { Keychain, KEYCHAIN_SERVICE } from '../src/installer/installer-keychain.mjs';
+import { messages, loadInstallationToken, keepInstallationToken } from '../src/installer/installer-ui.mjs';
+import { Installer } from '../src/installer/installer.mjs';
+import { sealAdmin, adminFingerprint } from '../src/installer/installer-admin.mjs';
+import { StateFailure } from '../src/core/state-store.mjs';
 
 const REPO = 'synthetic/private', OLD = 'github_pat_synthetic_old', NEW = 'github_pat_synthetic_new';
 
@@ -201,7 +201,7 @@ test('confirmed uninstall removes the Keychain entry; a refusal names the manual
 });
 
 test('installer CLI follows the Keychain: no token prompt when stored, no fixed rotation hint', async () => {
-  const source = await readFile(new URL('../src/install-cli.mjs', import.meta.url), 'utf8');
+  const source = await readFile(new URL('../src/installer/install-cli.mjs', import.meta.url), 'utf8');
   assert.match(source, /loadInstallationToken\(ui, \{ keychain: new Keychain\(\{ repository \}\)/);
   assert.match(source, /keepInstallationToken\(ui, \{ keychain: checked\.keychain, token, repository \}\)/);
   assert.ok(!source.includes('enter the new installation token on the next run'));

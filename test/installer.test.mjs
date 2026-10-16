@@ -5,18 +5,18 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { PassThrough } from 'node:stream';
 import { EventEmitter } from 'node:events';
-import { privateWorkflowFixture, PROGRAM_COMMIT, confirmedTimer } from '../testing/private-workflow-fixture.mjs';
-import { hostBytes, NOW } from '../testing/host-auth-fixture.mjs';
-import { syntheticGrant } from '../testing/auth-fixture.mjs';
-import { makeBundle, encodeBundle } from '../src/auth-bundle.mjs';
-import { HostAuthSession } from '../src/host-auth-session.mjs';
-import { runInstallerAdmin, sealAdmin, adminFingerprint } from '../src/installer-admin.mjs';
-import { renderPrivateWorkflow } from '../src/private-workflow.mjs';
-import { readManagedSchedule, renderTimerPlan } from '../src/github-schedule.mjs';
-import { DISCOVERY_CRON, FALLBACK_CRON } from '../src/schedule-planner.mjs';
-import { Installer, executeLogin, programFiles } from '../src/installer.mjs';
-import { InstallerGitHub } from '../src/installer-github.mjs';
-import { TerminalUI } from '../src/installer-ui.mjs';
+import { privateWorkflowFixture, PROGRAM_COMMIT, confirmedTimer } from './support/private-workflow-fixture.mjs';
+import { hostBytes, NOW } from './support/host-auth-fixture.mjs';
+import { syntheticGrant } from './support/auth-fixture.mjs';
+import { makeBundle, encodeBundle } from '../src/session/auth-bundle.mjs';
+import { HostAuthSession } from '../src/session/host-auth-session.mjs';
+import { runInstallerAdmin, sealAdmin, adminFingerprint } from '../src/installer/installer-admin.mjs';
+import { renderPrivateWorkflow } from '../src/workflow/private-workflow.mjs';
+import { readManagedSchedule, renderTimerPlan } from '../src/github/github-schedule.mjs';
+import { DISCOVERY_CRON, FALLBACK_CRON } from '../src/schedule/schedule-planner.mjs';
+import { Installer, executeLogin, programFiles } from '../src/installer/installer.mjs';
+import { InstallerGitHub } from '../src/installer/installer-github.mjs';
+import { TerminalUI } from '../src/installer/installer-ui.mjs';
 
 async function fixture(t) {
   const f = await privateWorkflowFixture(t); let sequence = 0;
@@ -138,7 +138,7 @@ test('uninstall serializes behind sent RPC, preserves its applied result and dis
   assert.equal(f.github.state.revoked, true); assert.deepEqual(f.schedule.expressions(), []); assert.equal(f.github.secret, null);
   assert.equal(f.schedule.workflowDisabled, true); // No daily fallback runs without the PAT Secret.
   const n = f.calls().length; await f.actions.writer(() => (async () => {
-    const { runPrivateJob } = await import('../src/private-job.mjs');
+    const { runPrivateJob } = await import('../src/workflow/private-job.mjs');
     return runPrivateJob({ storage: f.github.storage, workflow: f.workflow, serialization: f.serialization,
       account: { read: async () => { throw new Error('late account read forbidden'); } }, quota: f.quota, now: () => f.clock });
   })()); assert.equal(f.calls().length, n);
@@ -171,7 +171,7 @@ test('installer UI macOS gate, plain non-TTY language prompt, secret-free deploy
   assert.equal(await ui.ask('Русский (ru) / English (en)'), 'en');
   assert.equal(await ui.ask('PAT', { secret: true }), 'synthetic-token'); ui.stage('1/5', 'Install'); ui.close();
   assert.ok(!text.includes('\x1b') && !text.includes('synthetic-token'));
-  const files = await programFiles(process.cwd()); assert.ok(files['src/installer-admin.mjs']);
+  const files = await programFiles(process.cwd()); assert.ok(files['src/installer/installer-admin.mjs']);
   assert.ok(files['scripts/install-linux-prerequisites.sh']);
   assert.ok(Object.keys(files).every(p => !/node_modules|\.scratch|auth\.json|state\.json|\.codex/.test(p)));
 });
@@ -196,7 +196,7 @@ test('local GitHub transport has no state writer and refuses public/non-dedicate
 });
 
 test('bootstrap atomically pins code/workflow with one PAT; lost response/repeated setup do not duplicate', async () => {
-  const { installerGitHubFixture } = await import('../testing/installer-github-fixture.mjs');
+  const { installerGitHubFixture } = await import('./support/installer-github-fixture.mjs');
   const f = await installerGitHubFixture(); f.fail = 'lost-bootstrap';
   const marker = await f.github.bootstrap({ 'src/demo.mjs': 'export {}' }, 'en');
   assert.equal(f.secrets.get('AUTO_RESET_GITHUB_TOKEN'), syntheticGrant);
@@ -205,7 +205,7 @@ test('bootstrap atomically pins code/workflow with one PAT; lost response/repeat
   assert.equal(main['.auto-reset-timer-plan.json'], renderTimerPlan([]));
   assert.deepEqual(await f.github.scheduleStatus(), []);
   const count = f.commits.size; assert.deepEqual(await f.github.bootstrap({}, 'en'), marker); assert.equal(f.commits.size, count);
-  const { GitHubStorage } = await import('../src/github-storage.mjs');
+  const { GitHubStorage } = await import('../src/github/github-storage.mjs');
   const store = new GitHubStorage({ repository: 'synthetic/private', token: syntheticGrant,
     fetchImpl: f.github.storage.fetch, serialization: f.actions.serialization });
   const s = await f.actions.writer(() => store.initializeDisabled('en', marker.programCommit));
@@ -283,9 +283,9 @@ test('language update uses common writer and survives repeated setup', async t =
 });
 
 test('grant rotation can resume with the replacement PAT and keeps the same auth history', async () => {
-  const { installerGitHubFixture } = await import('../testing/installer-github-fixture.mjs');
-  const { GitHubStorage } = await import('../src/github-storage.mjs');
-  const { grantFingerprint } = await import('../src/auth-bundle.mjs');
+  const { installerGitHubFixture } = await import('./support/installer-github-fixture.mjs');
+  const { GitHubStorage } = await import('../src/github/github-storage.mjs');
+  const { grantFingerprint } = await import('../src/session/auth-bundle.mjs');
   const f = await installerGitHubFixture(), marker = await f.github.bootstrap({ 'src/demo.mjs': 'export {}' }, 'ru');
   const store = new GitHubStorage({ repository: 'synthetic/private', token: syntheticGrant, fetchImpl: f.github.storage.fetch,
     serialization: f.actions.serialization });
@@ -306,7 +306,7 @@ test('grant rotation can resume with the replacement PAT and keeps the same auth
 test('recover requires a new seed after durable revoke and stays disabled', async t => {
   const f = await fixture(t); const previous = await seed(f);
   await f.actions.writer(async () => {
-    const { CycleEngine } = await import('../src/reset-cycles.mjs');
+    const { CycleEngine } = await import('../src/core/reset-cycles.mjs');
     await new CycleEngine(f.github.storage, f.account(), { now: () => NOW }).command({ action: 'revoke', commandId: 'revoke', expectedVersion: f.github.state.version });
   });
   await assert.rejects(f.admin(f.adminCommand('seed', { bundle: encodeBundle(previous) })), /new_login_required/);
@@ -397,7 +397,7 @@ test('installer Summary follows saved language and escapes metadata identifiers'
   await f.admin(f.adminCommand('language', { language: 'en' }));
   const c = f.adminCommand('check'), result = await f.admin(c);
   result.metadata.credits[0].id = '<script>|bad\nrow';
-  const { renderInstallerReport } = await import('../src/installer-report.mjs');
+  const { renderInstallerReport } = await import('../src/installer/installer-report.mjs');
   const report = await f.actions.writer(() => renderInstallerReport(f.github.storage, c, result, () => NOW));
   assert.match(report, /Installer command/); assert.match(report, /Issued resets/);
   assert.ok(!report.includes('<script>')); assert.match(report, /&lt;script&gt;&#124;bad row/);

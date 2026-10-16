@@ -1,12 +1,12 @@
 import { createInterface } from 'node:readline';
-import { StdioRpc, RpcFailure } from './stdio.mjs';
-import { AccountAdapter } from './account.mjs';
-import { syntheticAccountId } from '../testing/fake-backend.mjs';
+import { StdioRpc, RpcFailure } from './account/stdio.mjs';
+import { AccountAdapter } from './account/account.mjs';
+import { syntheticAccountId } from '../test/support/fake-backend.mjs';
 import { fileURLToPath } from 'node:url';
 import { readFile } from 'node:fs/promises';
-import { FileStateStore, StateFailure } from './state-store.mjs';
-import { CycleEngine } from './reset-cycles.mjs';
-import { renderCycleReport } from './cycle-report.mjs';
+import { FileStateStore, StateFailure } from './core/state-store.mjs';
+import { CycleEngine } from './core/reset-cycles.mjs';
+import { renderCycleReport } from './core/cycle-report.mjs';
 
 // Commands are JSONL on stdin, results JSONL on stdout. No secrets or shell interpolation.
 // Live account activation requires 14/15/17/21; only synthetic modes are exposed here.
@@ -29,13 +29,13 @@ if (process.version !== `v${pins.node}`) {
     let account;
     if (mode === 'mock') {
       const rpc = new StdioRpc({ file: process.execPath,
-        args: [fileURLToPath(new URL('../testing/stdio-fixture.mjs', import.meta.url))],
+        args: [fileURLToPath(new URL('../test/support/stdio-fixture.mjs', import.meta.url))],
         env: { PATH: process.env.PATH }, cwd: fileURLToPath(new URL('..', import.meta.url)) });
       cleanup = () => rpc.close();
       await rpc.start();
       account = new AccountAdapter(rpc, { accountId: () => syntheticAccountId });
     } else {
-      const { bench } = await import('../testing/bench.mjs');
+      const { bench } = await import('../test/support/bench.mjs');
       const stand = await bench();
       cleanup = stand.close;
       account = stand.account;

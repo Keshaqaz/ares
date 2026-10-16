@@ -6,14 +6,14 @@ import { mkdtemp, readFile, rm, writeFile, access } from 'node:fs/promises';
 import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
 import { createPublicKey, createHash } from 'node:crypto';
-import { TerminalUI, messages } from '../src/installer-ui.mjs';
-import { Installer } from '../src/installer.mjs';
-import { adminFingerprint, openAdmin } from '../src/installer-admin.mjs';
-import { WRANGLER } from '../src/installer-timer.mjs';
-import { TIMER_GRACE_SECONDS } from '../src/schedule-planner.mjs';
+import { TerminalUI, messages } from '../src/installer/installer-ui.mjs';
+import { Installer } from '../src/installer/installer.mjs';
+import { adminFingerprint, openAdmin } from '../src/installer/installer-admin.mjs';
+import { WRANGLER } from '../src/installer/installer-timer.mjs';
+import { TIMER_GRACE_SECONDS } from '../src/schedule/schedule-planner.mjs';
 import { tokensMessages, credentialRows, credentialProblem, tokensMenu, promptTokens, rotateInstallationToken,
-  replaceTimerKey, putTimerKey, readTimerKey, keyPath, keyFingerprint, appKeysUrl } from '../src/installer-tokens.mjs';
-import { TIMER_APP, TIMER_APP_KEY } from '../testing/timer-fixture.mjs';
+  replaceTimerKey, putTimerKey, readTimerKey, keyPath, keyFingerprint, appKeysUrl } from '../src/installer/installer-tokens.mjs';
+import { TIMER_APP, TIMER_APP_KEY } from './support/timer-fixture.mjs';
 
 const NOW = 1_791_417_600, DAY = 86400, REPO = 'synthetic/private', NEW = 'github_pat_synthetic_new';
 const TIMER = { appId: 4242, appSlug: 'auto-reset-timer-synthetic', installationId: 2424, probeAt: NOW - 3000, confirmedAt: NOW - 1760 };
@@ -206,7 +206,7 @@ test('timer key swap fails closed before Cloudflare: other installation, bad fil
 });
 
 test('installer CLI: k replaces t, opens the tokens table and swaps the key without admin command', async () => {
-  const source = await readFile(new URL('../src/install-cli.mjs', import.meta.url), 'utf8');
+  const source = await readFile(new URL('../src/installer/install-cli.mjs', import.meta.url), 'utf8');
   assert.ok(!source.includes("action === 't'"));
   assert.match(source, /action === 'k'/);
   assert.match(source, /tokensMenu\(w\.menu, credentialProblem/);

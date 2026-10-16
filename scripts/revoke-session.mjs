@@ -1,13 +1,13 @@
 // FUTURE LIVE DISPATCH ONLY: explicit confirmation string is required. No local CI vault.
 import { readFile } from 'node:fs/promises';
-import { Installer } from '../src/installer.mjs';
-import { InstallerGitHub } from '../src/installer-github.mjs';
-import { StateFailure } from '../src/state-store.mjs';
-import { verifyRevokeRuntime } from '../src/observer-dispatch.mjs';
-import { validateRevokePlan } from '../src/revoke-verifier.mjs';
-import { readGitHubQuota } from '../src/github-quota.mjs';
-import { readQuotaReceipt } from '../src/private-job.mjs';
-import { admitObserverQuota } from '../src/schedule-planner.mjs';
+import { Installer } from '../src/installer/installer.mjs';
+import { InstallerGitHub } from '../src/installer/installer-github.mjs';
+import { StateFailure } from '../src/core/state-store.mjs';
+import { verifyRevokeRuntime } from '../src/account/observer-dispatch.mjs';
+import { validateRevokePlan } from '../src/session/revoke-verifier.mjs';
+import { readGitHubQuota } from '../src/github/github-quota.mjs';
+import { readQuotaReceipt } from '../src/workflow/private-job.mjs';
+import { admitObserverQuota } from '../src/schedule/schedule-planner.mjs';
 const pins = JSON.parse(await readFile(new URL('../runtime-lock.json', import.meta.url), 'utf8'));
 try {
   if (process.version !== `v${pins.node}`) throw new StateFailure('node_version_mismatch');

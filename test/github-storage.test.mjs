@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { githubFixture } from '../testing/github-fixture.mjs';
-import { GitHubStorage } from '../src/github-storage.mjs';
-import { encodeBundle, AuthFailure } from '../src/auth-bundle.mjs';
-import { syntheticGrant } from '../testing/auth-fixture.mjs';
+import { githubFixture } from './support/github-fixture.mjs';
+import { GitHubStorage } from '../src/github/github-storage.mjs';
+import { encodeBundle, AuthFailure } from '../src/session/auth-bundle.mjs';
+import { syntheticGrant } from './support/auth-fixture.mjs';
 
 const fixture = () => githubFixture();
 

@@ -46,7 +46,7 @@ flowchart LR
 ```
 
 Целевой момент — `expiresAt − Δ`; попытки повторяются раз в 5 минут до успеха или истечения.
-Подробнее: [ADR-0002 внешний таймер](docs/adr/0002-external-timer.md), [private workflow](docs/private-workflow.md).
+Подробнее: [ADR-0002 внешний таймер](docs/adr/0002-external-timer.md), [private workflow](docs/internals/private-workflow.md).
 
 ## Быстрый старт
 
@@ -90,13 +90,29 @@ repository variable `AUTO_RESET_PILOT_APPROVED` = `owner/repo`.
 
 [Установка](docs/installation.md) ·
 [Поддержка](docs/support.md) ·
-[Private workflow](docs/private-workflow.md) ·
-[Auth и storage](docs/auth-storage.md) ·
-[Циклы сбросов](docs/reset-cycle-state.md) ·
-[Планировщик и квота](docs/schedule-planner.md) ·
+[Private workflow](docs/internals/private-workflow.md) ·
+[Auth и storage](docs/internals/auth-storage.md) ·
+[Циклы сбросов](docs/internals/reset-cycle-state.md) ·
+[Планировщик и квота](docs/internals/schedule-planner.md) ·
 [Словарь](CONTEXT.md)
 
 ## Разработка
+
+```
+src/
+  account/    App Server RPC, чтение аккаунта, observer
+  session/    host-owned OAuth, CI-сессия, revoke
+  core/       движок циклов, durable state, отчёты
+  schedule/   планировщик, cron-диалект, приложение таймера
+  github/     storage в repo, billing, квота, план таймера
+  workflow/   точка входа private Actions job
+  installer/  установщик macOS, мастер, монитор
+  cli.mjs     synthetic CLI
+worker/       Worker внешнего таймера Cloudflare
+templates/    шаблон private workflow
+test/         тесты; support/ — фикстуры и contract runner
+docs/         руководства; internals/, adr/
+```
 
 ```sh
 npm test                      # offline, без credentials и сети

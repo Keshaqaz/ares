@@ -4,12 +4,12 @@ import { realpathSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import { privateWorkflowFixture } from '../testing/private-workflow-fixture.mjs';
-import { fakeBackend } from '../testing/fake-backend.mjs';
-import { syntheticNetworkGuard } from '../testing/bench.mjs';
-import { ExternalAuthRuntime } from '../src/external-auth-runtime.mjs';
-import { HostOAuth } from '../src/host-oauth.mjs';
-import { StdioRpc } from '../src/stdio.mjs';
+import { privateWorkflowFixture } from './support/private-workflow-fixture.mjs';
+import { fakeBackend } from './support/fake-backend.mjs';
+import { syntheticNetworkGuard } from './support/bench.mjs';
+import { ExternalAuthRuntime } from '../src/session/external-auth-runtime.mjs';
+import { HostOAuth } from '../src/session/host-oauth.mjs';
+import { StdioRpc } from '../src/account/stdio.mjs';
 
 const real = process.env.AUTO_RESET_CONTRACT_MODE === 'app-server';
 const binary = () => realpathSync(process.env.AUTO_RESET_CODEX_BIN ??
@@ -75,7 +75,7 @@ test('workflow bridge handles a real stdio external refresh request: fixed refus
   const audit = [], refusals = [];
   f.external = { open: async () => {
     const rpc = new StdioRpc({ file: process.execPath,
-      args: [fileURLToPath(new URL('../testing/stdio-fixture.mjs', import.meta.url))],
+      args: [fileURLToPath(new URL('./support/stdio-fixture.mjs', import.meta.url))],
       env: { PATH: process.env.PATH, AUTO_RESET_MOCK_SCENARIO: 'externalRefresh' } },
     { stopOnExternalRefresh: true, timeoutMs: 1000, audit: e => audit.push(e) });
     const write = rpc.write.bind(rpc);

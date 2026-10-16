@@ -4,14 +4,14 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
-import { privateWorkflowFixture, PROGRAM_COMMIT, confirmedTimer } from '../testing/private-workflow-fixture.mjs';
-import { syntheticGrant } from '../testing/auth-fixture.mjs';
-import { sealAdmin, runInstallerAdmin } from '../src/installer-admin.mjs';
-import { readGitHubQuota } from '../src/github-quota.mjs';
-import { Installer } from '../src/installer.mjs';
-import { TerminalUI, promptQuotaSetup } from '../src/installer-ui.mjs';
-import { validateState } from '../src/state-store.mjs';
-import { renderTimerPlan } from '../src/github-schedule.mjs';
+import { privateWorkflowFixture, PROGRAM_COMMIT, confirmedTimer } from './support/private-workflow-fixture.mjs';
+import { syntheticGrant } from './support/auth-fixture.mjs';
+import { sealAdmin, runInstallerAdmin } from '../src/installer/installer-admin.mjs';
+import { readGitHubQuota } from '../src/github/github-quota.mjs';
+import { Installer } from '../src/installer/installer.mjs';
+import { TerminalUI, promptQuotaSetup } from '../src/installer/installer-ui.mjs';
+import { validateState } from '../src/core/state-store.mjs';
+import { renderTimerPlan } from '../src/github/github-schedule.mjs';
 
 async function fixture(t) {
   const f = await privateWorkflowFixture(t); let sequence = 0;

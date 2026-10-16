@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { chmod, open, readFile } from 'node:fs/promises';
-import { bench } from '../testing/bench.mjs';
+import { bench } from './support/bench.mjs';
 
 const real = process.env.AUTO_RESET_CONTRACT_MODE === 'app-server';
 

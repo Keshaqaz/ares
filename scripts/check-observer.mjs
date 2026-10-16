@@ -1,8 +1,8 @@
 // FUTURE LIVE DISPATCH ONLY. Does not load a local CI vault or perform login.
-import { Installer } from '../src/installer.mjs';
-import { InstallerGitHub } from '../src/installer-github.mjs';
-import { StateFailure } from '../src/state-store.mjs';
-import { verifyObserverRuntime } from '../src/observer-dispatch.mjs';
+import { Installer } from '../src/installer/installer.mjs';
+import { InstallerGitHub } from '../src/installer/installer-github.mjs';
+import { StateFailure } from '../src/core/state-store.mjs';
+import { verifyObserverRuntime } from '../src/account/observer-dispatch.mjs';
 import { readFile } from 'node:fs/promises';
 const pins = JSON.parse(await readFile(new URL('../runtime-lock.json', import.meta.url), 'utf8'));
 try {

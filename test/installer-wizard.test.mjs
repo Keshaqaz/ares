@@ -2,10 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { PassThrough } from 'node:stream';
 import { readFile } from 'node:fs/promises';
-import { TerminalUI, messages } from '../src/installer-ui.mjs';
-import { StateFailure } from '../src/state-store.mjs';
-import { TIMER_GRACE_SECONDS } from '../src/schedule-planner.mjs';
-import { wizardMessages, wizardStep, wizardDue, runWizard, WIZARD_STEPS } from '../src/installer-wizard.mjs';
+import { TerminalUI, messages } from '../src/installer/installer-ui.mjs';
+import { StateFailure } from '../src/core/state-store.mjs';
+import { TIMER_GRACE_SECONDS } from '../src/schedule/schedule-planner.mjs';
+import { wizardMessages, wizardStep, wizardDue, runWizard, WIZARD_STEPS } from '../src/installer/installer-wizard.mjs';
 
 const NOW = 1_791_417_600;
 // A paused installation after each wizard step; the fake parts below move it forward.
@@ -146,7 +146,7 @@ test('wizard stops on a step that made no progress and on an enabled installatio
 });
 
 test('installer CLI: the wizard starts by itself, on i, with the menu handlers and without enable', async () => {
-  const source = await readFile(new URL('../src/install-cli.mjs', import.meta.url), 'utf8');
+  const source = await readFile(new URL('../src/installer/install-cli.mjs', import.meta.url), 'utf8');
   const start = source.indexOf('const wizard = '), loop = source.indexOf('while (true) {\n    const live');
   assert.ok(start > 0 && loop > start);
   const setup = source.slice(start, loop);

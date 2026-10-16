@@ -45,7 +45,7 @@ by `npm ci` and is not vendored into the source tree.
 
 ## ascii.rest — MIT License (adapted frames)
 
-The monitor (`src/monitor-ui.mjs`) adapts the "bounce" spinner and the
+The monitor (`src/installer/monitor-ui.mjs`) adapts the "bounce" spinner and the
 "boot log" status tags from https://ascii.rest, ported to plain JavaScript.
 
     Copyright (c) @Shubham / bas3line

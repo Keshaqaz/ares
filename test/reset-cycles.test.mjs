@@ -5,13 +5,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { FileStateStore } from '../src/state-store.mjs';
-import { CycleEngine, minuteGroup } from '../src/reset-cycles.mjs';
-import { activeWindows } from '../src/schedule-planner.mjs';
-import { renderCycleReport } from '../src/cycle-report.mjs';
-import { AccountAdapter } from '../src/account.mjs';
-import { MockRpc } from '../testing/mock-rpc.mjs';
-import { credit } from '../testing/fake-backend.mjs';
+import { FileStateStore } from '../src/core/state-store.mjs';
+import { CycleEngine, minuteGroup } from '../src/core/reset-cycles.mjs';
+import { activeWindows } from '../src/schedule/schedule-planner.mjs';
+import { renderCycleReport } from '../src/core/cycle-report.mjs';
+import { AccountAdapter } from '../src/account/account.mjs';
+import { MockRpc } from './support/mock-rpc.mjs';
+import { credit } from './support/fake-backend.mjs';
 
 const BASE = 1893456000;
 const row = (id, expiry) => credit(id, { expires_at: expiry === null ? null : new Date(expiry * 1000).toISOString() });
@@ -329,7 +329,7 @@ for (const stage of ['afterReserve', 'afterSend', 'afterRpc']) {
     const f = await fixture(t);
     await f.select({ deltaSeconds: 7200 });
     const auditPath = join(f.dir, 'sent.jsonl');
-    const child = spawnSync(process.execPath, ['testing/cycle-crash-fixture.mjs', f.path, auditPath, stage], { encoding: 'utf8' });
+    const child = spawnSync(process.execPath, ['test/support/cycle-crash-fixture.mjs', f.path, auditPath, stage], { encoding: 'utf8' });
     assert.equal(child.status, 74, child.stderr);
     if (stage === 'afterSend') {
       await assert.rejects(f.store.read(), /state_busy/);

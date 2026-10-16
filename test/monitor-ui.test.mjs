@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { PassThrough } from 'node:stream';
-import { initialState } from '../src/state-store.mjs';
-import { renderMonitor, monitorKey, monitorResets, runMonitor, paint } from '../src/monitor-ui.mjs';
+import { initialState } from '../src/core/state-store.mjs';
+import { renderMonitor, monitorKey, monitorResets, runMonitor, paint } from '../src/installer/monitor-ui.mjs';
 
 const NOW = 1791417600;
 const credit = (id, expiry, status = 'available') => ({ id, resetType: 'codexRateLimits', status, grantedAt: NOW - 9000,

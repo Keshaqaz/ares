@@ -2,12 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { createPrivateKey } from 'node:crypto';
-import { timerFixture, TIMER_APP, TIMER_APP_KEY, INSTALLATION_TOKEN, checkAppJwt } from '../testing/timer-fixture.mjs';
-import { compileSlots, windowSlots, DISCOVERY_CRON } from '../src/schedule-planner.mjs';
-import { TIMER_PLAN_PATH, renderTimerPlan } from '../src/managed-schedule.mjs';
-import { firstSlot } from '../src/schedule-time.mjs';
+import { timerFixture, TIMER_APP, TIMER_APP_KEY, INSTALLATION_TOKEN, checkAppJwt } from './support/timer-fixture.mjs';
+import { compileSlots, windowSlots, DISCOVERY_CRON } from '../src/schedule/schedule-planner.mjs';
+import { TIMER_PLAN_PATH, renderTimerPlan } from '../src/schedule/managed-schedule.mjs';
+import { firstSlot } from '../src/schedule/schedule-time.mjs';
 import worker, { tick } from '../worker/index.mjs';
-import { appJwt, importAppKey } from '../src/timer-app.mjs';
+import { appJwt, importAppKey } from '../src/schedule/timer-app.mjs';
 
 const utc = value => Date.parse(value) / 1000;
 // Δ = 1 hour window 10:20–11:20 UTC: planner slots 10:22…11:17 plus discovery.
@@ -257,5 +257,5 @@ test('Worker bundle imports only dependency-free repository modules', async () =
     assert.ok(!/\bBuffer\b|\bprocess\.|import\(/.test(source), url.pathname);
   }
   assert.deepEqual([...seen].map(href => href.split('/').slice(-2).join('/')).sort(),
-    ['src/managed-schedule.mjs', 'src/schedule-time.mjs', 'src/state-failure.mjs', 'src/timer-app.mjs', 'worker/index.mjs']);
+    ['core/state-failure.mjs', 'schedule/managed-schedule.mjs', 'schedule/schedule-time.mjs', 'schedule/timer-app.mjs', 'worker/index.mjs']);
 });

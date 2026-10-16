@@ -96,7 +96,7 @@ repository, budget0, stopUsagetrue, verifiedAt и plan. Budget не провер
 API автоматически: после изменения бюджета нужна повторная проверка установки.
 Меню `q Настроить квоту` сохраняет эти настройки через общий Actions writer;
 `b Проверить квоту` проверяет сохранённые настройки в новой job.
-[Контракт provider и ограничения](github-billing.md).
+[Контракт provider и ограничения](internals/github-billing.md).
 
 До реальных setup/read probes владелец проверяет стоимость всего периода,
 включая setup, другие jobs и queued jobs. Статический `AUTO_RESET_QUOTA_RECEIPT` repo

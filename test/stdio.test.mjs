@@ -1,12 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
-import { MockRpc } from '../testing/mock-rpc.mjs';
-import { StdioRpc } from '../src/stdio.mjs';
-import { AccountAdapter, parseRateLimits, weeklyEvidence } from '../src/account.mjs';
+import { MockRpc } from './support/mock-rpc.mjs';
+import { StdioRpc } from '../src/account/stdio.mjs';
+import { AccountAdapter, parseRateLimits, weeklyEvidence } from '../src/account/account.mjs';
 
 const rpcFixture = scenario => new StdioRpc({ file: process.execPath,
-  args: [fileURLToPath(new URL('../testing/stdio-fixture.mjs', import.meta.url))],
+  args: [fileURLToPath(new URL('./support/stdio-fixture.mjs', import.meta.url))],
   env: { PATH: process.env.PATH, AUTO_RESET_MOCK_SCENARIO: scenario },
 }, { timeoutMs: 250 });
 

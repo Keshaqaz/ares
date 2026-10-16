@@ -46,7 +46,7 @@ flowchart LR
 ```
 
 The target moment is `expiresAt − Δ`; attempts repeat every 5 minutes until success or expiry.
-Details: [ADR-0002 external timer](docs/adr/0002-external-timer.md), [private workflow](docs/private-workflow.md).
+Details: [ADR-0002 external timer](docs/adr/0002-external-timer.md), [private workflow](docs/internals/private-workflow.md).
 
 ## Quick start
 
@@ -90,13 +90,29 @@ What was verified live and what was not: [support table](docs/support.md).
 
 [Installation](docs/installation.en.md) ·
 [Support](docs/support.md) ·
-[Private workflow](docs/private-workflow.md) ·
-[Auth & storage](docs/auth-storage.md) ·
-[Reset cycles](docs/reset-cycle-state.md) ·
-[Planner & quota](docs/schedule-planner.md) ·
+[Private workflow](docs/internals/private-workflow.md) ·
+[Auth & storage](docs/internals/auth-storage.md) ·
+[Reset cycles](docs/internals/reset-cycle-state.md) ·
+[Planner & quota](docs/internals/schedule-planner.md) ·
 [Glossary](CONTEXT.md)
 
 ## Development
+
+```
+src/
+  account/    App Server RPC, account reads, observer
+  session/    host-owned OAuth, CI session, revoke
+  core/       reset-cycle engine, durable state, reports
+  schedule/   planner, cron dialect, timer app
+  github/     repo storage, billing, quota, timer plan
+  workflow/   private Actions job entry point
+  installer/  macOS installer, wizard, monitor
+  cli.mjs     synthetic CLI
+worker/       Cloudflare timer Worker
+templates/    private workflow template
+test/         tests; support/ — fixtures and contract runner
+docs/         guides; internals/, adr/
+```
 
 ```sh
 npm test                      # offline, no credentials or network

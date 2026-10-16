@@ -11,5 +11,5 @@ binary_path="${AUTO_RESET_CODEX_BIN:-$PWD/.runtime/codex}"
 [[ "$binary_path" == /* && -x "$binary_path" ]] || { echo 'absolute_pinned_binary_required' >&2; exit 1; }
 sudo -n unshare --net -- sh -c '
   ip link set lo up
-  exec runuser -u "$1" -- env PATH="$2" AUTO_RESET_CODEX_BIN="$3" "$4" testing/contract.mjs
+  exec runuser -u "$1" -- env PATH="$2" AUTO_RESET_CODEX_BIN="$3" "$4" test/support/contract.mjs
 ' sh "$(id -un)" "$PATH" "$binary_path" "$node_path"

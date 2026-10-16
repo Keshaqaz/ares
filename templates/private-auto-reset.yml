@@ -51,4 +51,4 @@ jobs:
           AUTO_RESET_PILOT_APPROVED: ${{ vars.AUTO_RESET_PILOT_APPROVED }}
           AUTO_RESET_COMMAND: ${{ inputs.command }}
           AUTO_RESET_LANGUAGE: ${{ vars.AUTO_RESET_LANGUAGE }}
-        run: node src/private-cli.mjs
+        run: node src/workflow/private-cli.mjs
