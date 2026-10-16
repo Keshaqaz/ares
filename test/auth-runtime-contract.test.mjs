@@ -47,6 +47,7 @@ test('stock managed auth: process exit while refresh reply is pending does not s
 // Exploration requested by the user, not an enabled production auth mode.
 test('alternative: stock external-token mode supports selected reset RPC without owning refresh tokens', { skip: !real }, async t => {
   const b = await bench({ authMode: 'external' });
+  b.backend.state.weeklyExhausted = true; // consume requires weekly evidence by default.
   t.after(async () => { await b.close(); assert.deepEqual(b.backend.state.violations, []); });
   const refreshed = await b.account.refresh();
   // 0.160.1 reports account type chatgpt even after confirmed chatgptAuthTokens login.
