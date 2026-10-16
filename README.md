@@ -1,133 +1,111 @@
-# Автоматическое применение выданных сбросов
+<div align="center">
 
-Бесплатный продукт с открытым кодом для личных аккаунтов: автоматически применять
-выбранный выданный сброс до окончания срока его активации. GitHub Actions запускает
-программу в private repo пользователя; компьютер после установки может быть выключен.
-Официальный App Server выполняет account RPC без модели.
+```
+ █████╗ ██████╗ ███████╗███████╗
+██╔══██╗██╔══██╗██╔════╝██╔════╝
+███████║██████╔╝█████╗  ███████╗
+██╔══██║██╔══██╗██╔══╝  ╚════██║
+██║  ██║██║  ██║███████╗███████║
+╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝╚══════╝
+```
 
-При известном сроке целевой момент — `expiresAt − Δ`. Плановые попытки идут раз в пять
-минут: окна будит внешний таймер — бесплатный Cloudflare Worker отправляет пустой
-`workflow_dispatch` в минуты опубликованного плана ([ADR-0002](docs/adr/0002-external-timer.md)).
-Нативный cron GitHub остаётся суточным резервом. Ни Cloudflare, ни GitHub не обещают
-пунктуальность, поэтому возможны задержки/пропуски. Группы совпадающих сроков определяются
-по календарной минуте; цикл бессрочного/неизвестного срока ограничен часом от выбранного
-начала. Unknown consume останавливает новые запросы даже после reconnect.
+**Auto-RESets for Codex** — applies your issued rate-limit resets before they expire.<br>
+Runs in your own private GitHub repo. Your Mac can be off.
 
-Монитор установщика (меню `m`) показывает выданные сбросы с датами истечения и два
-**общих правила** для всех сбросов, обе галочки выключены по умолчанию:
+[![version](https://img.shields.io/badge/version-0.1.0-8A2BE2)](NOTICES.md)
+[![platform](https://img.shields.io/badge/installer-macOS-000?logo=apple)](docs/installation.en.md)
+[![node](https://img.shields.io/badge/node-26.10.0-339933?logo=nodedotjs&logoColor=white)](docs/installation.en.md)
+[![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-- «за 30 минут до истечения» — окно попыток с `expiresAt − 30 мин` до срока, без условия
-  недельной квоты (команда `before-expiry`);
-- «автоматически при исчерпании недельной квоты» (команда `weekly-auto`): при
-  подтверждённом исчерпании недельного окна до его resetsAt сразу применяется сброс
-  с ближайшим сроком. При 99% недельной квоты таймер учащает проверки на час.
-  Пятичасовое исчерпание, неизвестное или устаревшее недельное состояние применение
-  не запускают.
+**English** · [Русский](README.ru.md)
 
-«Применить сейчас» у выбранного сброса после подтверждения начинает цикл попыток без
-условий правил. Явный выбор (`5 Select`) сохраняет прежнюю семантику: окно `expiresAt − Δ`
-и недельное условие.
+<img src="docs/assets/monitor-en.png" width="760" alt="ARES monitor: issued resets, global rules and the apply-now dialog">
 
-Реализованы runtime/account adapter, durable state/команды, GitHub storage,
-host-owned OAuth, planner, общий private workflow и установщик для macOS ru/en.
-Личный private пилот завершён 14 октября 2026. Вживую проверены: отдельная CI-сессия
-с host OAuth refresh и публикацией, account read и metadata через pinned App Server,
-применение одного выбранного сброса (9 октября 2026; второй остался available),
-автономный GitHub quota provider с отдельным Plan:read доступом и подтверждённым
-владельцем бюджетом `$0 + Stop usage`, доставка окна внешним таймером установки
-(пустой dispatch Worker в пробный слот, run через 35 с) и revoke сессии с прекращением
-access и refresh. Известные ограничения: чтение при естественно исчерпанной пятичасовой
-квоте вживую не наблюдалось; продукт рассчитан на платные планы ChatGPT — при другой
-структуре окон недельное автоприменение не срабатывает и сброс не расходует. Живой
-consume при недельном исчерпании не выполнялся.
-[Поддержка и границы проверки](docs/support.md).
-[Проверенный механизм применения и тесты без расхода настоящих сбросов](docs/reset-activation-verified.md).
+</div>
 
-## Установка
+## Features
 
-Нужны macOS, Node **26.10.0** и официальный Codex **0.160.1** для отдельного CI login.
+- **Never lose a reset** — apply it `Δ` minutes before expiry or 30 minutes before, for all resets.
+- **Weekly auto-apply** — spend the nearest-expiring reset right after the weekly quota is confirmed exhausted.
+- **Apply now** — one keypress in the monitor, with confirmation.
+- **Serverless** — GitHub Actions does the work; a free Cloudflare Worker wakes it every 5 minutes.
+- **Your credentials stay yours** — a separate CI login; desktop credentials are never copied.
+- **$0 by design** — reads Actions usage before every job and stops behind a `$0 + Stop usage` budget.
+- **Guided setup** — a ru/en terminal wizard, the token stored in the macOS Keychain.
+
+## How it works
+
+```mermaid
+flowchart LR
+  W["Cloudflare Worker<br/>timer, every 5 min"] -- empty dispatch --> A
+  subgraph GH["your private GitHub repo"]
+    A["Actions job"] --> S[("durable state")]
+  end
+  A -- "account RPC, no model" --> C["Codex App Server<br/>→ ChatGPT account"]
+  M["installer on Mac<br/>setup · monitor"] -- sealed commands --> GH
+```
+
+The target moment is `expiresAt − Δ`; attempts repeat every 5 minutes until success or expiry.
+Details: [ADR-0002 external timer](docs/adr/0002-external-timer.md), [private workflow](docs/private-workflow.md).
+
+## Quick start
+
+Requires macOS, Node **26.10.0**, official Codex **0.160.1** and a free Cloudflare account.
 
 ```sh
+git clone https://github.com/Keshaqaz/ares.git && cd ares
 npm ci --ignore-scripts --no-audit --no-fund
 npm run install:macos
 ```
 
-[Инструкция установки](docs/installation.md) описывает private repo, токен установки
-(один fine-grained PAT по предзаполненной ссылке: repo и billing, срок и напоминание), отдельный вход, настройку автономной квоты (`q` → `b`), disabled seed/check, выбор сброса/Δ,
-внешний таймер (`c`), enable, pause/resume,
-явное обновление, reconnect и uninstall/revoke. Доставка admin-команд идёт через общий
-Actions writer; dispatch не подтверждает принятие. Результаты и настройки — в Summary.
+The wizard (`i`) walks through: private repo → installation token → install → ChatGPT login →
+quota → external timer. Enabling (`6`) stays your explicit decision: set the repository variable
+`AUTO_RESET_PILOT_APPROVED` to `owner/repo` first.
+Full guide: [docs/installation.en.md](docs/installation.en.md).
 
-[ADR-0001](docs/adr/0001-host-owned-auth.md): программа владеет refresh token и публикует
-обновлённую CI-сессию до выдачи access token stock App Server. Desktop credentials не
-копируются. Собственная сборка Codex не нужна.
+## Monitor
 
-Enable требует решения владельца о живом consume (repository variable
-`AUTO_RESET_PILOT_APPROVED`, установщик её не выставляет), подтверждённых клиентского
-пути/persistence/правил затрат, подтверждённого внешнего таймера и свежего quota admission. [Provider](docs/github-billing.md) читает расход перед
-каждой job; изменение сохранённого бюджета требует повторной проверки установки.
-Меню включения получает квоту через проверенный provider без ручного JSON receipt.
-Токен установки — единственный токен, который пользователь выпускает сам
-([ADR-0003](docs/adr/0003-single-token-timer-app.md)): установщик открывает предзаполненную
-форму GitHub (Contents, Secrets, Actions, Variables, Workflows — write; Plan: read; 366 дней),
-пользователь выбирает repo и нажимает Generate. Установщик проверяет выпущенный токен:
-права, Plan: read, фактический срок (короче года — принимается с подсказкой перевыпуска) и
-доступ к другим private repo (предупреждение) и сохраняет его в macOS Keychain (`auto-reset`,
-`owner/repo`; токен передаётся `security` только через stdin), поэтому повторный запуск его не
-спрашивает; `k Токены` показывает токен установки, ключ таймера и сессию ChatGPT одной таблицей
-и заменяет каждый (`k → 1` обновляет запись Keychain), uninstall удаляет запись. За 14 дней до истечения напоминают установщик,
-`s` и Actions Summary. Отдельного billing-токена больше нет: `8 Upgrade` удаляет его Secret,
-после чего нужна повторная проверка квоты `b`.
+<img src="docs/assets/status-en.png" width="760" alt="ARES status screen: connection, quota forecast and journal">
 
-Первый запуск ведёт мастер настройки (`i`): Install → вход ChatGPT → квота → внешний таймер
-подряд; прерванный продолжает с первого невыполненного шага по state. Включение `6` — отдельно.
+| Key | Action |
+| --- | --- |
+| `↑` `↓` | select a reset or the rules block |
+| `Enter` | apply now (confirm with `y`) / enter rules |
+| `Space` | toggle a global rule |
+| `2` | status and journal |
+| `r` | refresh |
+| `q` | back to the menu |
 
-Внешний таймер — сторонний сервис: нужен бесплатный аккаунт Cloudflare. Второго токена
-нет: шаг `c` создаёт приложение таймера — GitHub App в вашем аккаунте с правами Actions:
-write и Contents: read — двумя кликами (Create, затем Install на этот repo). Ключ
-приложения хранится только как Worker secret, и Worker сам получает часовой токен только на
-этот repo; токен установки, сессия ChatGPT и state в Cloudflare не попадают. Шаг
-разворачивает Worker через Wrangler и до включения подтверждает его пустым тестовым
-dispatch, видимым в Actions. Подробности и последствия
-утечки — в [инструкции](docs/installation.md#внешний-таймер).
+<sub>Screenshots use synthetic data.</sub>
 
-## Offline-проверка
+## Limitations
 
-```sh
-npm test
-npm run test:contract
-```
+- No SLA: neither Cloudflare nor GitHub promises punctual runs; a slot can be late or missed.
+- Built for paid ChatGPT plans (5-hour and weekly windows).
+- An accepted command is not an application; an unconfirmed outcome stops further attempts.
 
-Первый набор не требует credentials или сети. Второй требует pinned App Server,
-`AUTO_RESET_CODEX_BIN` и OS network guard для synthetic loopback backend.
-Последние результаты и границы проверки — в
-[таблице поддержки](docs/support.md).
+What was verified live and what was not: [support table](docs/support.md).
 
-Synthetic CLI можно запустить отдельно:
+## Documentation
+
+[Installation](docs/installation.en.md) ·
+[Support](docs/support.md) ·
+[Private workflow](docs/private-workflow.md) ·
+[Auth & storage](docs/auth-storage.md) ·
+[Reset cycles](docs/reset-cycle-state.md) ·
+[Planner & quota](docs/schedule-planner.md) ·
+[Glossary](CONTEXT.md)
+
+## Development
 
 ```sh
-node src/cli.mjs --mode mock
-```
-
-Для durable synthetic состояния используйте
-`node src/cli.mjs --mode mock --state /tmp/auto-reset-demo.json`;
-команды описаны в [документации состояния](docs/reset-cycle-state.md).
-
-## Документация
-
-- [Установка — русский](docs/installation.md), [Installation — English](docs/installation.en.md).
-- [Поддержка и ограничения / Support](docs/support.md).
-- [Private workflow/общий writer](docs/private-workflow.md).
-- [Auth/storage](docs/auth-storage.md), [состояние циклов и отчёт](docs/reset-cycle-state.md).
-- [Планировщик/квота](docs/schedule-planner.md), [словарь](CONTEXT.md).
-
-## Локальный пакет
-
-```sh
-node scripts/release-package.mjs
+npm test                      # offline, no credentials or network
+npm run test:contract         # pinned App Server + synthetic backend
+node src/cli.mjs --mode mock  # synthetic CLI
 node scripts/release-package.mjs --verify
 ```
 
-Сборка создаёт `dist/auto-reset-src-0.1.0.tar` и manifest с hashes/pins.
-Приватные протоколы пилота и локальный трекер в пакет не входят. Подтверждённое и
-неподтверждённое поведение перечислено в таблице поддержки.
+## License
+
+[MIT](LICENSE) · third-party notices in [NOTICES.md](NOTICES.md).
+Unofficial project, not affiliated with OpenAI.
