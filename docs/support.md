@@ -8,11 +8,13 @@
 Private evidence и credentials в исходный пакет не входят.
 
 Логика финального source совпадает с последним развёрнутым в пилоте program pin
-`d1bad488165a59a1e2465d078f0bdc6cc386f0bd` в 44 из 45 программных файлов установки;
-отличается только `installer-timer.mjs` — исправление проверки токена таймера (до первой
-публикации плана), которое выполняется на Mac и в CI не поставляется. После пилота файлы
+`d1bad488165a59a1e2465d078f0bdc6cc386f0bd` в 43 из 45 программных файлов установки.
+Отличаются `installer-timer.mjs` — исправление проверки токена таймера (до первой
+публикации плана), которое выполняется на Mac и в CI не поставляется, — и
+`installer-admin.mjs`: Upgrade принимается и на отозванной установке (отзыв сохраняется);
+pin `d1bad488…` такой Upgrade отклоняет с `installation_revoked`. После пилота файлы
 разложены по папкам: `src/` — по областям (account, session, core, schedule, github,
-workflow, installer), Worker — в `src/worker/`, пины — в `src/runtime-lock.json`. Изменились
+workflow, installer), Worker — в `src/worker/`, пины — в `src/runtime-lock.json`. Перенос изменил
 только пути и импорты; поэтому файлы pin и нового source побайтно не совпадают. Новая
 раскладка проверена offline-тестами и сборкой пакета; живой Upgrade установки на неё не
 выполнялся.
@@ -63,11 +65,13 @@ Free на подпись RS256 на edge не измерен), личные бю
 **English:** Source package 0.1.0 after the personal pilot closed on 14 October 2026.
 The table distinguishes local client tests, stock App Server tests against a
 synthetic backend, and live/hosted evidence from one personal installation. The
-final source keeps the logic of 44 of the 45 installer program files deployed at pilot pin
-`d1bad488165a59a1e2465d078f0bdc6cc386f0bd`; only `installer-timer.mjs` differs
-(a Mac-side fix to timer token verification before the first plan exists). After the
+final source keeps the logic of 43 of the 45 installer program files deployed at pilot pin
+`d1bad488165a59a1e2465d078f0bdc6cc386f0bd`. `installer-timer.mjs` differs (a Mac-side fix
+to timer token verification before the first plan exists), and so does
+`installer-admin.mjs`: Upgrade is accepted on a revoked installation, which stays revoked;
+pin `d1bad488…` refuses such an Upgrade with `installation_revoked`. After the
 pilot the files moved into folders (`src/` by area, the Worker to `src/worker/`, pins to
-`src/runtime-lock.json`); only paths and imports changed, so the files no longer match the
+`src/runtime-lock.json`); the move changed only paths and imports, so the files no longer match the
 pin byte for byte. The layout is verified offline, without a live Upgrade.
 
 Passed live: host-owned refresh and publication, one selected reset applied

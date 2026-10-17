@@ -100,7 +100,8 @@ export async function runInstallerAdmin({ storage, workflow, serialization, comm
       if (c.action === 'seed' && s.auth?.committed && decodeBundle(p.bundle).sessionId === s.auth.committed.sessionId) fail('new_login_required');
       if (s.version !== c.expectedVersion) fail('version_conflict');
       if (s.installation?.operation?.phase === 'pending') fail('admin_recovery_required');
-      if (s.revoked && !['seed', 'recover', 'uninstall', 'check'].includes(c.action)) fail('installation_revoked');
+      // Upgrade changes only the pin and workflow, never the session, so a revoked installation can move to a newer program.
+      if (s.revoked && !['seed', 'recover', 'uninstall', 'check', 'upgrade'].includes(c.action)) fail('installation_revoked');
       s = (await storage.update(v => {
         if (v.version !== c.expectedVersion) fail('version_conflict');
         v.installation ??= { programCommit, seedSession: null, checkedSession: null, operation: null, grant: null };

@@ -242,6 +242,20 @@ test('upgrade publishes the exact template from the target commit instead of the
   assert.deepEqual(f.github.state.auth, before); assert.equal(f.github.state.disabled, true);
 });
 
+test('upgrade is accepted on a revoked installation and leaves it revoked; other commands stay refused', async t => {
+  const f = await fixture(t); await seed(f);
+  const next = '5'.repeat(40), api = f.github.storage.api.bind(f.github.storage);
+  f.github.storage.api = (path, opts) => path.startsWith('/git/commits/') ? Promise.resolve({ sha: next }) : api(path, opts);
+  await f.actions.writer(() => f.github.storage.update(v => { v.revoked = true; v.installation.seedSession = null; }));
+  const before = structuredClone(f.github.state.auth);
+  await f.admin(f.adminCommand('upgrade', { programCommit: next }));
+  assert.equal(f.github.state.installation.programCommit, next);
+  assert.equal(f.github.state.revoked, true); assert.equal(f.github.state.disabled, true);
+  assert.deepEqual(f.github.state.auth, before);
+  assert.ok(f.schedule.content.includes(`ref: ${next}`));
+  await assert.rejects(f.admin(f.adminCommand('language', { language: 'ru' }), { programCommit: next }), /installation_revoked/);
+});
+
 test('enable obtains a fresh provider receipt instead of trusting the encrypted caller billing snapshot', async t => {
   const f = await fixture(t); await seed(f); await f.admin(f.adminCommand('check'));
   let queried = 0;

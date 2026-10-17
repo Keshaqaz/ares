@@ -403,6 +403,9 @@ commit в том же repo без изменения исполняемого re
 commit/state migration, меняет pin и публикует workflow из шаблона целевого commit
 (только статический резервный cron; managed cron старых pin исчезает вместе с файлом). Auth/history не
 берутся из старого checkout. После обновления нужны Check и отдельный Enable.
+Upgrade выполняется и на отозванной установке: отзыв сохраняется, новый вход — `2`/`3`.
+Программы до этой версии (в том числе pin пилота `d1bad488…`) такой Upgrade отклоняют с
+`installation_revoked`: сначала новый вход.
 Late job со старым program pin получает `program_version_conflict` до account RPC.
 Миграции поддерживаются только существующим `migrateState`; неизвестная schema отказывает.
 Переход на один токен установки выполняет первая admin-команда новой версии (state без
