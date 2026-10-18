@@ -19,3 +19,5 @@
 - **Один repo.** Ни форма PAT, ни ссылка установки App (`repository_ids[]`) repo не ограничивают: по умолчанию получилось «All repositories». Установщик проверяет оба — токен по списку видимых private repo, App по `repository_selection` — и при доступе шире repo установки **предупреждает и продолжает**, подсказывая «Only select repositories». Плата за это решение: широкий токен установки в Repository Secrets даёт запись во все repo владельца; утечка ключа таймера при установке на все repo позволяет запускать и отключать workflow и читать содержимое всех repo, а не только repo установки. Worker по-прежнему сужает каждый installation token до repo установки и двух прав.
 - **Webhook.** Manifest без `hook_attributes.url` отклоняется; используется URL-заглушка с `active: false`.
 
+
+**Заменено** [ADR-0004](0004-github-only-worker.md) 19 октября 2026.
