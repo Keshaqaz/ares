@@ -34,6 +34,10 @@ export function fakeWorld({ now = Date.parse('2026-10-20T12:00:00Z'), accountId 
       secondary: window(604800, 40, now + 3 * 24 * 3600_000),
       credits: [credit('reset-a', now + 5 * 24 * 3600_000)],
       fail: null, // { status } or 'network' for every /wham call
+      // POST consume: outcome for a fresh key, lose drops the reply ('after' the server
+      // applied it or 'before'), consumeFail answers { status } without applying.
+      outcome: 'reset', lose: null, consumeFail: null, renewsWindows: true,
+      redemptions: [], // { creditId, key, outcome } for every request the server processed
     },
     // auth.openai.com side.
     auth: {
@@ -68,6 +72,9 @@ export function fakeWorld({ now = Date.parse('2026-10-20T12:00:00Z'), accountId 
   world.revokeAccess = () => { world.auth.current = { ...world.auth.current, access: null }; };
   world.endSession = code => { world.auth.family = code; world.revokeAccess(); };
   world.refreshCalls = () => world.requests.filter(r => r.path === '/oauth/token' && r.grant === 'refresh_token');
+
+  world.consumeCalls = () => world.requests.filter(r => r.path.endsWith('/rate-limit-reset-credits/consume'));
+  world.spent = () => world.chatgpt.redemptions.filter(r => r.outcome === 'reset').map(r => r.creditId);
 
   async function token(body, contentType) {
     const data = contentType?.startsWith('application/x-www-form-urlencoded') ?
@@ -120,7 +127,38 @@ export function fakeWorld({ now = Date.parse('2026-10-20T12:00:00Z'), accountId 
       authorization_code: code, code_challenge: 'fake-challenge', code_verifier: verifier });
   }
 
-  function wham(path, method, headers) {
+  // Backend reply shape from the stock App Server parser: { code, windows_reset }.
+  // The server is assumed idempotent by redeem_request_id; live check 10 verifies it.
+  function consume(body) {
+    const data = JSON.parse(body || '{}');
+    const { chatgpt } = world;
+    if (typeof data.credit_id !== 'string' || typeof data.redeem_request_id !== 'string' || Object.keys(data).length !== 2) {
+      world.violations.push('malformed consume');
+      return json(400, {});
+    }
+    world.requests.at(-1).creditId = data.credit_id;
+    world.requests.at(-1).key = data.redeem_request_id;
+    if (chatgpt.consumeFail) return json(chatgpt.consumeFail.status, { detail: 'fake failure' });
+    if (chatgpt.lose === 'before') return Promise.reject(new TypeError('fetch failed'));
+    const seen = chatgpt.redemptions.find(r => r.key === data.redeem_request_id);
+    if (seen && seen.creditId !== data.credit_id) world.violations.push('key reused for another reset');
+    let outcome = seen?.outcome;
+    if (!outcome) {
+      const row = chatgpt.credits.find(c => c.id === data.credit_id);
+      if (row?.status === 'available') outcome = chatgpt.outcome;
+      else outcome = row?.status === 'redeemed' ? 'already_redeemed' : 'no_credit';
+      if (outcome === 'reset') {
+        row.status = 'redeemed';
+        const renew = w => w && window(w.limit_window_seconds, 0, world.now + w.limit_window_seconds * 1000);
+        if (chatgpt.renewsWindows) [chatgpt.primary, chatgpt.secondary] = [renew(chatgpt.primary), renew(chatgpt.secondary)];
+      }
+      chatgpt.redemptions.push({ creditId: data.credit_id, key: data.redeem_request_id, outcome });
+    }
+    if (chatgpt.lose === 'after') return Promise.reject(new TypeError('fetch failed'));
+    return json(200, { code: outcome, windows_reset: outcome === 'reset' ? 1 : 0 });
+  }
+
+  function wham(path, method, headers, body) {
     const bearer = headers.get('authorization')?.replace(/^Bearer /, '');
     const claims = (() => { try { return JSON.parse(Buffer.from(bearer.split('.')[1], 'base64url')); } catch { return null; } })();
     if (!bearer || bearer !== world.auth.current?.access || claims.exp * 1000 <= world.now ||
@@ -143,6 +181,7 @@ export function fakeWorld({ now = Date.parse('2026-10-20T12:00:00Z'), accountId 
           applicable_available_count: credits.filter(c => c.status === 'available').length },
       });
     }
+    if (path === '/rate-limit-reset-credits/consume' && method === 'POST') return consume(body);
     if (path === '/rate-limit-reset-credits' && method === 'GET') {
       const available = world.chatgpt.credits.filter(c => c.status === 'available').length;
       return json(200, { credits: world.chatgpt.credits, available_count: available,
@@ -165,7 +204,7 @@ export function fakeWorld({ now = Date.parse('2026-10-20T12:00:00Z'), accountId 
       else if (url.pathname === '/api/accounts/deviceauth/usercode') reply = deviceUsercode(JSON.parse(body));
       else if (url.pathname === '/api/accounts/deviceauth/token') reply = devicePoll(JSON.parse(body));
     } else if (url.origin === 'https://chatgpt.com' && url.pathname.startsWith('/backend-api/wham/')) {
-      reply = await wham(url.pathname.slice('/backend-api/wham'.length), method, headers);
+      reply = await wham(url.pathname.slice('/backend-api/wham'.length), method, headers, body);
     }
     if (reply) return reply;
     world.violations.push(`${method} ${url.href}`);

@@ -130,11 +130,11 @@ test('a rejected access token means the worker session is lost, without a refres
   assert.deepEqual(result.state.session, state.session);
 });
 
-test('a refresh hands the rotated state to onRefresh before any read', async () => {
+test('a refresh hands the rotated state to persist before any read', async () => {
   const { world, state, run } = setup();
   nearExpiry(world, state);
   const handed = [];
-  const result = await run(state, { onRefresh: async next => {
+  const result = await run(state, { persist: async next => {
     handed.push({ next, readsBefore: world.requests.filter(r => r.host === 'chatgpt.com').length });
   } });
   assert.equal(result.outcome, 'idle');
@@ -144,10 +144,10 @@ test('a refresh hands the rotated state to onRefresh before any read', async () 
   assert.notEqual(handed[0].next.session.refreshToken, state.session.refreshToken);
 });
 
-test('onRefresh is not called when the session is far from expiry', async () => {
+test('persist is not called when the session is far from expiry', async () => {
   const { state, run } = setup();
   let calls = 0;
-  await run(state, { onRefresh: () => { calls++; } });
+  await run(state, { persist: () => { calls++; } });
   assert.equal(calls, 0);
 });
 

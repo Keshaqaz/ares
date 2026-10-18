@@ -4,11 +4,16 @@ const BASE = 'https://chatgpt.com/backend-api/wham';
 const WEEK_SECONDS = 604800, FIVE_HOURS_SECONDS = 18000;
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 
-async function get(fetch, session, path) {
-  const { status, value } = await request(fetch, `${BASE}${path}`,
-    { headers: { authorization: `Bearer ${session.accessToken}`, 'chatgpt-account-id': session.accountId } });
+async function wham(fetch, session, path, { headers, ...options } = {}) {
+  const reply = await request(fetch, `${BASE}${path}`, { ...options,
+    headers: { authorization: `Bearer ${session.accessToken}`, 'chatgpt-account-id': session.accountId, ...headers } });
   // Refresh happens only near exp, so a rejected access token means the session is gone.
-  if (status === 401) throw new SessionLost('access_rejected');
+  if (reply.status === 401) throw new SessionLost('access_rejected');
+  return reply;
+}
+
+async function get(fetch, session, path) {
+  const { status, value } = await wham(fetch, session, path);
   if (status !== 200 || !object(value)) throw new TransientFailure(`wham_${status}`);
   return value;
 }
@@ -39,4 +44,17 @@ export async function issuedResets(fetch, session) {
     if (typeof row.id !== 'string' || !row.id || Number.isNaN(expiresAt)) throw new TransientFailure('wham_invalid_credits');
     return { id: row.id, expiresAt };
   });
+}
+
+// Stock App Server parser: the backend answers { code, windows_reset }.
+const CONSUME_RESULTS = ['reset', 'nothing_to_reset', 'no_credit', 'already_redeemed'];
+
+// One POST consume for the chosen reset. The server dedupes by redeemRequestId, so a retry
+// of the same attempt reuses it. Throws TransientFailure when the result is unknown.
+export async function consume(fetch, session, { creditId, redeemRequestId }) {
+  const { status, value } = await wham(fetch, session, '/rate-limit-reset-credits/consume', { method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ redeem_request_id: redeemRequestId, credit_id: creditId }) });
+  if (status !== 200 || !CONSUME_RESULTS.includes(value?.code)) throw new TransientFailure(`consume_${status}`);
+  return value.code;
 }
