@@ -180,3 +180,40 @@ test('a malformed reset list is a transient error, not an empty one', async () =
   world.chatgpt.credits = [credit('reset-a', null, { expires_at: 'not a date' })];
   assert.equal((await run(state)).outcome, 'transient_error');
 });
+
+test('tick takes the session of a new login for the same account once and keeps the history', async () => {
+  const { world, state, run } = setup();
+  const history = { ...state, applied: [{ creditId: 'reset-old', expiresAt: world.now - DAY, reason: 'before_expiry', at: world.now - 2 * DAY, recovers: null }] };
+  world.endSession('refresh_token_invalidated');
+  assert.equal((await run(history)).outcome, 'reauth_required');
+
+  const login = { id: 'login-1', session: world.login() };
+  const saved = [];
+  const result = await run(history, { login, persist: async s => { saved.push(s); } });
+  assert.equal(result.outcome, 'idle');
+  assert.deepEqual(result.state.session, login.session);
+  assert.deepEqual(result.state.login, { id: 'login-1', result: 'accepted', at: world.now });
+  assert.deepEqual(result.state.applied, history.applied);
+  // The new refresh token reaches the repository before anything can rotate it.
+  assert.deepEqual(saved[0].session, login.session);
+
+  // The secret stays until the CLI deletes it; a later tick never goes back to its tokens.
+  world.advance(expiry(login.session) - world.now - 60_000);
+  const refreshed = await run(result.state, { login });
+  assert.equal(refreshed.outcome, 'idle');
+  assert.notEqual(refreshed.state.session.refreshToken, login.session.refreshToken);
+  const later = await run(refreshed.state, { login });
+  assert.equal(later.state.session.refreshToken, refreshed.state.session.refreshToken);
+});
+
+test('tick rejects a login into another ChatGPT account and keeps the old session', async () => {
+  const { world, state, run } = setup();
+  world.accountId = 'account-other';
+  const login = { id: 'login-2', session: world.login() };
+  const result = await run(state, { login });
+  assert.deepEqual(result.state.session, state.session);
+  assert.deepEqual(result.state.login, { id: 'login-2', result: 'rejected', at: world.now });
+  // The old session belongs to the old account, which this world no longer serves.
+  assert.equal(result.outcome, 'reauth_required');
+  assert.equal(world.consumeCalls().length, 0);
+});

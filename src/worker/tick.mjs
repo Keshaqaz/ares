@@ -32,13 +32,22 @@ function chooseByRules({ weeklyQuota, resets }, applied, rules, now) {
 
 // One worker run: refresh the worker session if it is about to expire, read quotas and
 // issued resets, then apply at most one reset: the general rules choose it, or applyNow
-// names it (a reset id from «Применить сейчас») regardless of the rules. The caller
-// persists the returned state whatever the outcome. persist(state) is awaited after a
-// refresh (it has already rotated the refresh token) and before a consume POST (its
-// redeem_request_id must survive a lost reply), so the caller commits those states first.
-export async function tick({ state, rules, now, fetch, applyNow = null, persist = async () => {} }) {
+// names it (a reset id from «Применить сейчас») regardless of the rules. login is a new
+// worker session from `codex-auto-resets login`, { id, session }: it replaces the session
+// once, and only for the same ChatGPT account. The caller persists the returned state
+// whatever the outcome. persist(state) is awaited after a new session (a refresh has
+// already rotated the refresh token, a login must not be lost) and before a consume POST
+// (its redeem_request_id must survive a lost reply), so the caller commits those states first.
+export async function tick({ state, rules, now, fetch, applyNow = null, login = null, persist = async () => {} }) {
   let next = { pending: null, applied: [], ...state };
   try {
+    // The login secret outlives its use; its tokens are rotated away after the first tick.
+    if (login && login.id !== next.login?.id) {
+      const accepted = login.session.accountId === next.session.accountId;
+      next = { ...next, session: accepted ? login.session : next.session,
+        login: { id: login.id, result: accepted ? 'accepted' : 'rejected', at: now } };
+      if (accepted) await persist(next);
+    }
     if (needsRefresh(next.session, now)) {
       next = { ...next, session: await refresh(fetch, next.session) };
       await persist(next);

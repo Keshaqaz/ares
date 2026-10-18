@@ -1,4 +1,4 @@
-import { FILES, STATE_KEY_SECRET } from './layout.mjs';
+import { FILES, STATE_KEY_SECRET, LOGIN_SECRET } from './layout.mjs';
 
 // The worker repository's only workflow. The cron is static and never rewritten after
 // setup (ADR-0004); setup picks the minute so that installations do not all start together.
@@ -35,6 +35,7 @@ jobs:
       - name: Tick
         env:
           STATE_KEY: \${{ secrets.${STATE_KEY_SECRET} }}
+          WORKER_LOGIN: \${{ secrets.${LOGIN_SECRET} }}
           APPLY_NOW: \${{ inputs.apply_now }}
         run: node ${FILES.worker}
 `;

@@ -49,6 +49,17 @@ export function openState(text, key) {
   return state;
 }
 
+// The login secret the CLI writes: { id, session }. Anything else is null: it is not the
+// state, and the worker keeps its own session.
+export function readLogin(text) {
+  let login;
+  try { login = JSON.parse(text); } catch { return null; }
+  const { id, session } = login ?? {};
+  if (typeof id !== 'string' || !id || typeof session?.refreshToken !== 'string' || typeof session.accessToken !== 'string' ||
+      typeof session.accountId !== 'string') return null;
+  return { id, session };
+}
+
 // Rules are open JSON that only the CLI writes.
 export function readRules(text) {
   let rules;

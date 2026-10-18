@@ -115,12 +115,25 @@ export class GitHubApi {
     await this.expect('write_secret', `/repos/${repo}/actions/secrets/${secret}`, [201, 204], { method: 'PUT',
       body: { key_id: key.key_id, encrypted_value: Buffer.from(sealed).toString('base64') } });
   }
+  async deleteSecret(repo, secret) {
+    await this.expect('delete_secret', `/repos/${repo}/actions/secrets/${secret}`, [204, 404], { method: 'DELETE' });
+  }
   // false while GitHub does not know the workflow yet: right after its push a dispatch gets
   // 404, or 422 while the workflow_dispatch trigger is not registered.
   async dispatch(repo, workflow, { ref, inputs }) {
     const reply = await this.expect('dispatch', `/repos/${repo}/actions/workflows/${workflow}/dispatches`, [204, 404, 422],
       { method: 'POST', body: { ref, inputs } });
     return reply.status === 204;
+  }
+  // active, disabled_manually, disabled_inactivity…; null while GitHub does not know the workflow.
+  async workflowState(repo, workflow) {
+    const reply = await this.expect('workflow', `/repos/${repo}/actions/workflows/${workflow}`, [200, 404]);
+    return reply.status === 200 ? reply.value?.state ?? null : null;
+  }
+  // The latest run of the workflow, scheduled or dispatched; null when there is none.
+  async latestRun(repo, workflow) {
+    const { status, value } = await this.expect('runs', `/repos/${repo}/actions/workflows/${workflow}/runs?per_page=1`, [200, 404]);
+    return status === 200 ? value?.workflow_runs?.[0] ?? null : null;
   }
   // Empty while GitHub does not know the workflow yet (404).
   async dispatchRuns(repo, workflow) {

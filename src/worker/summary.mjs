@@ -8,12 +8,17 @@ const iso = ms => ms == null ? null : new Date(ms).toISOString();
 export function openSummary({ state, rules }) {
   const applied = state.applied?.at(-1);
   const attempt = state.lastAttempt;
+  // The tick reads the list before it applies a reset, so the list still has the one applied.
+  const spent = new Set((state.applied ?? []).map(a => a.creditId));
   return {
     formatVersion: SUMMARY_FORMAT_VERSION,
-    resets: (state.observed?.resets ?? []).map(reset => ({ creditId: reset.id, expiresAt: iso(reset.expiresAt) })),
+    resets: (state.observed?.resets ?? []).filter(reset => !spent.has(reset.id))
+      .map(reset => ({ creditId: reset.id, expiresAt: iso(reset.expiresAt) })),
     rules: { beforeExpiry: rules.beforeExpiry, weeklyAutoApply: rules.weeklyAutoApply },
     lastApplied: applied ? { creditId: applied.creditId, reason: applied.reason, at: iso(applied.at) } : null,
     lastAttempt: attempt ? { creditId: attempt.creditId, reason: attempt.reason, result: attempt.result, at: iso(attempt.at) } : null,
+    // The verdict on the latest `login`, which the CLI matches by id.
+    login: state.login ? { id: state.login.id, result: state.login.result, at: iso(state.login.at) } : null,
   };
 }
 
@@ -38,6 +43,10 @@ export function stepSummary({ outcome, reason = null, summary = null, now }) {
     lines.push('', `Сбросов: ${summary.resets.length}`);
     for (const reset of summary.resets) lines.push(`- \`${reset.creditId}\`: ${reset.expiresAt ?? 'без срока'}`);
     if (summary.lastApplied) lines.push('', `Последнее применение: \`${summary.lastApplied.creditId}\` ${summary.lastApplied.at}`);
+    if (summary.login?.at === iso(now)) {
+      lines.push('', summary.login.result === 'accepted' ? 'Новый вход принят: воркер работает с новой сессией.' :
+        'Новый вход отклонён: он в другой аккаунт ChatGPT.');
+    }
   }
   return `${lines.join('\n')}\n`;
 }

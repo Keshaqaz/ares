@@ -1,0 +1,259 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFile, mkdtemp } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { setup } from '../src/cli/setup.mjs';
+import { status } from '../src/cli/status.mjs';
+import { applyNow } from '../src/cli/apply-now.mjs';
+import { rules } from '../src/cli/rules.mjs';
+import { login } from '../src/cli/login.mjs';
+import { buildWorker } from '../scripts/build-worker.mjs';
+import { FILES, STATE_KEY_SECRET, LOGIN_SECRET } from '../src/worker/layout.mjs';
+import { openState, readRules } from '../src/worker/state-file.mjs';
+import { workflowYaml } from '../src/worker/workflow.mjs';
+import { credit, window } from './support/fake-world.mjs';
+import { cliWorld } from './support/cli-world.mjs';
+
+const HOUR = 3600_000, DAY = 24 * HOUR;
+
+// A worker installed by setup with the default rules: resets reset-a (in 5 days) and reset-b
+// (in 2 days 3 hours).
+async function installed(options) {
+  const env = await cliWorld(options);
+  const { code, io } = await env.run(setup, { answers: [''] });
+  assert.equal(code, 0, io.output());
+  const repo = env.world.github.repo();
+  const state = () => openState(env.world.github.text(repo, FILES.state), env.world.github.secret(repo, STATE_KEY_SECRET));
+  const summary = () => JSON.parse(env.world.github.text(repo, FILES.summary));
+  return { ...env, repo, state, summary };
+}
+
+test('status shows the resets, the rules, the last run and the last application', async () => {
+  const { world, repo, run } = await installed();
+  world.chatgpt.credits.push(credit('reset-due', world.now + 3 * HOUR));
+  world.advance(HOUR);
+  await world.github.schedule();
+  world.advance(30 * 60_000);
+
+  const { code, io } = await run(status);
+  assert.equal(code, 0);
+  assert.deepEqual(io.lines, [
+    'Репозиторий воркера: https://github.com/octo-fake/codex-auto-resets-worker',
+    'Выданные сбросы (2):',
+    '  reset-b — истекает 22 октября 2026 г. в 15:00 UTC',
+    '  reset-a — истекает 25 октября 2026 г. в 12:00 UTC',
+    'Правила: перед истечением — включено; автоприменение при исчерпании недельной квоты — выключено.',
+    `Последний запуск воркера: 20 октября 2026 г. в 13:00 UTC, успешно: ${repo.runs[0].html_url}`,
+    'Последнее применение: reset-due, 20 октября 2026 г. в 13:00 UTC (правило перед истечением).',
+  ]);
+  assert.deepEqual(world.github.violations, []);
+});
+
+test('status warns when the worker has not run for hours', async () => {
+  const { world, run } = await installed();
+  world.advance(5 * HOUR);
+  const { code, io } = await run(status);
+  assert.equal(code, 0);
+  assert.match(io.lines.at(-1), /^Внимание: Воркер не запускался 5 ч, хотя должен раз в час\. Проверьте Actions: https:\/\/github\.com\/.*\/actions$/);
+  assert.match(io.output(), /Выданные сбросы \(2\)/, 'the last published resets are still shown');
+});
+
+test('status warns that a disabled workflow does not run the worker', async () => {
+  const { world, repo, run } = await installed();
+  repo.workflowState = 'disabled_manually';
+  assert.equal(await world.github.schedule(), null);
+  const { code, io } = await run(status);
+  assert.equal(code, 0);
+  assert.match(io.lines.at(-1), /^Внимание: Workflow воркера отключён в GitHub: воркер не запускается.*Enable workflow: .*\/actions\/workflows\/codex-auto-resets\.yml$/);
+});
+
+test('status explains a failed last run', async () => {
+  const { world, run } = await installed();
+  world.endSession('refresh_token_invalidated');
+  world.advance(HOUR);
+  await world.github.schedule();
+  const { io } = await run(status);
+  assert.match(io.output(), /Последний запуск воркера: .*, с ошибкой:/);
+  assert.equal(io.lines.at(-1), 'Внимание: Последний запуск завершился ошибкой. ChatGPT отклонил сессию воркера. Войдите заново: `codex-auto-resets login`.');
+});
+
+test('control commands ask for setup when there is no worker', async () => {
+  const { run } = await cliWorld();
+  for (const command of [status, applyNow, rules, login]) {
+    const { code, io } = await run(command);
+    assert.equal(code, 1);
+    assert.equal(io.lines.at(-1), 'Воркер не установлен. Установите его: `codex-auto-resets setup`.');
+  }
+});
+
+test('apply-now applies the chosen reset in a dispatched run and shows the result', async () => {
+  const { world, repo, run, summary } = await installed();
+  const { code, io } = await run(applyNow, { answers: ['2', 'y'] });
+  assert.equal(code, 0, io.output());
+  assert.match(io.output(), /1\. reset-b — истекает 22 октября[\s\S]*2\. reset-a — истекает 25 октября/);
+  assert.deepEqual(repo.runs[0].inputs, { apply_now: 'reset-a' });
+  assert.deepEqual(world.spent(), ['reset-a']);
+  assert.equal(io.lines.at(-1), 'Сброс reset-a применён.');
+  assert.equal(summary().lastApplied.reason, 'apply_now');
+});
+
+test('apply-now does nothing until the user picks a reset and confirms it', async () => {
+  const { world, repo, run } = await installed();
+  let result = await run(applyNow, { answers: ['7', 'abc', ''] });
+  assert.equal(result.code, 0);
+  assert.match(result.io.output(), /Введите номер от 1 до 2\.[\s\S]*Введите номер от 1 до 2\.[\s\S]*Отменено\./);
+  result = await run(applyNow, { answers: ['1', ''] });
+  assert.equal(result.io.lines.at(-1), 'Отменено.');
+  assert.equal(repo.runs.length, 1, 'only the trial run of setup');
+  assert.deepEqual(world.spent(), []);
+});
+
+test('apply-now reports an application ChatGPT refused and one whose result is unknown', async () => {
+  const { world, run } = await installed();
+  world.chatgpt.outcome = 'nothing_to_reset';
+  let result = await run(applyNow, { answers: ['1', 'y'] });
+  assert.equal(result.code, 1);
+  assert.equal(result.io.lines.at(-1), 'Сброс reset-b не применён: ChatGPT ответил, что сбрасывать нечего; сброс не потрачен.');
+
+  world.chatgpt.outcome = 'reset';
+  world.chatgpt.lose = 'before';
+  result = await run(applyNow, { answers: ['1', 'y'] });
+  assert.equal(result.code, 1);
+  assert.match(result.io.lines.at(-1), /^Результат применения неизвестен: воркер сверит его/);
+  // The next scheduled tick settles it with the same redeem_request_id.
+  world.chatgpt.lose = null;
+  world.advance(HOUR);
+  await world.github.schedule();
+  assert.deepEqual(world.spent(), ['reset-b']);
+});
+
+test('apply-now explains a failed run and refuses a disabled workflow', async () => {
+  const { world, repo, run } = await installed();
+  world.revokeAccess();
+  let result = await run(applyNow, { answers: ['1', 'y'] });
+  assert.equal(result.code, 1);
+  assert.equal(result.io.lines.at(-2), 'ChatGPT отклонил сессию воркера. Войдите заново: `codex-auto-resets login`.');
+  assert.equal(result.io.lines.at(-1), `Запуск: ${repo.runs[0].html_url}`);
+
+  repo.workflowState = 'disabled_inactivity';
+  const runs = repo.runs.length;
+  result = await run(applyNow);
+  assert.equal(result.code, 1);
+  assert.match(result.io.lines.at(-1), /^Workflow воркера отключён в GitHub\. Включите его кнопкой Enable workflow/);
+  assert.equal(repo.runs.length, runs);
+});
+
+test('rules switches a general rule in the open rules file, and the next tick follows it', async () => {
+  const { world, repo, run, summary } = await installed();
+  const { code, io } = await run(rules, { answers: ['2', ''] });
+  assert.equal(code, 0);
+  assert.match(io.output(), /2\. Автоприменение при исчерпании недельной квоты — выключено[\s\S]*2\. Автоприменение при исчерпании недельной квоты — включено/);
+  assert.equal(io.lines.at(-1), 'Правила сохранены. Воркер начнёт действовать по ним со следующего запуска.');
+  assert.deepEqual(readRules(world.github.text(repo, FILES.rules)), { formatVersion: 1, beforeExpiry: true, weeklyAutoApply: true });
+  assert.equal(repo.commits.at(-1).message, 'Change the general rules');
+
+  world.chatgpt.secondary = window(604800, 100, world.now + 2 * DAY);
+  world.advance(HOUR);
+  await world.github.schedule();
+  assert.deepEqual(world.spent(), ['reset-b']);
+  assert.equal(summary().lastApplied.reason, 'weekly');
+  assert.deepEqual(summary().rules, { beforeExpiry: true, weeklyAutoApply: true });
+});
+
+test('rules without a change writes nothing', async () => {
+  const { repo, run } = await installed();
+  const commits = repo.commits.length;
+  const { code, io } = await run(rules, { answers: [''] });
+  assert.equal(code, 0);
+  assert.equal(io.lines.at(-1), 'Правила не изменились.');
+  assert.equal(repo.commits.length, commits);
+});
+
+test('login replaces a lost worker session, keeps rules and history, and the next tick runs on it', async () => {
+  const { world, repo, run, state, summary } = await installed();
+  await run(rules, { answers: ['1', ''] });
+  world.chatgpt.credits.push(credit('reset-due', world.now + 2 * HOUR));
+  await run(applyNow, { answers: ['1', 'y'] });
+  const history = state().applied;
+  assert.equal(history.length, 1);
+  world.endSession('refresh_token_invalidated');
+  world.advance(HOUR);
+  assert.equal((await world.github.schedule()).conclusion, 'failure');
+
+  const { code, io } = await run(login);
+  assert.equal(code, 0, io.output());
+  assert.match(io.output(), /auth\.openai\.com\/codex\/device/);
+  assert.equal(io.lines.at(-2), 'Новый вход принят: правила и история сохранены.');
+  assert.match(io.lines.at(-1), /^Работает\. Сбросов: 2, ближайший истекает/);
+  assert.equal(repo.secrets.has(LOGIN_SECRET), false, 'the login secret is gone');
+  assert.equal(state().session.refreshToken, world.auth.current.refresh);
+  assert.deepEqual(state().applied, history);
+  assert.equal(readRules(world.github.text(repo, FILES.rules)).beforeExpiry, false);
+
+  world.advance(HOUR);
+  const next = await world.github.schedule();
+  assert.equal(next.conclusion, 'success');
+  assert.match(next.log, /Z idle\n$/);
+  assert.equal(summary().login.result, 'accepted');
+});
+
+test('login into another ChatGPT account is rejected with a hint to uninstall', async () => {
+  const { world, repo, run, state } = await installed();
+  const before = state().session;
+  world.accountId = 'account-other';
+  const { code, io } = await run(login);
+  assert.equal(code, 1);
+  assert.match(io.lines.at(-1), /^Вы вошли в другой аккаунт ChatGPT.*`codex-auto-resets uninstall`/);
+  assert.deepEqual(state().session, before);
+  assert.equal(repo.secrets.has(LOGIN_SECRET), false, 'the other account\'s session does not stay in GitHub');
+});
+
+test('login refuses a worker whose workflow does not pass the login secret', async () => {
+  const { world, repo, run } = await installed();
+  const old = workflowYaml({ minute: 30 }).split('\n').filter(line => !line.includes(LOGIN_SECRET)).join('\n');
+  world.github.write(repo, FILES.workflow, old);
+  const { code, io } = await run(login);
+  assert.equal(code, 1);
+  assert.match(io.lines.at(-1), /не принимает новый вход\. Обновите его: `codex-auto-resets upgrade`/);
+  assert.doesNotMatch(io.output(), /auth\.openai\.com/, 'no login the worker could not take');
+});
+
+test('end to end on the built worker: rules, apply-now and login reach the worker on plain node', async () => {
+  const built = await buildWorker(join(await mkdtemp(join(tmpdir(), 'control-build-')), 'worker.mjs'));
+  const { world, run, summary } = await installed({ node: true, workerSource: await readFile(built, 'utf8') });
+
+  assert.equal((await run(rules, { answers: ['2', ''] })).code, 0);
+  world.advance(HOUR);
+  await world.github.schedule();
+  assert.deepEqual(summary().rules, { beforeExpiry: true, weeklyAutoApply: true });
+
+  // The child worker's consume does not reach this world, so the reset stays listed here.
+  const applied = await run(applyNow, { answers: ['2', 'y'] });
+  assert.equal(applied.code, 0, applied.io.output());
+  assert.equal(summary().lastApplied.creditId, 'reset-a');
+
+  world.endSession('refresh_token_invalidated');
+  const relogged = await run(login);
+  assert.equal(relogged.code, 0, relogged.io.output());
+  assert.equal(summary().login.result, 'accepted');
+});
+
+test('login removes its secret even when the run is not seen through', async () => {
+  const { world, repo, run } = await installed();
+  world.github.runner = () => null;
+  const { code, io } = await run(login);
+  assert.equal(code, 1);
+  assert.match(io.lines.at(-1), /не завершился за 10 минут/);
+  assert.equal(repo.secrets.has(LOGIN_SECRET), false);
+});
+
+test('setup with a new state drops a login secret left behind, so it never brings back older tokens', async () => {
+  const { world, repo, run, state } = await installed();
+  world.github.setSecret(repo, LOGIN_SECRET, JSON.stringify({ id: 'login-stale', session: state().session }));
+  repo.files.delete(FILES.state);
+  assert.equal((await run(setup)).code, 0);
+  assert.equal(repo.secrets.has(LOGIN_SECRET), false);
+  assert.equal(state().session.refreshToken, world.auth.current.refresh);
+  assert.equal(state().login, undefined);
+});

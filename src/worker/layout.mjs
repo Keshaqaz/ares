@@ -6,3 +6,6 @@ export const FILES = {
 };
 // The Actions secret with the state key.
 export const STATE_KEY_SECRET = 'STATE_KEY';
+// The Actions secret through which `login` hands a new worker session to the worker: the CLI
+// cannot open the state, and the session must not lie in the repository unsealed.
+export const LOGIN_SECRET = 'WORKER_LOGIN';

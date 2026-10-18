@@ -101,7 +101,10 @@ test('a consume is preceded by a pushed pending state and followed by a pushed r
   const final = repo.state();
   assert.equal(final.pending, null);
   assert.equal(final.applied.at(-1).creditId, 'reset-a');
-  assert.equal(JSON.parse(repo.show(FILES.summary)).lastApplied.creditId, 'reset-a');
+  const summary = JSON.parse(repo.show(FILES.summary));
+  assert.equal(summary.lastApplied.creditId, 'reset-a');
+  // The list was read before the consume; the applied reset is no longer issued.
+  assert.deepEqual(summary.resets, []);
 });
 
 test('a transient failure without a refresh commits nothing and does not fail the run', async () => {
@@ -180,4 +183,25 @@ test('the summary and Actions Summary carry resets and rules but no secrets', as
   assert.deepEqual(parsed.resets.map(r => r.creditId), ['reset-a', 'reset-b']);
   assert.deepEqual(parsed.rules, { beforeExpiry: true, weeklyAutoApply: false });
   assert.match(published, /reset-b/);
+});
+
+test('a login secret replaces the lost session, and the summary tells which login the worker took', async () => {
+  const { world, repo, run } = await workerWorld();
+  await run();
+  world.endSession('refresh_token_invalidated');
+  assert.equal((await run()).outcome, 'reauth_required');
+
+  const session = world.login();
+  const login = JSON.stringify({ id: 'login-1', session });
+  assert.deepEqual(await run({ login }), { outcome: 'idle', exitCode: 0 });
+  assert.deepEqual(repo.state().session, session);
+  const summary = repo.show(FILES.summary);
+  assert.deepEqual(JSON.parse(summary).login, { id: 'login-1', result: 'accepted', at: new Date(world.now).toISOString() });
+  assert.ok(!summary.includes(session.refreshToken));
+  assert.match(await repo.readStepSummary(), /Новый вход принят/);
+
+  // A secret the CLI did not write is ignored, not a broken state.
+  assert.equal((await run({ login: 'not json' })).outcome, 'idle');
+  assert.equal((await run({ login: JSON.stringify({ id: 'login-2' }) })).outcome, 'idle');
+  assert.deepEqual(repo.state().session, session);
 });

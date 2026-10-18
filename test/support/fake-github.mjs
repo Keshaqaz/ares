@@ -1,7 +1,8 @@
 // GitHub side of the fake world: device flow of the project's OAuth App and the REST calls
 // the CLI makes (user, repos, contents, Actions secrets with sealed boxes, dispatch, runs,
 // job logs). withGitHub(world) chains it in front of world.fetch, so one fetch serves
-// ChatGPT, auth.openai.com and GitHub. A dispatch hands the repository to world.github.runner.
+// ChatGPT, auth.openai.com and GitHub. A dispatch, or github.schedule for the cron, hands the
+// repository to world.github.runner.
 import { createHash } from 'node:crypto';
 import sodium from 'libsodium-wrappers';
 import { GITHUB_OAUTH_CLIENT_ID } from '../../src/github/oauth-app.mjs';
@@ -41,6 +42,18 @@ export async function withGitHub(world, { login = 'octo-fake' } = {}) {
   github.setSecret = (repo, name, value) => {
     repo.secrets.set(name, Buffer.from(sodium.crypto_box_seal(Buffer.from(value), keys.publicKey)).toString('base64'));
   };
+  // One run of the workflow: dispatched with inputs, or by the cron (event 'schedule').
+  async function startRun(repo, event, inputs) {
+    const at = new Date(world.now).toISOString();
+    const run = { id: 9000 + ++serial, event, status: 'queued', conclusion: null, created_at: at, run_started_at: at, updated_at: at,
+      html_url: `https://github.com/${login}/${repo.meta.name}/actions/runs/${9000 + serial}`, inputs, log: '' };
+    repo.runs.unshift(run);
+    const result = await github.runner?.(repo, run);
+    if (result) Object.assign(run, { status: 'completed', conclusion: result.conclusion, log: result.log });
+    return run;
+  }
+  // The hourly cron fires; a disabled workflow does not run.
+  github.schedule = (repo = github.repo()) => repo.workflowState === 'active' ? startRun(repo, 'schedule', {}) : null;
   github.secret = (repo, name) => {
     const sealed = repo.secrets.get(name);
     return sealed && Buffer.from(sodium.crypto_box_seal_open(Buffer.from(sealed, 'base64'), keys.publicKey, keys.privateKey)).toString();
@@ -75,7 +88,7 @@ export async function withGitHub(world, { login = 'octo-fake' } = {}) {
     if (path === '/user/repos' && method === 'POST') {
       if (github.repos.has(`${login}/${body.name}`)) return json(422, { message: 'Repository creation failed.' });
       const repo = { meta: { name: body.name, private: body.private === true, description: body.description ?? null },
-        files: new Map(), commits: [], secrets: new Map(), runs: [] };
+        files: new Map(), commits: [], secrets: new Map(), runs: [], workflowState: 'active' };
       github.repos.set(`${login}/${body.name}`, repo);
       return json(201, repoView(repo));
     }
@@ -107,32 +120,35 @@ export async function withGitHub(world, { login = 'octo-fake' } = {}) {
     }
     const secret = rest.match(/^\/actions\/secrets\/([A-Z0-9_]+)$/)?.[1];
     if (secret && method === 'GET') return repo.secrets.has(secret) ? json(200, { name: secret }) : json(404, { message: 'Not Found' });
+    if (secret && method === 'DELETE') return new Response(null, { status: repo.secrets.delete(secret) ? 204 : 404 });
     if (secret && method === 'PUT') {
       if (body.key_id !== 'fake-key-id') return json(422, { message: 'Bad key id' });
       const existed = repo.secrets.has(secret);
       repo.secrets.set(secret, body.encrypted_value);
       return new Response(null, { status: existed ? 204 : 201 });
     }
-    const workflow = rest.match(/^\/actions\/workflows\/([^/]+)\/(dispatches|runs)$/);
+    const workflow = rest.match(/^\/actions\/workflows\/([^/]+)(?:\/(dispatches|runs))?$/);
     if (workflow) {
       const exists = [...repo.files.keys()].includes(`.github/workflows/${workflow[1]}`);
+      if (!workflow[2] && method === 'GET') {
+        if (!exists || github.dispatchNotFound > 0) return json(404, { message: 'Not Found' });
+        return json(200, { id: 77, name: 'codex-auto-resets', path: `.github/workflows/${workflow[1]}`, state: repo.workflowState });
+      }
       if (workflow[2] === 'dispatches' && method === 'POST') {
         if (!exists) return json(404, { message: 'Not Found' });
         if (github.dispatchNotFound > 0) {
           return json(github.dispatchNotFound-- > 1 ? 404 : 422, { message: "Workflow does not have 'workflow_dispatch' trigger" });
         }
         if (body.ref !== 'main') return json(422, { message: 'No ref found' });
-        const run = { id: 9000 + ++serial, event: 'workflow_dispatch', status: 'queued', conclusion: null,
-          html_url: `https://github.com/${login}/${repo.meta.name}/actions/runs/${9000 + serial}`, inputs: body.inputs, log: '' };
-        repo.runs.unshift(run);
-        const result = await github.runner?.(repo, run);
-        if (result) Object.assign(run, { status: 'completed', conclusion: result.conclusion, log: result.log });
+        if (repo.workflowState !== 'active') return json(422, { message: 'Cannot trigger a \'workflow_dispatch\' on a disabled workflow' });
+        await startRun(repo, 'workflow_dispatch', body.inputs);
         return new Response(null, { status: 204 });
       }
       if (workflow[2] === 'runs' && method === 'GET') {
         if (!exists || github.dispatchNotFound > 0) return json(404, { message: 'Not Found' });
         const event = url.searchParams.get('event');
-        const runs = repo.runs.filter(r => !event || r.event === event).map(({ log, inputs, ...run }) => run);
+        const perPage = Number(url.searchParams.get('per_page') ?? 30);
+        const runs = repo.runs.filter(r => !event || r.event === event).slice(0, perPage).map(({ log, inputs, ...run }) => run);
         return json(200, { total_count: runs.length, workflow_runs: runs });
       }
     }

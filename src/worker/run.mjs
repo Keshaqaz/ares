@@ -3,7 +3,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { join } from 'node:path';
 import { tick } from './tick.mjs';
-import { sealState, openState, readRules, BrokenState } from './state-file.mjs';
+import { sealState, openState, readRules, readLogin, BrokenState } from './state-file.mjs';
 import { openSummary, stepSummary } from './summary.mjs';
 import { FILES } from './layout.mjs';
 
@@ -43,7 +43,8 @@ const comparable = state => JSON.stringify(sorted({ ...state, observed: state.ob
 
 // One worker run inside a checkout of the worker repository: decrypt state, tick,
 // encrypt and commit what changed. Fails (exitCode 1) only when the user has to act.
-export async function runWorker({ dir, key, now, fetch, applyNow = null, stepSummaryPath = null }) {
+// login is the text of the login secret, if the repository has one.
+export async function runWorker({ dir, key, now, fetch, applyNow = null, login = null, stepSummaryPath = null }) {
   const report = async fields => {
     if (stepSummaryPath) await appendFile(stepSummaryPath, stepSummary({ now, ...fields }));
   };
@@ -67,7 +68,7 @@ export async function runWorker({ dir, key, now, fetch, applyNow = null, stepSum
     saved = comparable(next);
   };
   try {
-    const result = await tick({ state, rules, now, fetch, applyNow, persist });
+    const result = await tick({ state, rules, now, fetch, applyNow, login: login && readLogin(login), persist });
     const summary = openSummary({ state: result.state, rules });
     const summaryText = `${JSON.stringify(summary, null, 2)}\n`;
     const previousSummary = await readFile(path('summary'), 'utf8').catch(() => null);
@@ -76,8 +77,9 @@ export async function runWorker({ dir, key, now, fetch, applyNow = null, stepSum
       await writeState(result.state);
       changed.push(FILES.state);
     }
-    // Before the first successful read there is nothing true to publish.
-    if (result.state.observed && summaryText !== previousSummary) {
+    // Before the first successful read there is nothing true to publish, except the verdict
+    // on a login that `login` waits for.
+    if ((result.state.observed || result.state.login) && summaryText !== previousSummary) {
       await writeFile(path('summary'), summaryText);
       changed.push(FILES.summary);
     }

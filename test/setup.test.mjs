@@ -7,54 +7,14 @@ import { setup } from '../src/cli/setup.mjs';
 import { buildWorker } from '../scripts/build-worker.mjs';
 import { FILES, STATE_KEY_SECRET } from '../src/worker/layout.mjs';
 import { openState, readRules } from '../src/worker/state-file.mjs';
-import { fakeWorld, credit } from './support/fake-world.mjs';
-import { withGitHub } from './support/fake-github.mjs';
-import { actionsRunner } from './support/actions-runner.mjs';
+import { credit } from './support/fake-world.mjs';
+import { cliWorld, WORKER_SOURCE } from './support/cli-world.mjs';
 
 const HOUR = 3600_000, DAY = 24 * HOUR;
-const WORKER_SOURCE = '// fake worker bundle\n';
 
-// The user at the terminal: approves each device code as soon as it is shown and answers
-// prompts from a script (an empty line is Enter).
-function terminal(world, answers = [], { github = true } = {}) {
-  const lines = [], asked = [];
-  return {
-    lines, asked,
-    output: () => lines.join('\n'),
-    print: line => {
-      lines.push(line);
-      for (const [code] of line.matchAll(/GHFK-\d+/g)) world.github.approve(code, github);
-      for (const [code] of line.matchAll(/FAKE-\d+/g)) world.approve(code);
-    },
-    prompt: async question => {
-      asked.push(question);
-      lines.push(question);
-      if (!answers.length) throw new Error(`unexpected prompt: ${question}`);
-      return answers.shift();
-    },
-  };
-}
-
-// The macOS Keychain entry with the GitHub token.
-function fakeKeychain() {
-  const entries = new Map();
-  return { entries, read: async () => entries.get('github') ?? null,
-    write: async token => { entries.set('github', token); }, remove: async () => { entries.delete('github'); } };
-}
-
-async function installWorld({ node = false, workerSource = WORKER_SOURCE } = {}) {
-  const world = fakeWorld();
-  world.chatgpt.credits = [credit('reset-a', world.now + 5 * DAY), credit('reset-b', world.now + 2 * DAY + 3 * HOUR)];
-  await withGitHub(world);
-  world.github.runner = actionsRunner(world, { node });
-  const keychain = fakeKeychain();
-  const run = ({ answers = [''], github, ...options } = {}) => {
-    const io = terminal(world, answers, { github });
-    const done = setup({ fetch: world.fetch, keychain, io, now: () => world.now, sleep: async ms => world.advance(ms),
-      random: () => 0.5, workerSource, timeZone: 'UTC', ...options });
-    return done.then(code => ({ code, io }));
-  };
-  return { world, keychain, run };
+async function installWorld(options) {
+  const { world, keychain, run } = await cliWorld(options);
+  return { world, keychain, run: ({ answers = [''], ...rest } = {}) => run(setup, { answers, ...rest }) };
 }
 
 test('setup goes from nothing to a working worker in a private repository', async () => {
