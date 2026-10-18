@@ -1,0 +1,181 @@
+// GitHub side of the fake world: device flow of the project's OAuth App and the REST calls
+// the CLI makes (user, repos, contents, Actions secrets with sealed boxes, dispatch, runs,
+// job logs). withGitHub(world) chains it in front of world.fetch, so one fetch serves
+// ChatGPT, auth.openai.com and GitHub. A dispatch hands the repository to world.github.runner.
+import { createHash } from 'node:crypto';
+import sodium from 'libsodium-wrappers';
+import { GITHUB_OAUTH_CLIENT_ID } from '../../src/github/oauth-app.mjs';
+import { USER_AGENT } from '../../src/chatgpt/http.mjs';
+
+const json = (status, value) => new Response(JSON.stringify(value), { status, headers: { 'content-type': 'application/json' } });
+const blobSha = text => createHash('sha1').update(`blob ${Buffer.byteLength(text)}\0${text}`).digest('hex');
+
+export async function withGitHub(world, { login = 'octo-fake' } = {}) {
+  await sodium.ready;
+  const keys = sodium.crypto_box_keypair();
+  let serial = 0;
+  const github = {
+    login, devices: new Map(), tokens: new Set(), repos: new Map(), requests: [], violations: [],
+    // (repo, run) → { conclusion, log } after the run, or null to leave it queued.
+    runner: null,
+    // Dispatches refused as right after the workflow's push: 404, the last one 422 (trigger not
+    // registered yet). Until then its runs are 404 too.
+    dispatchNotFound: 0,
+    // Job log reads answered 404 after the run completed, before the log is ready.
+    logDelay: 0,
+    fail: null, // (method, path) → Response | null, to break one call
+  };
+  world.github = github;
+
+  github.approve = (userCode, answer = true) => {
+    for (const device of github.devices.values()) if (device.userCode === userCode) device.approved = answer;
+  };
+  github.repo = (name = 'codex-auto-resets-worker') => github.repos.get(`${login}/${name}`);
+  github.text = (repo, path) => repo.files.get(path)?.text ?? null;
+  // A commit by someone other than the CLI, e.g. the worker's own push.
+  github.write = (repo, path, text) => {
+    repo.files.set(path, { text, sha: blobSha(text) });
+    repo.commits.push({ message: `write ${path}`, paths: [path] });
+  };
+  // A secret set by hand in the repository settings.
+  github.setSecret = (repo, name, value) => {
+    repo.secrets.set(name, Buffer.from(sodium.crypto_box_seal(Buffer.from(value), keys.publicKey)).toString('base64'));
+  };
+  github.secret = (repo, name) => {
+    const sealed = repo.secrets.get(name);
+    return sealed && Buffer.from(sodium.crypto_box_seal_open(Buffer.from(sealed, 'base64'), keys.publicKey, keys.privateKey)).toString();
+  };
+
+  function device(path, data) {
+    if (data.client_id !== GITHUB_OAUTH_CLIENT_ID) return json(400, { error: 'incorrect_client_credentials' });
+    if (path === '/login/device/code') {
+      if (data.scope !== 'repo workflow') github.violations.push(`scope ${data.scope}`);
+      const id = `gh-device-${++serial}`, userCode = `GHFK-${1000 + serial}`;
+      github.devices.set(id, { userCode, approved: false, polls: 0 });
+      return json(200, { device_code: id, user_code: userCode, verification_uri: 'https://github.com/login/device',
+        expires_in: 899, interval: 5 });
+    }
+    const entry = github.devices.get(data.device_code);
+    if (data.grant_type !== 'urn:ietf:params:oauth:grant-type:device_code') return json(200, { error: 'unsupported_grant_type' });
+    if (!entry) return json(200, { error: 'expired_token' });
+    if (entry.approved === 'denied') return json(200, { error: 'access_denied' });
+    if (!entry.approved) return json(200, { error: entry.polls++ === 0 ? 'slow_down' : 'authorization_pending', interval: 10 });
+    github.devices.delete(data.device_code);
+    const token = `gho_fake${String(++serial).padStart(32, '0')}`;
+    github.tokens.add(token);
+    return json(200, { access_token: token, token_type: 'bearer', scope: 'repo,workflow' });
+  }
+
+  const repoView = repo => ({ ...repo.meta, full_name: `${login}/${repo.meta.name}`,
+    html_url: `https://github.com/${login}/${repo.meta.name}`, default_branch: 'main', owner: { login } });
+
+  async function api(method, url, body) {
+    const path = url.pathname;
+    if (path === '/user' && method === 'GET') return json(200, { login, id: 1 });
+    if (path === '/user/repos' && method === 'POST') {
+      if (github.repos.has(`${login}/${body.name}`)) return json(422, { message: 'Repository creation failed.' });
+      const repo = { meta: { name: body.name, private: body.private === true, description: body.description ?? null },
+        files: new Map(), commits: [], secrets: new Map(), runs: [] };
+      github.repos.set(`${login}/${body.name}`, repo);
+      return json(201, repoView(repo));
+    }
+    const match = path.match(/^\/repos\/([^/]+)\/([^/]+)(\/.*)?$/);
+    const repo = match && github.repos.get(`${match[1]}/${match[2]}`);
+    if (!repo) return json(404, { message: 'Not Found' });
+    const rest = match[3] ?? '';
+    if (rest === '' && method === 'GET') return json(200, repoView(repo));
+    if (rest.startsWith('/contents/')) {
+      const file = decodeURIComponent(rest.slice('/contents/'.length));
+      const current = repo.files.get(file);
+      if (method === 'GET') {
+        // An empty repository answers 404 to every contents read.
+        if (!current) return json(404, { message: repo.files.size ? 'Not Found' : 'This repository is empty.' });
+        return json(200, { type: 'file', path: file, sha: current.sha, encoding: 'base64',
+          content: Buffer.from(current.text).toString('base64').replace(/(.{60})/g, '$1\n') });
+      }
+      if (method === 'PUT') {
+        if (current && body.sha !== current.sha) return json(current && !body.sha ? 422 : 409, { message: 'sha mismatch' });
+        if (!current && body.sha) return json(404, { message: 'Not Found' });
+        const text = Buffer.from(body.content, 'base64').toString('utf8');
+        repo.files.set(file, { text, sha: blobSha(text) });
+        repo.commits.push({ message: body.message, paths: [file] });
+        return json(current ? 200 : 201, { content: { path: file, sha: blobSha(text) } });
+      }
+    }
+    if (rest === '/actions/secrets/public-key' && method === 'GET') {
+      return json(200, { key_id: 'fake-key-id', key: Buffer.from(keys.publicKey).toString('base64') });
+    }
+    const secret = rest.match(/^\/actions\/secrets\/([A-Z0-9_]+)$/)?.[1];
+    if (secret && method === 'GET') return repo.secrets.has(secret) ? json(200, { name: secret }) : json(404, { message: 'Not Found' });
+    if (secret && method === 'PUT') {
+      if (body.key_id !== 'fake-key-id') return json(422, { message: 'Bad key id' });
+      const existed = repo.secrets.has(secret);
+      repo.secrets.set(secret, body.encrypted_value);
+      return new Response(null, { status: existed ? 204 : 201 });
+    }
+    const workflow = rest.match(/^\/actions\/workflows\/([^/]+)\/(dispatches|runs)$/);
+    if (workflow) {
+      const exists = [...repo.files.keys()].includes(`.github/workflows/${workflow[1]}`);
+      if (workflow[2] === 'dispatches' && method === 'POST') {
+        if (!exists) return json(404, { message: 'Not Found' });
+        if (github.dispatchNotFound > 0) {
+          return json(github.dispatchNotFound-- > 1 ? 404 : 422, { message: "Workflow does not have 'workflow_dispatch' trigger" });
+        }
+        if (body.ref !== 'main') return json(422, { message: 'No ref found' });
+        const run = { id: 9000 + ++serial, event: 'workflow_dispatch', status: 'queued', conclusion: null,
+          html_url: `https://github.com/${login}/${repo.meta.name}/actions/runs/${9000 + serial}`, inputs: body.inputs, log: '' };
+        repo.runs.unshift(run);
+        const result = await github.runner?.(repo, run);
+        if (result) Object.assign(run, { status: 'completed', conclusion: result.conclusion, log: result.log });
+        return new Response(null, { status: 204 });
+      }
+      if (workflow[2] === 'runs' && method === 'GET') {
+        if (!exists || github.dispatchNotFound > 0) return json(404, { message: 'Not Found' });
+        const event = url.searchParams.get('event');
+        const runs = repo.runs.filter(r => !event || r.event === event).map(({ log, inputs, ...run }) => run);
+        return json(200, { total_count: runs.length, workflow_runs: runs });
+      }
+    }
+    const runPath = rest.match(/^\/actions\/runs\/(\d+)(\/jobs)?$/);
+    const run = runPath && repo.runs.find(r => r.id === Number(runPath[1]));
+    if (run && method === 'GET') {
+      const { log, inputs, ...view } = run;
+      return runPath[2] ? json(200, { total_count: 1, jobs: [{ id: run.id * 10, run_id: run.id, status: run.status }] }) : json(200, view);
+    }
+    const job = rest.match(/^\/actions\/jobs\/(\d+)\/logs$/);
+    const logged = job && repo.runs.find(r => r.id * 10 === Number(job[1]));
+    if (logged && method === 'GET' && github.logDelay-- > 0) return json(404, { message: 'Not Found' });
+    if (logged && method === 'GET') return new Response(logged.log, { status: 200, headers: { 'content-type': 'text/plain' } });
+    return null;
+  }
+
+  const next = world.fetch;
+  world.fetch = async (input, init = {}) => {
+    const url = new URL(typeof input === 'string' ? input : input.url);
+    if (url.host !== 'github.com' && url.host !== 'api.github.com') return next(input, init);
+    const method = init.method ?? 'GET';
+    const headers = new Headers(init.headers);
+    const text = typeof init.body === 'string' ? init.body : '';
+    github.requests.push({ host: url.host, method, path: url.pathname, body: text });
+    if (headers.get('user-agent') !== USER_AGENT) github.violations.push(`user-agent ${url.pathname}`);
+    const broken = github.fail?.(method, url.pathname);
+    if (broken) return broken;
+    if (url.host === 'github.com') {
+      if (method === 'POST' && ['/login/device/code', '/login/oauth/access_token'].includes(url.pathname)) {
+        if (headers.get('accept') !== 'application/json') github.violations.push(`accept ${url.pathname}`);
+        if (headers.get('content-type') !== 'application/x-www-form-urlencoded') github.violations.push(`form ${url.pathname}`);
+        return device(url.pathname, Object.fromEntries(new URLSearchParams(text)));
+      }
+    } else {
+      let body = null;
+      try { body = text ? JSON.parse(text) : null; } catch { return json(400, { message: 'Problems parsing JSON' }); }
+      const token = headers.get('authorization')?.replace(/^Bearer /, '');
+      if (!github.tokens.has(token)) return json(401, { message: 'Bad credentials' });
+      const reply = await api(method, url, body);
+      if (reply) return reply;
+    }
+    github.violations.push(`${method} ${url.href}`);
+    return json(404, { message: 'Not Found' });
+  };
+  return github;
+}

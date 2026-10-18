@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "bin": {
+    "codex-auto-resets": "src/cli/main.mjs"
+  },
   "engines": {
     "node": "26.10.0"
   },
