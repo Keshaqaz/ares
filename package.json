@@ -10,9 +10,13 @@
     "test": "node --test test/*.test.mjs",
     "test:contract": "node test/support/contract.mjs",
     "start": "node src/cli.mjs",
+    "build:worker": "node scripts/build-worker.mjs",
     "install:macos": "node src/installer/install-cli.mjs"
   },
   "dependencies": {
     "libsodium-wrappers": "0.7.15"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.10"
   }
 }
