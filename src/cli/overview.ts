@@ -10,6 +10,7 @@ import type { Logged, Rule } from './common.ts';
 import { macCheckStatus, checkAdvice } from './mac-check.ts';
 import type { Mac, MacCheck } from './mac-check.ts';
 import { t, language, LANGUAGES } from './language.ts';
+import pkg from '../../package.json' with { type: 'json' };
 
 // What `status` prints and the screen shows: the resets on top, the general rules under them,
 // one line about the worker and the warnings that need the user. The overview keeps what it
@@ -137,7 +138,7 @@ export function renderOverview(model: Overview, { now, timeZone, width = WIDTH, 
 
   const languages = toggle ? LANGUAGES.flatMap((code, i): Segment[] => [[i ? ' · ' : '   ', S.dim],
     [code.toUpperCase(), code === language() ? S.cyan : S.dim]]) : [];
-  lines.push(spread([['aures', S.bold]], [[shortTime(now(), timeZone), S.dim], ...languages], width), []);
+  lines.push(spread([['aures', S.bold], [` ${pkg.version}`, S.dim]], [[shortTime(now(), timeZone), S.dim], ...languages], width), []);
   const resetsTitle = t('RESETS', 'СБРОСЫ');
   heading(model.resets?.length ? `${resetsTitle} · ${model.resets.length}` : resetsTitle);
   if (!model.resets) lines.push([[t('  not read yet — the worker reads them on its next run', '  ещё не прочитаны — воркер прочитает их при следующем запуске'), S.dim]]);

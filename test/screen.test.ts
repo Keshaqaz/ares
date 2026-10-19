@@ -7,6 +7,7 @@ import type { Screen } from '../src/cli/screen.ts';
 import { FILES } from '../src/worker/layout.ts';
 import { readRules } from '../src/worker/state-file.ts';
 import { cliWorld } from './support/cli-world.ts';
+import pkg from '../package.json' with { type: 'json' };
 import { credit } from './support/fake-world.ts';
 import { status } from '../src/cli/status.ts';
 import { language } from '../src/cli/language.ts';
@@ -152,7 +153,7 @@ test('the terminal: a frame taller than the terminal keeps its bottom and never 
 
 test('the screen in English: l switches to Russian and back, keeping the choice on this Mac', async () => {
   const { mac, press, text, screen, run } = await opened({ language: 'en' });
-  assert.equal(screen.frame()[0], `aures${' '.repeat(45)}20 Oct 12:00   EN · RU`);
+  assert.equal(screen.frame()[0], `aures ${pkg.version}${' '.repeat(44 - pkg.version.length)}20 Oct 12:00   EN · RU`);
   assert.equal(screen.frame()[4], `▸ reset-b   in 2d 2h${' '.repeat(40)}22 Oct 15:00`);
   assert.match(text(), /RULES\n─+\n {2}☑ Before expiry \(in the last 8 hours\)\n {2}☐ When the weekly limit runs out/);
   assert.match(text(), /● worker works · last run 20 Oct 12:00/);
@@ -169,6 +170,6 @@ test('the screen in English: l switches to Russian and back, keeping the choice 
   assert.match(text(), /RESETS · 2/);
 
   const { io } = await run(status);
-  assert.match(io.output(), /^aures +20 Oct 12:00\n/, 'status has no language toggle');
+  assert.match(io.output(), /^aures \S+ +20 Oct 12:00\n/, 'status has no language toggle');
   assert.match(io.output(), /RESETS · 2/);
 });

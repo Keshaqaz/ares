@@ -15,6 +15,7 @@ import { workflowYaml } from '../src/worker/workflow.ts';
 import type { Summary } from '../src/worker/summary.ts';
 import { credit, window } from './support/fake-world.ts';
 import { cliWorld } from './support/cli-world.ts';
+import pkg from '../package.json' with { type: 'json' };
 
 const HOUR = 3600_000, DAY = 24 * HOUR;
 
@@ -41,7 +42,7 @@ test('status shows the resets, the rules, the last run and the last application'
   const { code, io } = await run(status);
   assert.equal(code, 0);
   assert.deepEqual(io.lines, [
-    `aures${' '.repeat(55)}20 окт 13:30`,
+    `aures ${pkg.version}${' '.repeat(54 - pkg.version.length)}20 окт 13:30`,
     '',
     'СБРОСЫ · 2',
     '─'.repeat(72),
