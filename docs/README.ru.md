@@ -7,7 +7,7 @@
 Сам применяет выданные сбросы лимита ChatGPT, чтобы они не сгорали.<br>
 Работает в вашем приватном репозитории на GitHub. Компьютер можно выключить.
 
-[![version](https://img.shields.io/badge/version-0.2.0-8A2BE2)](https://github.com/Keshaqaz/ares/releases/latest)
+[![version](https://img.shields.io/badge/version-0.2.1-8A2BE2)](https://github.com/Keshaqaz/ares/releases/latest)
 [![platform](https://img.shields.io/badge/CLI-macOS-000?logo=apple)](installation.md)
 [![node](https://img.shields.io/badge/node-%E2%89%A526-339933?logo=nodedotjs&logoColor=white)](installation.md)
 [![license](https://img.shields.io/badge/license-MIT-blue)](../LICENSE)
