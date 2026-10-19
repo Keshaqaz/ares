@@ -10,11 +10,13 @@ const HOUR = 3600_000, DAY = 24 * HOUR;
 export const WORKER_SOURCE = '// fake worker bundle\n';
 
 // The user at the terminal: approves each device code as soon as it is shown and answers
-// prompts from a script (an empty line is Enter).
+// prompts from a script (an empty line is Enter). waits are the texts of the live line, null
+// where it went away.
 export function terminal(world, answers = [], { github = true } = {}) {
-  const lines = [], asked = [];
+  const lines = [], asked = [], waits = [];
   return {
-    lines, asked,
+    lines, asked, waits,
+    wait: text => { waits.push(text); },
     output: () => lines.join('\n'),
     print: line => {
       lines.push(line);

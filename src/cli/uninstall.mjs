@@ -31,7 +31,7 @@ async function revoke({ api, repo, io, now, sleep }) {
   if (await api.workflowState(name, WORKFLOW_FILE) !== 'active') return t('the worker is disabled in GitHub', 'воркер выключен в GitHub');
   io.print(t('Revoking the worker\'s ChatGPT sign-in…', 'Отзываем вход воркера в ChatGPT…'));
   let run, logged;
-  try { ({ run, logged } = await runWorkerNow({ api, repo, inputs: { [REVOKE_INPUT]: 'true' }, now, sleep })); } catch (error) {
+  try { ({ run, logged } = await runWorkerNow({ api, repo, inputs: { [REVOKE_INPUT]: 'true' }, now, sleep, wait: io.wait })); } catch (error) {
     if (!(error instanceof CommandFailed)) throw error;
     return error.message.replace(/\.$/, '');
   }

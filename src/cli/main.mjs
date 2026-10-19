@@ -14,6 +14,7 @@ import { watch } from './watch.mjs';
 import { WatchFiles } from './watch-files.mjs';
 import { LaunchAgent } from './launch-agent.mjs';
 import { GitHubTokenKeychain } from './keychain.mjs';
+import { liveLine } from './live-line.mjs';
 import { t, setLanguage, LANGUAGES } from './language.mjs';
 import pkg from '../../package.json' with { type: 'json' };
 
@@ -91,7 +92,8 @@ async function main() {
     }
   }
   const terminal = createInterface({ input: process.stdin, output: process.stdout });
-  const io = { print: line => console.log(line), prompt: question => terminal.question(question), color };
+  const { print, wait } = liveLine(process.stdout, { color });
+  const io = { print, wait, prompt: question => terminal.question(question), color };
   try {
     return await run({ fetch: globalThis.fetch, keychain: new GitHubTokenKeychain(), io, workerSource,
       mac: { files, agent: new LaunchAgent() } });

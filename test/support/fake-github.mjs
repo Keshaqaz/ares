@@ -26,6 +26,8 @@ export async function withGitHub(world, { login = 'octo-fake' } = {}) {
     // Job log reads answered 404 after the run completed, before the log is ready.
     logDelay: 0,
     fail: null, // (method, path) → Response | null, to break one call
+    // How long a dispatched run waits in the queue before the runner takes it, as in an outage.
+    queueMs: 0,
   };
   world.github = github;
 
@@ -49,9 +51,18 @@ export async function withGitHub(world, { login = 'octo-fake' } = {}) {
     const run = { id: 9000 + ++serial, event, status: 'queued', conclusion: null, created_at: at, run_started_at: at, updated_at: at,
       html_url: `https://github.com/${login}/${repo.meta.name}/actions/runs/${9000 + serial}`, inputs, log: '' };
     repo.runs.unshift(run);
+    if (github.queueMs) run.queuedUntil = world.now + github.queueMs;
+    else await execute(repo, run);
+    return run;
+  }
+  async function execute(repo, run) {
+    delete run.queuedUntil;
     const result = await github.runner?.(repo, run);
     if (result) Object.assign(run, { status: 'completed', conclusion: result.conclusion, log: result.log });
-    return run;
+  }
+  // The runner takes the queued runs whose time has come.
+  async function dequeue(repo) {
+    for (const run of repo.runs) if (run.queuedUntil <= world.now) await execute(repo, run);
   }
   // The hourly cron fires; a disabled workflow does not run.
   github.schedule = (repo = github.repo()) => repo.workflowState === 'active' ? startRun(repo, 'schedule', {}) : null;
@@ -153,16 +164,18 @@ export async function withGitHub(world, { login = 'octo-fake' } = {}) {
       }
       if (workflow[2] === 'runs' && method === 'GET') {
         if (!exists || github.dispatchNotFound > 0) return json(404, { message: 'Not Found' });
+        await dequeue(repo);
         const event = url.searchParams.get('event');
         const perPage = Number(url.searchParams.get('per_page') ?? 30);
-        const runs = repo.runs.filter(r => !event || r.event === event).slice(0, perPage).map(({ log, inputs, ...run }) => run);
+        const runs = repo.runs.filter(r => !event || r.event === event).slice(0, perPage).map(({ log, inputs, queuedUntil, ...run }) => run);
         return json(200, { total_count: runs.length, workflow_runs: runs });
       }
     }
     const runPath = rest.match(/^\/actions\/runs\/(\d+)(\/jobs)?$/);
     const run = runPath && repo.runs.find(r => r.id === Number(runPath[1]));
     if (run && method === 'GET') {
-      const { log, inputs, ...view } = run;
+      await dequeue(repo);
+      const { log, inputs, queuedUntil, ...view } = run;
       return runPath[2] ? json(200, { total_count: 1, jobs: [{ id: run.id * 10, run_id: run.id, status: run.status }] }) : json(200, view);
     }
     const job = rest.match(/^\/actions\/jobs\/(\d+)\/logs$/);

@@ -28,9 +28,9 @@ function verdict({ creditId, before, after, run, logged }) {
 }
 
 // Applies the reset in a dispatched run regardless of the rules and tells what became of it.
-// before is the summary the user chose the reset from.
-export async function applyReset({ api, repo, creditId, before, now, sleep }) {
-  const { run, logged } = await runWorkerNow({ api, repo, inputs: { apply_now: creditId }, now, sleep });
+// before is the summary the user chose the reset from; wait is runWorkerNow's.
+export async function applyReset({ api, repo, creditId, before, now, sleep, wait }) {
+  const { run, logged } = await runWorkerNow({ api, repo, inputs: { apply_now: creditId }, now, sleep, wait });
   const after = await readSummary(api, repo);
   return verdict({ creditId, before, after, run, logged });
 }
@@ -67,7 +67,7 @@ export async function applyNow({ fetch, keychain, io, now = Date.now,
     if (!YES.includes(confirmed)) { io.print(t('Cancelled.', 'Отменено.')); return 0; }
 
     io.print(t('Applying…', 'Применяем…'));
-    const { code, message } = await applyReset({ api, repo, creditId, before, now, sleep });
+    const { code, message } = await applyReset({ api, repo, creditId, before, now, sleep, wait: io.wait });
     for (const line of message.split('\n')) io.print(line);
     return code;
   });

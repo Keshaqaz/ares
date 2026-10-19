@@ -39,7 +39,7 @@ export async function login({ fetch, keychain, io, now = Date.now,
     // The secret goes even when the run is not seen through: a rejected session is another
     // account's live one, and a stale secret would bring back rotated tokens over a newer state.
     let run, logged;
-    try { ({ run, logged } = await runWorkerNow({ api, repo, inputs: {}, now, sleep })); } finally {
+    try { ({ run, logged } = await runWorkerNow({ api, repo, inputs: {}, now, sleep, wait: io.wait })); } finally {
       await api.deleteSecret(name, LOGIN_SECRET).catch(() => {});
     }
     const summary = await readSummary(api, repo);

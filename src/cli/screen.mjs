@@ -114,7 +114,9 @@ export class Screen {
     const { api, repo, now, sleep } = this;
     await runnableWorkflow(api, repo);
     const before = await readSummary(api, repo);
-    const { code, message } = await applyReset({ api, repo, creditId, before, now, sleep });
+    // The spinner line says what the run waits for; the reset stays named in it.
+    const wait = text => { if (text) { this.busy = `${creditId}: ${text}`; this.changed(); } };
+    const { code, message } = await applyReset({ api, repo, creditId, before, now, sleep, wait });
     note(message, code === 0 ? 'ok' : 'warn');
   }
 

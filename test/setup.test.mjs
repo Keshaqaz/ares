@@ -183,8 +183,32 @@ test('a trial run still queued after 10 minutes is left for the user to check', 
   const start = world.now;
   const { code, io } = await run();
   assert.equal(code, 1);
-  assert.match(io.lines.at(-1), /дольше 10 минут.*actions\/runs\/\d+/);
+  assert.match(io.lines.at(-1), /^Воркер ждёт в очереди GitHub дольше 10 минут и запустится сам\. Проверьте позже: .*actions\/runs\/\d+$/);
   assert.ok(world.now - start >= 10 * 60_000 && world.now - start < 12 * 60_000);
+  assert.equal(io.waits.at(-1), null, 'the live line is gone before the message');
+});
+
+const STARTING = 'Запускаем воркер на GitHub…', QUEUED = 'GitHub поставил воркер в очередь, ждём (до 10 минут)…';
+
+test('setup waits out the GitHub queue and says on the live line what it waits for', async () => {
+  const { world, run } = await installWorld();
+  world.github.queueMs = 3 * 60_000;
+  const { code, io } = await run();
+  assert.equal(code, 0, io.output());
+  assert.deepEqual(io.waits, [STARTING, QUEUED, null]);
+  assert.match(io.lines.at(-1), /^Воркер работает\./);
+});
+
+test('polls GitHub drops or fails while the run is queued do not end setup', async () => {
+  const { world, run } = await installWorld();
+  world.github.queueMs = 60_000;
+  const failures = [() => Promise.reject(new TypeError('fetch failed')), () => new Response('{}', { status: 502 })];
+  world.github.fail = (method, path) => /\/actions\/runs\/\d+$/.test(path) ? failures.shift()?.() ?? null : null;
+  const { code, io } = await run();
+  assert.equal(code, 0, io.output());
+  assert.deepEqual(io.waits, [STARTING, QUEUED, 'GitHub не отвечает, продолжаем ждать…', QUEUED, null]);
+  assert.equal(world.github.repo().runs.length, 1, 'the worker is dispatched once');
+  assert.match(io.lines.at(-1), /^Воркер работает\./);
 });
 
 test('setup waits until GitHub knows the freshly pushed workflow', async () => {

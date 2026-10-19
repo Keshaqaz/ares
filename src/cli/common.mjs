@@ -178,38 +178,64 @@ export function failedRunAdvice({ outcome, reason } = {}) {
   }[outcome] ?? t('The worker ended with an error.', 'Воркер завершился с ошибкой.');
 }
 
+// What a wait for a dispatched run is at: the run not seen yet, queued for a runner, running,
+// or GitHub not answering the last poll.
+const waitText = stage => ({
+  starting: t('Starting the worker on GitHub…', 'Запускаем воркер на GitHub…'),
+  queued: t('GitHub queued the worker, waiting (up to 10 minutes)…', 'GitHub поставил воркер в очередь, ждём (до 10 минут)…'),
+  running: t('The worker is running…', 'Воркер работает…'),
+  unreachable: t('GitHub does not answer, still waiting…', 'GitHub не отвечает, продолжаем ждать…'),
+})[stage];
+// A poll that failed this way is worth repeating: the run is already dispatched and goes on.
+const passing = error => error instanceof GitHubFailure && (error.reason === 'network' || /_5\d\d$/.test(error.reason));
+
 // Dispatches one worker run with these inputs and waits for it. Returns the completed run
-// and the outcome from its log (null when the log does not show one).
-export async function runWorkerNow({ api, repo, inputs, now, sleep }) {
+// and the outcome from its log (null when the log does not show one). wait(text) tells what
+// the wait is at whenever that changes, and wait(null) when it is over.
+export async function runWorkerNow({ api, repo, inputs, now, sleep, wait = () => {} }) {
   const name = repo.full_name;
-  const known = new Set((await api.dispatchRuns(name, WORKFLOW_FILE)).map(run => run.id));
-  const deadline = now() + RUN_TIMEOUT_MS;
-  // GitHub learns about a freshly pushed workflow with a delay.
-  while (!await api.dispatch(name, WORKFLOW_FILE, { ref: repo.default_branch, inputs: { apply_now: '', ...inputs } })) {
-    if (now() >= deadline) {
-      throw new CommandFailed(t('GitHub is not ready to start the worker yet. Try again in a few minutes.',
-        'GitHub ещё не готов запустить воркер. Повторите через несколько минут.'));
+  let shown = null;
+  const show = stage => { if (stage !== shown) wait(waitText(shown = stage)); };
+  try {
+    const known = new Set((await api.dispatchRuns(name, WORKFLOW_FILE)).map(run => run.id));
+    const deadline = now() + RUN_TIMEOUT_MS;
+    show('starting');
+    // GitHub learns about a freshly pushed workflow with a delay.
+    while (!await api.dispatch(name, WORKFLOW_FILE, { ref: repo.default_branch, inputs: { apply_now: '', ...inputs } })) {
+      if (now() >= deadline) {
+        throw new CommandFailed(t('GitHub is not ready to start the worker yet. Try again in a few minutes.',
+          'GitHub ещё не готов запустить воркер. Повторите через несколько минут.'));
+      }
+      await sleep(POLL_MS);
     }
-    await sleep(POLL_MS);
-  }
-  let run = null;
-  for (;;) {
-    run = run ? await api.run(name, run.id) : (await api.dispatchRuns(name, WORKFLOW_FILE)).find(r => !known.has(r.id)) ?? null;
-    if (run?.status === 'completed') break;
-    if (now() >= deadline) {
-      throw new CommandFailed(run ?
-        t(`The worker has been running for over 10 minutes. Check later: ${run.html_url}`, `Воркер работает дольше 10 минут. Проверьте позже: ${run.html_url}`) :
-        t(`GitHub did not start the worker in 10 minutes. Check: ${repo.html_url}/actions`,
-          `GitHub не запустил воркер за 10 минут. Проверьте: ${repo.html_url}/actions`));
+    let run = null;
+    for (;;) {
+      try {
+        run = run ? await api.run(name, run.id) : (await api.dispatchRuns(name, WORKFLOW_FILE)).find(r => !known.has(r.id)) ?? null;
+        show(!run ? 'starting' : run.status === 'in_progress' ? 'running' : 'queued');
+      } catch (error) {
+        if (!passing(error)) throw error;
+        show('unreachable');
+      }
+      if (run?.status === 'completed') break;
+      if (now() >= deadline) {
+        throw new CommandFailed(!run ?
+          t(`GitHub did not start the worker in 10 minutes. Check: ${repo.html_url}/actions`,
+            `GitHub не запустил воркер за 10 минут. Проверьте: ${repo.html_url}/actions`) :
+          run.status === 'in_progress' ?
+            t(`The worker has been running for over 10 minutes. Check later: ${run.html_url}`, `Воркер работает дольше 10 минут. Проверьте позже: ${run.html_url}`) :
+            t(`The worker has been waiting in the GitHub queue for over 10 minutes; it will run by itself. Check later: ${run.html_url}`,
+              `Воркер ждёт в очереди GitHub дольше 10 минут и запустится сам. Проверьте позже: ${run.html_url}`));
+      }
+      await sleep(POLL_MS);
     }
-    await sleep(POLL_MS);
-  }
-  let logged = null;
-  for (let attempt = 1; !logged && attempt <= LOG_ATTEMPTS; attempt++) {
-    if (attempt > 1) await sleep(POLL_MS);
-    logged = loggedOutcome(await api.runLog(name, run.id).catch(() => null));
-  }
-  return { run, logged };
+    let logged = null;
+    for (let attempt = 1; !logged && attempt <= LOG_ATTEMPTS; attempt++) {
+      if (attempt > 1) await sleep(POLL_MS);
+      logged = loggedOutcome(await api.runLog(name, run.id).catch(() => null));
+    }
+    return { run, logged };
+  } finally { if (shown) wait(null); }
 }
 
 // The message for a failure this module knows, or null. command names what to repeat: '' is

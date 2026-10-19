@@ -21,7 +21,7 @@ async function ensureRepository({ api, login, io }) {
 // Dispatches a regular tick, waits for its run and reads what the worker published.
 async function trialRun({ api, repo, io, now, sleep, timeZone }) {
   io.print(t('Checking the worker…', 'Проверяем воркер…'));
-  const { run, logged } = await runWorkerNow({ api, repo, inputs: {}, now, sleep });
+  const { run, logged } = await runWorkerNow({ api, repo, inputs: {}, now, sleep, wait: io.wait });
   if (run.conclusion !== 'success') throw new CommandFailed(`${failedRunAdvice(logged ?? {})}\n${t('Details', 'Подробности')}: ${run.html_url}`);
   const summary = logged?.outcome === 'transient_error' ? null : await readSummary(api, repo);
   if (summary) return workingLine(summary, timeZone);
