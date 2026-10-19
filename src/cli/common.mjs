@@ -1,8 +1,8 @@
 // What every command shares: the GitHub login, the worker repository, a worker run started
 // from the CLI and the words the user sees when something fails.
-import { GitHubApi, GitHubFailure, githubDeviceLogin } from '../github/api.mjs';
-import { LoginFailed } from '../chatgpt/session.mjs';
-import { TransientFailure } from '../chatgpt/http.mjs';
+import { GitHubApi, GitHubFailure, githubDeviceLogin } from '../github/api.ts';
+import { LoginFailed } from '../chatgpt/session.ts';
+import { TransientFailure } from '../chatgpt/http.ts';
 import { FILES } from '../worker/layout.mjs';
 import { RULES_FORMAT_VERSION } from '../worker/state-file.mjs';
 import { KeychainUnavailable } from './keychain.mjs';

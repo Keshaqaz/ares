@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import { usage, issuedResets, consume } from '../chatgpt/client.mjs';
-import { needsRefresh, refresh } from '../chatgpt/session.mjs';
-import { SessionLost, TransientFailure } from '../chatgpt/http.mjs';
+import { usage, issuedResets, consume } from '../chatgpt/client.ts';
+import { needsRefresh, refresh } from '../chatgpt/session.ts';
+import { SessionLost, TransientFailure } from '../chatgpt/http.ts';
 import { migrateState, STATE_MIGRATIONS } from './state-file.mjs';
 
 // The before-expiry rule makes its first attempt on the first tick inside this window.

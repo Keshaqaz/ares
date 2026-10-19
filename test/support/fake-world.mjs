@@ -1,7 +1,7 @@
 // Single fake HTTP world for the GitHub-only worker: ChatGPT /wham/* and auth.openai.com
 // (device flow, refresh token rotation). It is a fetch implementation over a shared clock,
 // so tests drive time and the server state together. Never accepts real credentials.
-import { USER_AGENT } from '../../src/chatgpt/http.mjs';
+import { USER_AGENT } from '../../src/chatgpt/http.ts';
 
 export const ACCESS_LIFETIME_MS = 10 * 24 * 3600 * 1000; // live check 01: exp − iat = 864000 s
 // Live check 01 saw a reuse accepted seconds after rotation but did not measure the window;
@@ -33,7 +33,7 @@ export function fakeWorld({ now = Date.parse('2026-10-20T12:00:00Z'), accountId 
       primary: window(18000, 12, now + 3 * 3600_000),
       secondary: window(604800, 40, now + 3 * 24 * 3600_000),
       credits: [credit('reset-a', now + 5 * 24 * 3600_000)],
-      fail: null, // { status } or 'network' for every /wham call
+      fail: null, // { status, body? or text? } or 'network' for every /wham call
       // POST consume: outcome for a fresh key, lose drops the reply ('after' the server
       // applied it or 'before'), consumeFail answers { status } without applying.
       outcome: 'reset', lose: null, consumeFail: null, renewsWindows: true,
@@ -187,7 +187,8 @@ export function fakeWorld({ now = Date.parse('2026-10-20T12:00:00Z'), accountId 
         headers.get('chatgpt-account-id') !== world.accountId) return json(401, { detail: 'Unauthorized' });
     const { fail } = world.chatgpt;
     if (fail === 'network') return Promise.reject(new TypeError('fetch failed'));
-    if (fail) return json(fail.status, { detail: 'fake failure' });
+    if (fail?.text !== undefined) return new Response(fail.text, { status: fail.status });
+    if (fail) return json(fail.status, 'body' in fail ? fail.body : { detail: 'fake failure' });
     if (path === '/usage' && method === 'GET') {
       const { primary, secondary, credits } = world.chatgpt;
       const reached = [primary, secondary].some(w => w?.used_percent >= 100);

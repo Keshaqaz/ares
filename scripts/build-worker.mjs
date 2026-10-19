@@ -10,7 +10,8 @@ export async function buildWorker(outfile = `${root}dist/worker.mjs`) {
   await build({
     entryPoints: [`${root}src/worker/main.mjs`], outfile, bundle: true, platform: 'node', format: 'esm',
     // The node preinstalled on the runner, not the pinned one: the workflow installs nothing.
-    target: 'node20', minify: false, legalComments: 'none', logLevel: 'warning',
+    // Settings come from here, not tsconfig.json: its target is for tsc.
+    tsconfigRaw: {}, target: 'node20', minify: false, legalComments: 'none', logLevel: 'warning',
     banner: { js: `// aures worker ${pkg.version}, built from src/worker/main.mjs. Do not edit.` },
   });
   return outfile;

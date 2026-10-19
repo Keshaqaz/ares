@@ -1,5 +1,5 @@
-import { GitHubApi, githubDeviceLogin, UNINSTALL_SCOPES } from '../github/api.mjs';
-import { GITHUB_OAUTH_CLIENT_ID } from '../github/oauth-app.mjs';
+import { GitHubApi, githubDeviceLogin, UNINSTALL_SCOPES } from '../github/api.ts';
+import { GITHUB_OAUTH_CLIENT_ID } from '../github/oauth-app.ts';
 import { FILES, STATE_KEY_SECRET, REVOKE_INPUT } from '../worker/layout.mjs';
 import { KeychainUnavailable } from './keychain.mjs';
 import { CommandFailed, YES, WORKER_REPOSITORY, WORKER_DESCRIPTION, WORKFLOW_FILE, showCode, runWorkerNow, command } from './common.mjs';

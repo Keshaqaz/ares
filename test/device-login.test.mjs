@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { deviceLogin, LoginFailed } from '../src/chatgpt/session.mjs';
+import { deviceLogin, LoginFailed } from '../src/chatgpt/session.ts';
 import { tick } from '../src/worker/tick.mjs';
 import { fakeWorld } from './support/fake-world.mjs';
 

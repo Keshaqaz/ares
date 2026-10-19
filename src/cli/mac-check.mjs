@@ -1,5 +1,5 @@
-import { deviceLogin, revoke } from '../chatgpt/session.mjs';
-import { TransientFailure } from '../chatgpt/http.mjs';
+import { deviceLogin, revoke } from '../chatgpt/session.ts';
+import { TransientFailure } from '../chatgpt/http.ts';
 import { LaunchctlFailed } from './launch-agent.mjs';
 import { showCode } from './common.mjs';
 import { t } from './language.mjs';

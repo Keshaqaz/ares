@@ -1,7 +1,7 @@
 // The fake world a CLI command runs in: ChatGPT, auth.openai.com and GitHub with an Actions
 // runner, a Keychain and a user at the terminal.
 import { fakeWorld, credit } from './fake-world.mjs';
-import { withGitHub } from './fake-github.mjs';
+import { withGitHub } from './fake-github.ts';
 import { actionsRunner } from './actions-runner.mjs';
 import { fakeMac } from './fake-mac.mjs';
 import { setLanguage } from '../../src/cli/language.mjs';

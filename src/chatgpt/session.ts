@@ -1,30 +1,49 @@
-import { request, claims, SessionLost, TransientFailure } from './http.mjs';
+import { request, claims, object, asObject, SessionLost, TransientFailure } from './http.ts';
+import type { Fetch, Reply } from './http.ts';
 
 export const ISSUER = 'https://auth.openai.com';
 export const CODEX_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
 // Refresh only when the access token would not outlive this tick: each refresh rotates
 // the refresh token, and a crash before the commit loses the session.
 export const REFRESH_MARGIN_MS = 10 * 60_000;
-const LOST_CODES = ['refresh_token_expired', 'refresh_token_reused', 'refresh_token_invalidated'];
-const TOKENS = { access_token: 'accessToken', id_token: 'idToken', refresh_token: 'refreshToken' };
+const LOST_CODES = ['refresh_token_expired', 'refresh_token_reused', 'refresh_token_invalidated'] as const;
+const TOKENS = { access_token: 'accessToken', id_token: 'idToken', refresh_token: 'refreshToken' } as const;
 
 export const DEVICE_LOGIN_TIMEOUT_MS = 15 * 60_000;
 
+// A ChatGPT sign-in of the Codex client: the worker's or the Mac's.
+export interface Session { accessToken: string; idToken: string; refreshToken: string; accountId: string }
+
+export type LoginFailedReason = 'timeout' | 'no_account' | `usercode_${number}` | `poll_${number}` | `exchange_${number}`;
+
 export class LoginFailed extends Error {
-  constructor(reason) { super(reason); this.reason = reason; }
+  reason: LoginFailedReason;
+  constructor(reason: LoginFailedReason) { super(reason); this.reason = reason; }
 }
+
+export interface DeviceCode { userCode: string; verificationUrl: string }
+export interface DeviceLoginOptions {
+  fetch: Fetch;
+  onCode: (code: DeviceCode) => unknown;
+  sleep?: (ms: number) => Promise<unknown>;
+  now?: () => number;
+}
+
+const isLostCode = (code: unknown): code is typeof LOST_CODES[number] => LOST_CODES.some(lost => lost === code);
 
 // Device-code login for `setup` and `login`: the user enters onCode's userCode at
 // verificationUrl while we poll. Returns a fresh worker session.
-export async function deviceLogin({ fetch, onCode, sleep = ms => new Promise(r => setTimeout(r, ms)), now = Date.now }) {
+export async function deviceLogin({ fetch, onCode, sleep = ms => new Promise(r => setTimeout(r, ms)), now = Date.now }:
+  DeviceLoginOptions): Promise<Session> {
   const json = { 'content-type': 'application/json' };
   const issued = await request(fetch, `${ISSUER}/api/accounts/deviceauth/usercode`,
     { method: 'POST', headers: json, body: JSON.stringify({ client_id: CODEX_CLIENT_ID }) });
-  const device = issued.value;
+  const device = asObject(issued.value);
   const userCode = device?.user_code ?? device?.usercode;
   if (issued.status !== 200 || typeof device?.device_auth_id !== 'string' || typeof userCode !== 'string') {
     throw new LoginFailed(`usercode_${issued.status}`);
   }
+  const deviceAuthId = device.device_auth_id;
   await onCode({ userCode, verificationUrl: `${ISSUER}/codex/device` });
   const interval = Math.max(1, Number(device.interval) || 5) * 1000;
   const deadline = now() + DEVICE_LOGIN_TIMEOUT_MS;
@@ -32,61 +51,67 @@ export async function deviceLogin({ fetch, onCode, sleep = ms => new Promise(r =
   while (!grant) {
     if (now() >= deadline) throw new LoginFailed('timeout');
     await sleep(Math.min(interval, Math.max(0, deadline - now())));
-    let poll;
+    let poll: Reply;
     try {
       poll = await request(fetch, `${ISSUER}/api/accounts/deviceauth/token`, { method: 'POST', headers: json,
-        body: JSON.stringify({ device_auth_id: device.device_auth_id, user_code: userCode }) });
+        body: JSON.stringify({ device_auth_id: deviceAuthId, user_code: userCode }) });
     } catch (error) {
       if (error instanceof TransientFailure) continue; // one lost poll should not end the login
       throw error;
     }
     // 403/404: the user has not entered the code yet.
     if (poll.status === 403 || poll.status === 404) continue;
-    if (poll.status !== 200 || typeof poll.value?.authorization_code !== 'string' ||
-        typeof poll.value.code_verifier !== 'string') throw new LoginFailed(`poll_${poll.status}`);
-    grant = poll.value;
+    const value = asObject(poll.value);
+    if (poll.status !== 200 || typeof value?.authorization_code !== 'string' ||
+        typeof value.code_verifier !== 'string') throw new LoginFailed(`poll_${poll.status}`);
+    grant = { authorization_code: value.authorization_code, code_verifier: value.code_verifier };
   }
   // The server holds the PKCE pair and returns the verifier with the code.
   const exchange = await request(fetch, `${ISSUER}/oauth/token`, { method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({ grant_type: 'authorization_code', code: grant.authorization_code,
       redirect_uri: `${ISSUER}/deviceauth/callback`, client_id: CODEX_CLIENT_ID, code_verifier: grant.code_verifier }).toString() });
-  const tokens = exchange.value;
-  if (exchange.status !== 200 || !Object.keys(TOKENS).every(key => typeof tokens?.[key] === 'string' && tokens[key])) {
+  const tokens = asObject(exchange.value);
+  const { access_token, id_token, refresh_token } = tokens ?? {};
+  if (exchange.status !== 200 || typeof access_token !== 'string' || !access_token || typeof id_token !== 'string' || !id_token ||
+      typeof refresh_token !== 'string' || !refresh_token) {
     throw new LoginFailed(`exchange_${exchange.status}`);
   }
-  const accountId = claims(tokens.id_token)?.['https://api.openai.com/auth']?.chatgpt_account_id;
+  const accountId = asObject(asObject(claims(id_token))?.['https://api.openai.com/auth'])?.chatgpt_account_id;
   if (typeof accountId !== 'string' || !accountId) throw new LoginFailed('no_account');
-  return { accessToken: tokens.access_token, idToken: tokens.id_token, refreshToken: tokens.refresh_token, accountId };
+  return { accessToken: access_token, idToken: id_token, refreshToken: refresh_token, accountId };
 }
 
-export function needsRefresh(session, now) {
-  const exp = claims(session.accessToken)?.exp;
-  return !Number.isSafeInteger(exp) || exp * 1000 - now <= REFRESH_MARGIN_MS;
+export function needsRefresh(session: Session, now: number): boolean {
+  const exp = asObject(claims(session.accessToken))?.exp;
+  return typeof exp !== 'number' || !Number.isSafeInteger(exp) || exp * 1000 - now <= REFRESH_MARGIN_MS;
 }
 
 // Rotates the refresh token. Fields missing from the reply keep their previous values.
-export async function refresh(fetch, session) {
+export async function refresh(fetch: Fetch, session: Session): Promise<Session> {
   const { status, value } = await request(fetch, `${ISSUER}/oauth/token`, { method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ client_id: CODEX_CLIENT_ID, grant_type: 'refresh_token', refresh_token: session.refreshToken }) });
-  const code = value?.error?.code ?? value?.error;
-  if (status === 401 || LOST_CODES.includes(code) || status === 400 && code === 'invalid_grant') {
-    throw new SessionLost(LOST_CODES.includes(code) ? code : status === 401 ? 'unauthorized' : 'invalid_grant');
+  const error = asObject(value)?.error;
+  const code = asObject(error)?.code ?? error;
+  if (status === 401 || isLostCode(code) || status === 400 && code === 'invalid_grant') {
+    throw new SessionLost(isLostCode(code) ? code : status === 401 ? 'unauthorized' : 'invalid_grant');
   }
   if (status !== 200 || !value || typeof value !== 'object') throw new TransientFailure(`refresh_${status}`);
+  const reply = asObject(value) ?? {}; // an array has none of the token fields
   const next = { ...session };
   for (const [field, key] of Object.entries(TOKENS)) {
-    if (value[field] == null) continue;
-    if (typeof value[field] !== 'string' || !value[field]) throw new TransientFailure('refresh_invalid_reply');
-    next[key] = value[field];
+    const token = reply[field];
+    if (token == null) continue;
+    if (typeof token !== 'string' || !token) throw new TransientFailure('refresh_invalid_reply');
+    next[key] = token;
   }
   return next;
 }
 
 // Revokes the worker session's refresh token before uninstall (live check 01: a refresh after
 // it gets 401 refresh_token_invalidated). Throws TransientFailure unless OpenAI confirms it.
-export async function revoke(fetch, session) {
+export async function revoke(fetch: Fetch, session: Session): Promise<void> {
   const { status } = await request(fetch, `${ISSUER}/oauth/revoke`, { method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ client_id: CODEX_CLIENT_ID, token_type_hint: 'refresh_token', token: session.refreshToken }) });
   if (status !== 200) throw new TransientFailure(`revoke_${status}`);

@@ -8,7 +8,7 @@ import { upgrade } from '../src/cli/upgrade.mjs';
 import { uninstall } from '../src/cli/uninstall.mjs';
 import { KeychainUnavailable } from '../src/cli/keychain.mjs';
 import { buildWorker } from '../scripts/build-worker.mjs';
-import { GITHUB_OAUTH_CLIENT_ID } from '../src/github/oauth-app.mjs';
+import { GITHUB_OAUTH_CLIENT_ID } from '../src/github/oauth-app.ts';
 import { FILES, STATE_KEY_SECRET, REVOKE_INPUT } from '../src/worker/layout.mjs';
 import { openState } from '../src/worker/state-file.mjs';
 import { workflowYaml } from '../src/worker/workflow.mjs';

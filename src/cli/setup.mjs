@@ -1,4 +1,4 @@
-import { deviceLogin } from '../chatgpt/session.mjs';
+import { deviceLogin } from '../chatgpt/session.ts';
 import { FILES, STATE_KEY_SECRET, LOGIN_SECRET } from '../worker/layout.mjs';
 import { generateKey, sealState, readRules, BrokenState, STATE_FORMAT_VERSION } from '../worker/state-file.mjs';
 import { workflowYaml } from '../worker/workflow.mjs';
