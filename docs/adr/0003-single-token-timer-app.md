@@ -1,5 +1,7 @@
 # Один токен установки, таймер — через GitHub App
 
+**Заменено** [ADR-0004](0004-github-only-worker.md) 19 октября 2026.
+
 14 октября 2026 года пользователь выбрал схему, в которой он выпускает и копирует ровно один токен. **Токен установки** — fine-grained PAT только на private repo установки: Contents, Secrets, Actions, Variables, Workflows — write и Account permissions → Plan: read; форма просит срок 366 дней, но фактический срок может оказаться короче (тикет 39). Он заменяет и основной PAT, и отдельный billing-токен. Внешний таймер вместо второго PAT получает **приложение таймера**: GitHub App пользователя с правами только Actions: write и Contents: read, с выключенным webhook, которое пользователь устанавливает на repo установки. Его private key (**ключ таймера**) хранится только как Worker secret; Worker перед dispatch сам выпускает installation token на час.
 
 **Токен установки.** Установщик открывает предзаполненную форму `https://github.com/settings/personal-access-tokens/new` с именем, описанием, `expires_in=366` и правами ([документация](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens)); repo пользователь выбирает сам — URL его не задаёт. Токен хранится в Repository Secret `AUTO_RESET_GITHUB_TOKEN` и локально в macOS Keychain, поэтому повторный запуск установщика его не спрашивает. Срок читается из `GitHub-Authentication-Token-Expiration` и хранится в state; за 14 дней до истечения напоминают установщик, `s` и Actions Summary. Ротация — существующий `rotate-grant`, после результата обновляется Keychain. Billing provider читает usage тем же токеном; Secret `AUTO_RESET_BILLING_TOKEN` удаляется миграцией.
@@ -18,6 +20,3 @@
 - **Срок.** Предзаполненная форма с `expires_in=366` дала токен на 30 дней. Установщик принимает любой срок: читает его из `GitHub-Authentication-Token-Expiration`, а если он меньше 366 дней, показывает дату и подсказывает перевыпуск на год. Напоминание за 14 дней считается от фактического срока.
 - **Один repo.** Ни форма PAT, ни ссылка установки App (`repository_ids[]`) repo не ограничивают: по умолчанию получилось «All repositories». Установщик проверяет оба — токен по списку видимых private repo, App по `repository_selection` — и при доступе шире repo установки **предупреждает и продолжает**, подсказывая «Only select repositories». Плата за это решение: широкий токен установки в Repository Secrets даёт запись во все repo владельца; утечка ключа таймера при установке на все repo позволяет запускать и отключать workflow и читать содержимое всех repo, а не только repo установки. Worker по-прежнему сужает каждый installation token до repo установки и двух прав.
 - **Webhook.** Manifest без `hook_attributes.url` отклоняется; используется URL-заглушка с `active: false`.
-
-
-**Заменено** [ADR-0004](0004-github-only-worker.md) 19 октября 2026.

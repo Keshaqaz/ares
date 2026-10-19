@@ -114,8 +114,6 @@ test/         тесты; support/ — фикстуры
 docs/         инструкции, словарь, adr/
 ```
 
-Папки `account/`, `session/`, `core/`, `schedule/`, `workflow/`, `installer/`, а также `src/cli.mjs`, `src/worker/index.mjs` с `wrangler.toml`, `src/github/github-{billing,quota,schedule,storage}.mjs`, `src/runtime-lock.json` и скрипты, кроме `build-worker.mjs` и `release-brew.mjs`, — прежняя архитектура (ADR-0001–0003). CLI и воркер их не используют.
-
 ```sh
 npm ci
 npm test                          # офлайн, без сети и учётных данных

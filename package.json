@@ -7,14 +7,11 @@
     "codex-auto-resets": "src/cli/main.mjs"
   },
   "engines": {
-    "node": "26.10.0"
+    "node": ">=26"
   },
   "scripts": {
     "test": "node --test test/*.test.mjs",
-    "test:contract": "node test/support/contract.mjs",
-    "start": "node src/cli.mjs",
     "build:worker": "node scripts/build-worker.mjs",
-    "install:macos": "node src/installer/install-cli.mjs",
     "prepack": "npm run build:worker",
     "release:brew": "node scripts/release-brew.mjs"
   },

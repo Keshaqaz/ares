@@ -1,5 +1,4 @@
 node_modules/
-.runtime/
 *.log
 
 # Build output: publish the tarball as a GitHub Release asset, not in git.
@@ -15,7 +14,6 @@ work/
 .env*
 *.pem
 *.key
-.wrangler/
 auth.json
 state.json
 

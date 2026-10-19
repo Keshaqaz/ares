@@ -30,7 +30,7 @@ export function migrateState(state, steps = STATE_MIGRATIONS) {
   return migrate(state, steps);
 }
 
-// The installer generates the key once and stores it base64 in the Actions secret.
+// `setup` generates the key once and stores it base64 in the Actions secret.
 export const generateKey = () => randomBytes(32).toString('base64');
 
 function keyBytes(key) {

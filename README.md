@@ -115,8 +115,6 @@ test/         tests; support/ — fixtures
 docs/         guides, glossary, adr/
 ```
 
-`account/`, `session/`, `core/`, `schedule/`, `workflow/`, `installer/`, `src/cli.mjs`, `src/worker/index.mjs` with `wrangler.toml` and `src/github/github-{billing,quota,schedule,storage}.mjs`, `src/runtime-lock.json` and the scripts other than `build-worker.mjs` and `release-brew.mjs` are the previous architecture (ADR-0001–0003). The CLI and the worker do not use them.
-
 ```sh
 npm ci
 npm test                          # offline, no network or credentials
