@@ -40,16 +40,19 @@ export function fakeWorld({ now = Date.parse('2026-10-20T12:00:00Z'), accountId 
       redemptions: [], // { creditId, key, outcome } for every request the server processed
     },
     // auth.openai.com side.
+    // Every login opens its own session, so the worker's and the Mac's live side by side.
     auth: {
-      devices: new Map(), codes: new Map(), refreshes: 0, fail: null, omit: [], family: 'active',
-      current: null, // { access, refresh }
-      rotated: new Map(), // old refresh token → rotation time
+      devices: new Map(), codes: new Map(), refreshes: 0, fail: null, omit: [],
+      sessions: [], // { access, refresh, family } of every login, the latest last
+      get current() { return this.sessions.at(-1) ?? null; },
+      rotated: new Map(), // old refresh token → { at, session } of its rotation
       revoked: [], // refresh tokens revoked through /oauth/revoke
       revokeFail: null, // { status } or 'network' for /oauth/revoke
     },
   };
   let serial = 0;
-  const mint = () => {
+  // New tokens for this session, or for a new one.
+  const mint = (session = null) => {
     serial++;
     const iat = Math.floor(world.now / 1000);
     const auth = { chatgpt_account_id: world.accountId, chatgpt_user_id: 'user-fake', chatgpt_plan_type: 'pro' };
@@ -58,8 +61,8 @@ export function fakeWorld({ now = Date.parse('2026-10-20T12:00:00Z'), accountId 
       id_token: jwt({ iat, exp: iat + 3600, email: 'fake@example.invalid', serial, [AUTH_CLAIM]: auth }),
       refresh_token: `fake-refresh-${serial}`,
     };
-    world.auth.current = { access: tokens.access_token, refresh: tokens.refresh_token };
-    world.auth.family = 'active';
+    if (session) Object.assign(session, { access: tokens.access_token, refresh: tokens.refresh_token });
+    else world.auth.sessions.push({ access: tokens.access_token, refresh: tokens.refresh_token, family: 'active' });
     return { ...tokens, token_type: 'Bearer', expires_in: ACCESS_LIFETIME_MS / 1000, scope: 'openid profile email offline_access',
       earliest_refresh_at: null };
   };
@@ -71,8 +74,9 @@ export function fakeWorld({ now = Date.parse('2026-10-20T12:00:00Z'), accountId 
     return { accessToken: tokens.access_token, idToken: tokens.id_token, refreshToken: tokens.refresh_token, accountId: world.accountId };
   };
   world.approve = userCode => { for (const device of world.auth.devices.values()) if (device.userCode === userCode) device.approved = true; };
-  world.revokeAccess = () => { world.auth.current = { ...world.auth.current, access: null }; };
-  world.endSession = code => { world.auth.family = code; world.revokeAccess(); };
+  // Both act on the latest session.
+  world.revokeAccess = () => { world.auth.current.access = null; };
+  world.endSession = code => { world.auth.current.family = code; world.revokeAccess(); };
   world.refreshCalls = () => world.requests.filter(r => r.path === '/oauth/token' && r.grant === 'refresh_token');
 
   world.consumeCalls = () => world.requests.filter(r => r.path.endsWith('/rate-limit-reset-credits/consume'));
@@ -96,14 +100,15 @@ export function fakeWorld({ now = Date.parse('2026-10-20T12:00:00Z'), accountId 
       const { status, body: reply } = world.auth.fail;
       return status === 'network' ? Promise.reject(new TypeError('fetch failed')) : json(status, reply ?? {});
     }
-    if (world.auth.family !== 'active') return authError(401, world.auth.family);
-    const rotatedAt = world.auth.rotated.get(data.refresh_token);
+    const rotated = world.auth.rotated.get(data.refresh_token);
+    const session = rotated?.session ?? world.auth.sessions.find(s => s.refresh === data.refresh_token);
+    if (!session) return json(400, { error: 'invalid_grant' });
+    if (session.family !== 'active') return authError(401, session.family);
     // Live check 01: the server briefly accepts a reused refresh token, then rejects it.
-    if (rotatedAt !== undefined && world.now - rotatedAt > REUSE_GRACE_MS) return authError(401, 'refresh_token_reused');
-    if (rotatedAt === undefined && data.refresh_token !== world.auth.current?.refresh) return json(400, { error: 'invalid_grant' });
+    if (rotated && world.now - rotated.at > REUSE_GRACE_MS) return authError(401, 'refresh_token_reused');
     world.auth.refreshes++;
-    if (rotatedAt === undefined) world.auth.rotated.set(data.refresh_token, world.now);
-    const reply = mint();
+    if (!rotated) world.auth.rotated.set(data.refresh_token, { at: world.now, session });
+    const reply = mint(session);
     for (const key of world.auth.omit) delete reply[key];
     return json(200, reply);
   }
@@ -118,7 +123,8 @@ export function fakeWorld({ now = Date.parse('2026-10-20T12:00:00Z'), accountId 
     if (revokeFail) return json(revokeFail.status, {});
     if (data.token_type_hint !== 'refresh_token' || typeof data.token !== 'string') return json(400, { error: 'invalid_request' });
     world.auth.revoked.push(data.token);
-    if (data.token === world.auth.current?.refresh) world.auth.family = 'refresh_token_invalidated';
+    const session = world.auth.sessions.find(s => s.refresh === data.token);
+    if (session) session.family = 'refresh_token_invalidated';
     return json(200, {});
   }
 
@@ -177,7 +183,7 @@ export function fakeWorld({ now = Date.parse('2026-10-20T12:00:00Z'), accountId 
   function wham(path, method, headers, body) {
     const bearer = headers.get('authorization')?.replace(/^Bearer /, '');
     const claims = (() => { try { return JSON.parse(Buffer.from(bearer.split('.')[1], 'base64url')); } catch { return null; } })();
-    if (!bearer || bearer !== world.auth.current?.access || claims.exp * 1000 <= world.now ||
+    if (!bearer || !world.auth.sessions.some(s => s.access === bearer) || claims.exp * 1000 <= world.now ||
         headers.get('chatgpt-account-id') !== world.accountId) return json(401, { detail: 'Unauthorized' });
     const { fail } = world.chatgpt;
     if (fail === 'network') return Promise.reject(new TypeError('fetch failed'));

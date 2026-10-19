@@ -1,6 +1,6 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { mkdir, readFile, writeFile, rename } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, rename, rm } from 'node:fs/promises';
 
 // What the out-of-schedule check keeps on this Mac: the computer session and watch.json.
 // `security -i` cuts its command line at 4096 bytes and runs the rest as another command,
@@ -31,10 +31,13 @@ export class WatchFiles {
     return object(session) && SESSION_FIELDS.every(key => typeof session[key] === 'string' && session[key]) ? session : null;
   }
   async writeSession(session) { await this.write(SESSION, session); }
+  async removeSession() { await rm(join(this.dir, SESSION), { force: true }); }
   // A broken watch.json counts as empty.
   async readState() {
     const state = await this.read(STATE);
     return object(state) ? state : {};
   }
   async writeState(state) { await this.write(STATE, state); }
+  // The folder with everything in it, for uninstall.
+  async removeAll() { await rm(this.dir, { recursive: true, force: true }); }
 }

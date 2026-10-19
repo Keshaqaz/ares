@@ -66,7 +66,7 @@ test('the built worker runs on plain node in a checkout without node_modules', a
   const preload = join(repo.root, 'fake-fetch.mjs');
   await writeFile(preload, `import { fakeWorld } from ${JSON.stringify(new URL('./support/fake-world.mjs', import.meta.url).href)};
     const world = fakeWorld({ now: ${world.now} });
-    world.auth.current = ${JSON.stringify(world.auth.current)};
+    world.auth.sessions.push(...${JSON.stringify(world.auth.sessions)});
     globalThis.fetch = world.fetch;\n`);
   const ok = await run(process.execPath, ['--import', preload, FILES.worker], { cwd: repo.dir, env: { ...env, STATE_KEY: repo.key } });
   assert.equal(ok.stdout.trim(), 'idle');

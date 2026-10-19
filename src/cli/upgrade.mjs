@@ -3,12 +3,14 @@ import { FILES } from '../worker/layout.mjs';
 import { readRules, BrokenState, RULES_MIGRATIONS } from '../worker/state-file.mjs';
 import { workflowYaml, workflowMinute } from '../worker/workflow.mjs';
 import { CommandFailed, UNFINISHED, connectGitHub, installedWorker, command } from './common.mjs';
+import { reloadAgent } from './mac-check.mjs';
 
 // `codex-auto-resets upgrade`, after `brew upgrade`: puts this version's worker and workflow
 // into the user's repository and migrates the rules file. The worker migrates its sealed
 // state itself when it reads it. Nothing changes the code that runs with the user's
-// session until the user runs this. rulesMigrations are the rules format steps.
-export async function upgrade({ fetch, keychain, io, workerSource, now = Date.now,
+// session until the user runs this. The agent of the check from this Mac is reloaded with
+// this version's program. rulesMigrations are the rules format steps.
+export async function upgrade({ fetch, keychain, io, workerSource, mac, now = Date.now,
   sleep = ms => new Promise(resolve => setTimeout(resolve, ms)), rulesMigrations = RULES_MIGRATIONS }) {
   return command('upgrade', io, async () => {
     const { api, login } = await connectGitHub({ fetch, keychain, io, now, sleep });
@@ -32,6 +34,7 @@ export async function upgrade({ fetch, keychain, io, workerSource, now = Date.no
         'Правила сохранены более новой версией. Обновите программу: `brew upgrade codex-auto-resets`.' :
         'Правила не читаются. Выберите их заново: `codex-auto-resets rules`, затем повторите upgrade.');
     }
+    await reloadAgent({ weekly: current.weeklyAutoApply, mac, io });
 
     // The new worker reads the older rules, so it goes first; the workflow goes last, as in setup.
     const writes = [];

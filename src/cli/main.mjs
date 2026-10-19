@@ -11,6 +11,7 @@ import { upgrade } from './upgrade.mjs';
 import { uninstall } from './uninstall.mjs';
 import { watch } from './watch.mjs';
 import { WatchFiles } from './watch-files.mjs';
+import { LaunchAgent } from './launch-agent.mjs';
 import { GitHubTokenKeychain } from './keychain.mjs';
 import pkg from '../../package.json' with { type: 'json' };
 
@@ -60,7 +61,8 @@ async function main() {
   const terminal = createInterface({ input: process.stdin, output: process.stdout });
   const io = { print: line => console.log(line), prompt: question => terminal.question(question) };
   try {
-    return await run({ fetch: globalThis.fetch, keychain: new GitHubTokenKeychain(), io, workerSource });
+    return await run({ fetch: globalThis.fetch, keychain: new GitHubTokenKeychain(), io, workerSource,
+      mac: { files: new WatchFiles(), agent: new LaunchAgent() } });
   } finally { terminal.close(); }
 }
 

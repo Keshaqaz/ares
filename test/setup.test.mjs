@@ -94,7 +94,8 @@ test('a repeated setup finds the repository and keeps the state, rules and cron 
   for (const path of [FILES.workflow, FILES.worker, FILES.rules]) assert.equal(world.github.text(repo, path), before.get(path), path);
   assert.equal(readRules(world.github.text(repo, FILES.rules)).weeklyAutoApply, true);
   const state = openState(world.github.text(repo, FILES.state), key);
-  assert.equal(state.session.refreshToken, world.auth.current.refresh);
+  // The worker's is the first session; the second is this Mac's, for the weekly rule.
+  assert.equal(state.session.refreshToken, world.auth.sessions[0].refresh);
   assert.equal(repo.runs.length, 2);
   assert.match(io.lines.at(-1), /^Воркер работает\. Сбросов: 2/);
   assert.equal(keychain.entries.size, 1);

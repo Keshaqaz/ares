@@ -46,6 +46,7 @@ test('status shows the resets, the rules, the last run and the last application'
     'Правила:',
     '  Перед истечением (в последние 8 часов) — включено',
     '  Когда кончится недельный лимит — выключено',
+    'Внеочередная проверка с этого Mac: выключена.',
     `Последний запуск: 20 октября 2026 г. в 13:00 UTC, успешно: ${repo.runs[0].html_url}`,
     'Последнее применение: reset-due, 20 октября 2026 г. в 13:00 UTC (перед истечением).',
   ]);
@@ -151,7 +152,8 @@ test('rules switches a general rule in the open rules file, and the next tick fo
   const { code, io } = await run(rules, { answers: ['2', ''] });
   assert.equal(code, 0);
   assert.match(io.output(), /2\. Когда кончится недельный лимит — выключено[\s\S]*2\. Когда кончится недельный лимит — включено/);
-  assert.equal(io.lines.at(-1), 'Правила сохранены и заработают со следующего запуска воркера.');
+  assert.ok(io.lines.includes('Правила сохранены и заработают со следующего запуска воркера.'), io.output());
+  assert.equal(io.lines.at(-1), 'Внеочередная проверка с этого Mac включена.');
   assert.deepEqual(readRules(world.github.text(repo, FILES.rules)), { formatVersion: 1, beforeExpiry: true, weeklyAutoApply: true });
   assert.equal(repo.commits.at(-1).message, 'Change the general rules');
 

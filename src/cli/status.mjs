@@ -2,6 +2,7 @@ import { FILES } from '../worker/layout.mjs';
 import { readRules, BrokenState } from '../worker/state-file.mjs';
 import { WORKFLOW_FILE, UNFINISHED, RULE_LABELS, REASONS, ATTEMPT_RESULTS, onOff, enableUrl, formatTime, deadline, byDeadline, connectGitHub, installedWorker,
   readSummary, loggedOutcome, failedRunAdvice, command } from './common.mjs';
+import { macCheckStatus } from './mac-check.mjs';
 
 // The cron runs hourly and GitHub may delay it by an hour or two; the before-expiry rule
 // leaves 8 hours, so a longer silence is worth the user's attention.
@@ -14,8 +15,9 @@ function runLine(run, timeZone) {
 }
 
 // `codex-auto-resets status`: what the worker publishes openly (it cannot read the sealed
-// state), the rules and the worker's last run, with a warning when the worker is not running.
-export async function status({ fetch, keychain, io, now = Date.now,
+// state), the rules, the worker's last run and the check from this Mac, with a warning when
+// the worker or the check is not running.
+export async function status({ fetch, keychain, io, mac, now = Date.now,
   sleep = ms => new Promise(resolve => setTimeout(resolve, ms)), timeZone }) {
   return command('status', io, async () => {
     const { api, login } = await connectGitHub({ fetch, keychain, io, now, sleep });
@@ -37,6 +39,8 @@ export async function status({ fetch, keychain, io, now = Date.now,
       io.print('Правила:');
       for (const rule of ['beforeExpiry', 'weeklyAutoApply']) io.print(`  ${RULE_LABELS[rule]} — ${onOff(rules[rule])}`);
     } else io.print('Правила не читаются. Выберите их заново: `codex-auto-resets rules`.');
+    const check = await macCheckStatus({ weekly: rules?.weeklyAutoApply ?? null, mac, timeZone });
+    io.print(check.line);
     if (lastRun) io.print(`Последний запуск: ${runLine(lastRun, timeZone)}`);
     const applied = summary?.lastApplied;
     io.print(applied ? `Последнее применение: ${applied.creditId}, ${formatTime(Date.parse(applied.at), timeZone)} ` +
@@ -62,6 +66,7 @@ export async function status({ fetch, keychain, io, now = Date.now,
       const logged = loggedOutcome(await api.runLog(name, lastRun.id).catch(() => null));
       warnings.push(`Последний запуск — с ошибкой. ${failedRunAdvice(logged ?? {})}`);
     }
+    if (check.warning) warnings.push(check.warning);
     for (const warning of warnings) io.print(`Внимание! ${warning}`);
     return 0;
   });

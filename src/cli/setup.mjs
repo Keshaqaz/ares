@@ -1,9 +1,10 @@
 import { deviceLogin } from '../chatgpt/session.mjs';
 import { FILES, STATE_KEY_SECRET, LOGIN_SECRET } from '../worker/layout.mjs';
-import { generateKey, sealState, STATE_FORMAT_VERSION } from '../worker/state-file.mjs';
+import { generateKey, sealState, readRules, BrokenState, STATE_FORMAT_VERSION } from '../worker/state-file.mjs';
 import { workflowYaml } from '../worker/workflow.mjs';
 import { CommandFailed, WORKER_REPOSITORY, WORKER_DESCRIPTION, CHATGPT_LOGIN, showCode, workingLine, connectGitHub, workerRepository,
   chooseRules, readSummary, failedRunAdvice, runWorkerNow, command } from './common.mjs';
+import { followWeeklyRule } from './mac-check.mjs';
 
 async function ensureRepository({ api, login, io }) {
   const repo = await workerRepository({ api, login });
@@ -30,8 +31,9 @@ async function trialRun({ api, repo, io, now, sleep, timeZone }) {
 
 // `codex-auto-resets setup`: from nothing to a working worker, or the missing parts of an
 // existing one. Files already in the repository are kept, so a repeated setup never loses
-// state or rules and never rewrites the cron. Returns the process exit code.
-export async function setup({ fetch, keychain, io, workerSource, now = Date.now,
+// state or rules and never rewrites the cron. This Mac follows the weekly rule: the check
+// from it is set up or removed. Returns the process exit code.
+export async function setup({ fetch, keychain, io, workerSource, mac, now = Date.now,
   sleep = ms => new Promise(resolve => setTimeout(resolve, ms)), random = Math.random, timeZone }) {
   return command('setup', io, async () => {
     const { api, login } = await connectGitHub({ fetch, keychain, io, now, sleep });
@@ -54,9 +56,14 @@ export async function setup({ fetch, keychain, io, workerSource, now = Date.now,
       await api.putFile(name, FILES.state, sealState({ formatVersion: STATE_FORMAT_VERSION, session, pending: null, applied: [] }, key),
         { message: 'Save the worker session', sha: state?.sha });
     }
+    let weekly = null;
     if (!rules) {
       const chosen = await chooseRules(io);
       await api.putFile(name, FILES.rules, `${JSON.stringify(chosen, null, 2)}\n`, { message: 'Set the general rules' });
+      weekly = chosen.weeklyAutoApply;
+    } else {
+      // Rules that do not read leave this Mac as it is; the trial run names the fix.
+      try { weekly = readRules(rules.text).weeklyAutoApply; } catch (error) { if (!(error instanceof BrokenState)) throw error; }
     }
     if (!worker) await api.putFile(name, FILES.worker, workerSource, { message: 'Add the worker' });
     // The workflow goes last, so its schedule never meets a half-filled repository.
@@ -64,6 +71,7 @@ export async function setup({ fetch, keychain, io, workerSource, now = Date.now,
       const minute = 1 + Math.floor(random() * 59);
       await api.putFile(name, FILES.workflow, workflowYaml({ minute }), { message: 'Run the worker every hour' });
     }
+    if (weekly !== null) await followWeeklyRule({ weekly, mac, fetch, io, now, sleep });
     io.print(await trialRun({ api, repo, io, now, sleep, timeZone }));
     return 0;
   });

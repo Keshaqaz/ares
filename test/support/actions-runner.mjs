@@ -18,11 +18,11 @@ const AUTHOR = ['-c', 'user.name=fake-github', '-c', 'user.email=fake-github@exa
 // The worker as the workflow runs it: `node worker.mjs` with STATE_KEY, APPLY_NOW, WORKER_LOGIN and REVOKE_SESSION.
 async function nodeWorker(world, root, dir, key, applyNow, login, revoke) {
   const preload = join(root, 'fake-fetch.mjs');
-  const { now, accountId, auth: { current }, chatgpt: { primary, secondary, credits } } = world;
+  const { now, accountId, auth: { sessions }, chatgpt: { primary, secondary, credits } } = world;
   await writeFile(preload, `import { fakeWorld } from ${JSON.stringify(new URL('./fake-world.mjs', import.meta.url).href)};
     const world = fakeWorld(${JSON.stringify({ now, accountId })});
     Object.assign(world.chatgpt, ${JSON.stringify({ primary, secondary, credits })});
-    world.auth.current = ${JSON.stringify(current)};
+    world.auth.sessions.push(...${JSON.stringify(sessions)});
     globalThis.fetch = world.fetch;
     Date.now = () => world.now;\n`);
   const env = { PATH: process.env.PATH, HOME: process.env.HOME, STATE_KEY: key ?? '', APPLY_NOW: applyNow ?? '',

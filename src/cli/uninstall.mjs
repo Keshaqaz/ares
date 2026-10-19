@@ -3,6 +3,7 @@ import { GITHUB_OAUTH_CLIENT_ID } from '../github/oauth-app.mjs';
 import { FILES, STATE_KEY_SECRET, REVOKE_INPUT } from '../worker/layout.mjs';
 import { KeychainUnavailable } from './keychain.mjs';
 import { CommandFailed, YES, WORKER_REPOSITORY, WORKER_DESCRIPTION, WORKFLOW_FILE, showCode, runWorkerNow, command } from './common.mjs';
+import { forgetMac } from './mac-check.mjs';
 
 const OAUTH_APP = `https://github.com/settings/connections/applications/${GITHUB_OAUTH_CLIENT_ID}`;
 
@@ -39,8 +40,9 @@ async function revoke({ api, repo, io, now, sleep }) {
 // `codex-auto-resets uninstall`: revokes the worker session in OpenAI where it can, deletes
 // the worker repository and the GitHub token in the Keychain, and links the page where the
 // user takes back the OAuth App's access, which only the user can do. A failed revocation
-// does not stop the removal: the session's tokens go with the repository and its key.
-export async function uninstall({ fetch, keychain, io, now = Date.now, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)) }) {
+// does not stop the removal: the session's tokens go with the repository and its key. The
+// check from this Mac goes too: its agent, its session (revoked where it can be) and files.
+export async function uninstall({ fetch, keychain, io, mac, now = Date.now, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)) }) {
   return command('uninstall', io, async () => {
     // The token in the Keychain cannot delete repositories; this one is used once and not kept.
     io.print('Для удаления репозитория GitHub просит отдельное разрешение: войдите ещё раз.');
@@ -60,6 +62,7 @@ export async function uninstall({ fetch, keychain, io, now = Date.now, sleep = m
       await api.deleteRepository(repo.full_name);
       io.print('Репозиторий воркера удалён.');
     }
+    await forgetMac({ mac, fetch, io });
     try {
       await keychain.remove();
       io.print('Вход в GitHub удалён из Связки ключей.');
