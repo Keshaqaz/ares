@@ -1,4 +1,4 @@
-import { CommandFailed, YES, attemptResult, deadline, byDeadline, connectGitHub, installedWorker, runnableWorkflow, readSummary,
+import { CommandFailed, YES, resetName, attemptResult, deadline, byDeadline, connectGitHub, installedWorker, runnableWorkflow, readSummary,
   failedRunAdvice, runWorkerNow, command } from './common.mjs';
 import { t } from './language.mjs';
 
@@ -6,13 +6,14 @@ const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 
 // What became of the chosen reset, told by the summary before and after the run.
 function verdict({ creditId, before, after, run, logged }) {
+  const name = resetName(creditId);
   if (after?.lastApplied?.creditId === creditId && !same(after.lastApplied, before?.lastApplied)) {
-    return { code: 0, message: t(`Reset ${creditId} applied.`, `Сброс ${creditId} применён.`) };
+    return { code: 0, message: t(`Reset ${name} applied.`, `Сброс ${name} применён.`) };
   }
   const attempt = after?.lastAttempt;
   if (attempt?.creditId === creditId && attempt.reason === 'apply_now' && !same(attempt, before?.lastAttempt)) {
-    return { code: 1, message: t(`Reset ${creditId} not applied: ${attemptResult(attempt.result)}.`,
-      `Сброс ${creditId} не применён: ${attemptResult(attempt.result)}.`) };
+    return { code: 1, message: t(`Reset ${name} not applied: ${attemptResult(attempt.result)}.`,
+      `Сброс ${name} не применён: ${attemptResult(attempt.result)}.`) };
   }
   if (run.conclusion !== 'success') return { code: 1, message: `${failedRunAdvice(logged ?? {})}\n${t('Details', 'Подробности')}: ${run.html_url}` };
   if (logged?.outcome === 'pending') {
@@ -23,8 +24,8 @@ function verdict({ creditId, before, after, run, logged }) {
     return { code: 1, message: t('ChatGPT is temporarily unavailable, the reset is not applied. Try again later.',
       'ChatGPT временно недоступен, сброс не применён. Повторите позже.') };
   }
-  return { code: 1, message: t(`Reset ${creditId} not applied: the worker was busy with an earlier attempt. Try again later.\nDetails: ${run.html_url}`,
-    `Сброс ${creditId} не применён: воркер был занят прошлой попыткой. Повторите позже.\nПодробности: ${run.html_url}`) };
+  return { code: 1, message: t(`Reset ${name} not applied: the worker was busy with an earlier attempt. Try again later.\nDetails: ${run.html_url}`,
+    `Сброс ${name} не применён: воркер был занят прошлой попыткой. Повторите позже.\nПодробности: ${run.html_url}`) };
 }
 
 // Applies the reset in a dispatched run regardless of the rules and tells what became of it.
@@ -53,7 +54,7 @@ export async function applyNow({ fetch, keychain, io, now = Date.now,
     if (!resets.length) throw new CommandFailed(t('No resets.', 'Сбросов нет.'));
 
     io.print(t('Resets:', 'Сбросы:'));
-    resets.forEach((reset, i) => io.print(`  ${i + 1}. ${reset.creditId} — ${deadline(reset, timeZone)}`));
+    resets.forEach((reset, i) => io.print(`  ${i + 1}. ${resetName(reset.creditId)} — ${deadline(reset, timeZone)}`));
     let chosen = null;
     while (!chosen) {
       const answer = (await io.prompt(t('Reset number (Enter — cancel): ', 'Номер сброса (Enter — отмена): '))).trim();
@@ -62,8 +63,8 @@ export async function applyNow({ fetch, keychain, io, now = Date.now,
       if (!/^\d+$/.test(answer) || !chosen) { chosen = null; io.print(t(`Type a number from 1 to ${resets.length}.`, `Введите номер от 1 до ${resets.length}.`)); }
     }
     const { creditId } = chosen;
-    const confirmed = (await io.prompt(t(`Apply ${creditId} now? A reset is single-use. [y/N] `,
-      `Применить ${creditId} сейчас? Сброс одноразовый. [y/N] `))).trim().toLowerCase();
+    const confirmed = (await io.prompt(t(`Apply ${resetName(creditId)} now? A reset is single-use. [y/N] `,
+      `Применить ${resetName(creditId)} сейчас? Сброс одноразовый. [y/N] `))).trim().toLowerCase();
     if (!YES.includes(confirmed)) { io.print(t('Cancelled.', 'Отменено.')); return 0; }
 
     io.print(t('Applying…', 'Применяем…'));

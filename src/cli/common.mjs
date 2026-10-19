@@ -54,6 +54,13 @@ export const attemptResult = result => ({
   unknown: t('unclear whether it was applied or expired', 'неясно, применён он или истёк'),
 })[result] ?? result;
 
+// How the CLI names a reset: RES and the last 4 characters of its hex ID, the random part.
+// «RateLimitResetCredit_0eb466b3212c819193799a1741f067f8» is «RES67F8». An ID of another form is
+// shown whole; the worker and its summary keep the whole ID.
+export const resetName = creditId => {
+  const hex = /_([0-9a-f]{8,})$/.exec(creditId)?.[1];
+  return hex ? `RES${hex.slice(-4).toUpperCase()}` : creditId;
+};
 export const deadline = (reset, timeZone) => reset.expiresAt ?
   `${t('expires', 'истекает')} ${formatTime(Date.parse(reset.expiresAt), timeZone)}` : t('no expiry', 'без срока');
 export const byDeadline = resets => [...resets].sort((a, b) =>

@@ -1,7 +1,7 @@
 import { emitKeypressEvents } from 'node:readline';
 import { FILES } from '../worker/layout.mjs';
 import { readRules, BrokenState, RULES_FORMAT_VERSION } from '../worker/state-file.mjs';
-import { CommandFailed, unfinished, connectGitHub, installedWorker, runnableWorkflow, readSummary, explain, command } from './common.mjs';
+import { CommandFailed, resetName, unfinished, connectGitHub, installedWorker, runnableWorkflow, readSummary, explain, command } from './common.mjs';
 import { applyReset } from './apply-now.mjs';
 import { saveRules } from './rules.mjs';
 import { readOverview, renderOverview, overviewItems, paint, S, WIDTH } from './overview.mjs';
@@ -51,7 +51,7 @@ export class Screen {
     if (this.notes.length) lines.push([]);
     if (this.busy) lines.push([[`${SPINNER[this.tick % SPINNER.length]} `, S.cyan], [this.busy, '']]);
     else if (this.confirm) {
-      lines.push([[t(`Apply ${this.confirm} now? A reset is single-use. `, `Применить ${this.confirm} сейчас? Сброс одноразовый. `), S.bold],
+      lines.push([[t(`Apply ${resetName(this.confirm)} now? A reset is single-use. `, `Применить ${resetName(this.confirm)} сейчас? Сброс одноразовый. `), S.bold],
         [t('y — yes, any other key — cancel', 'y — да, другая клавиша — отмена'), S.dim]]);
     } else lines.push([[hint(), S.dim]]);
     return lines.map(line => paint(line, color));
@@ -66,8 +66,8 @@ export class Screen {
       const creditId = this.confirm;
       this.confirm = null;
       if (name === 'y') {
-        return this.act(t(`Applying ${creditId}… The worker starts on GitHub, this takes a couple of minutes.`,
-          `Применяем ${creditId}… Воркер запускается на GitHub, это займёт пару минут.`), note => this.apply(creditId, note));
+        return this.act(t(`Applying ${resetName(creditId)}… The worker starts on GitHub, this takes a couple of minutes.`,
+          `Применяем ${resetName(creditId)}… Воркер запускается на GitHub, это займёт пару минут.`), note => this.apply(creditId, note));
       }
       this.changed();
       return;
@@ -113,7 +113,7 @@ export class Screen {
     await runnableWorkflow(api, repo);
     const before = await readSummary(api, repo);
     // The spinner line says what the run waits for; the reset stays named in it.
-    const wait = text => { if (text) { this.busy = `${creditId}: ${text}`; this.changed(); } };
+    const wait = text => { if (text) { this.busy = `${resetName(creditId)}: ${text}`; this.changed(); } };
     const { code, message } = await applyReset({ api, repo, creditId, before, now, sleep, wait });
     note(message, code === 0 ? 'ok' : 'warn');
   }

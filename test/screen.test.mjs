@@ -6,6 +6,7 @@ import { openScreen, runScreen } from '../src/cli/screen.mjs';
 import { FILES } from '../src/worker/layout.mjs';
 import { readRules } from '../src/worker/state-file.mjs';
 import { cliWorld } from './support/cli-world.mjs';
+import { credit } from './support/fake-world.mjs';
 import { status } from '../src/cli/status.mjs';
 import { language } from '../src/cli/language.mjs';
 
@@ -76,6 +77,22 @@ test('Enter on a rule switches it, and the weekly rule sets up the check from th
   assert.equal(readRules(world.github.text(repo, FILES.rules)).weeklyAutoApply, false);
   assert.match(text(), /Внеочередная проверка с этого Mac выключена, его вход в ChatGPT отозван\./);
   assert.equal(await mac.files.readSession(), null);
+});
+
+test('a reset with an ID as ChatGPT gives it is shown as RES and the last 4 characters and applied by the whole ID', async () => {
+  const { world, repo, press, text, screen } = await opened();
+  const id = 'RateLimitResetCredit_0eb466b3212c819193799a1741f067f8';
+  world.chatgpt.credits.push(credit(id, world.now + 3 * 86400_000));
+  await world.github.schedule();
+  await screen.load();
+  assert.match(text(), /\n {2}RES67F8 {3}через 3 д/);
+  assert.doesNotMatch(text(), /RateLimitResetCredit/);
+  await press('down', 'return');
+  assert.match(screen.frame().at(-1), /^Применить RES67F8 сейчас\?/);
+  await press('y');
+  assert.deepEqual(repo.runs[0].inputs, { apply_now: id });
+  assert.match(text(), /\nСброс RES67F8 применён\.\n/);
+  assert.match(text(), /применён RES67F8 /);
 });
 
 test('a failed action shows why and leaves the screen open', async () => {

@@ -1,7 +1,7 @@
 import { FILES } from '../worker/layout.mjs';
 import { readRules, BrokenState } from '../worker/state-file.mjs';
 import { BEFORE_EXPIRY_MS } from '../worker/tick.mjs';
-import { WORKFLOW_FILE, unfinished, ruleLabel, reasonText, attemptResult, enableUrl, byDeadline, readSummary, loggedOutcome,
+import { WORKFLOW_FILE, resetName, unfinished, ruleLabel, reasonText, attemptResult, enableUrl, byDeadline, readSummary, loggedOutcome,
   failedRunAdvice } from './common.mjs';
 import { macCheckStatus, checkAdvice } from './mac-check.mjs';
 import { t, language, LANGUAGES } from './language.mjs';
@@ -82,11 +82,11 @@ function workerState({ repo, workflowState, lastRun, readAt }, timeZone) {
 function lastEvent({ lastApplied: applied, lastAttempt: attempt }, timeZone) {
   if (attempt && attempt.result !== 'reset' && (!applied || attempt.at > applied.at)) {
     const at = shortTime(Date.parse(attempt.at), timeZone);
-    return t(`attempt ${attempt.creditId} ${at} — ${attemptResult(attempt.result)}`, `попытка ${attempt.creditId} ${at} — ${attemptResult(attempt.result)}`);
+    return t(`attempt ${resetName(attempt.creditId)} ${at} — ${attemptResult(attempt.result)}`, `попытка ${resetName(attempt.creditId)} ${at} — ${attemptResult(attempt.result)}`);
   }
   if (!applied) return null;
   const at = shortTime(Date.parse(applied.at), timeZone);
-  return t(`applied ${applied.creditId} ${at} — ${reasonText(applied.reason)}`, `применён ${applied.creditId} ${at} — ${reasonText(applied.reason)}`);
+  return t(`applied ${resetName(applied.creditId)} ${at} — ${reasonText(applied.reason)}`, `применён ${resetName(applied.creditId)} ${at} — ${reasonText(applied.reason)}`);
 }
 
 // What the cursor can stand on: the resets, then the rules.
@@ -115,14 +115,14 @@ export function renderOverview(model, { now, timeZone, width = WIDTH, cursor = n
   heading(model.resets?.length ? `${resetsTitle} · ${model.resets.length}` : resetsTitle);
   if (!model.resets) lines.push([[t('  not read yet — the worker reads them on its next run', '  ещё не прочитаны — воркер прочитает их при следующем запуске'), S.dim]]);
   else if (!model.resets.length) lines.push([[t('  no resets', '  сбросов нет'), S.dim]]);
-  const idWidth = Math.max(0, ...(model.resets ?? []).map(reset => len(reset.creditId)));
+  const idWidth = Math.max(0, ...(model.resets ?? []).map(reset => len(resetName(reset.creditId))));
   for (const reset of model.resets ?? []) {
     const selected = at({ kind: 'reset', creditId: reset.creditId });
     const expiresAt = reset.expiresAt ? Date.parse(reset.expiresAt) : null;
     const status = expiresAt === null ? ['', ''] : expiresAt <= now() ? [t('expired', 'срок вышел'), S.dim] :
       model.rules?.beforeExpiry && expiresAt - now() <= BEFORE_EXPIRY_MS ? [t('applies soon', 'скоро применится'), S.yellow] :
         [timeLeft(expiresAt - now()), S.dim];
-    lines.push(spread([[selected ? '▸ ' : '  ', S.cyan], [reset.creditId.padEnd(idWidth + 3), selected ? S.cyan : ''], status],
+    lines.push(spread([[selected ? '▸ ' : '  ', S.cyan], [resetName(reset.creditId).padEnd(idWidth + 3), selected ? S.cyan : ''], status],
       [[expiresAt === null ? t('no expiry', 'без срока') : shortTime(expiresAt, timeZone), selected ? S.cyan : S.dim]], width));
   }
 
