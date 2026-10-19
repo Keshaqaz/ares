@@ -1,28 +1,31 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { EventEmitter } from 'node:events';
+import { ChildProcess } from 'node:child_process';
 import { PassThrough } from 'node:stream';
 import { GitHubTokenKeychain, KeychainUnavailable } from '../src/cli/keychain.ts';
+import type { Spawn } from '../src/cli/keychain.ts';
 
 const TOKEN = 'gho_synthetic0000000000000000000000000000';
 
 // Fake `/usr/bin/security -i`: one command line from stdin against an in-memory Keychain.
-function fakeSecurity({ code = null } = {}) {
-  const entries = new Map(), calls = [];
-  const spawnImpl = (file, args, options) => {
-    const child = new EventEmitter(), stdin = new PassThrough();
+function fakeSecurity({ code = null }: { code?: number | null } = {}) {
+  const entries = new Map<string, string | undefined>();
+  const calls: { file: string; args: string[]; options: unknown; line: string }[] = [];
+  const spawnImpl: Spawn = (file, args, options) => {
+    const stdin = new PassThrough(), stdout = new PassThrough();
     let line = '';
-    child.stdin = stdin; child.stdout = new PassThrough(); child.kill = () => child.emit('close', null);
-    stdin.on('data', chunk => { line += chunk; });
+    const child = Object.assign(new ChildProcess(), { stdin, stdout, stderr: null, stdio: [stdin, stdout, null, undefined, undefined] as const,
+      kill: () => child.emit('close', null) });
+    stdin.on('data', (chunk: Buffer) => { line += chunk; });
     stdin.on('end', () => {
       calls.push({ file, args, options, line });
-      const words = line.trim().split(/\s+/), opt = flag => words[words.indexOf(flag) + 1];
+      const words = line.trim().split(/\s+/), opt = (flag: string) => words[words.indexOf(flag) + 1];
       const key = `${opt('-s')}/${opt('-a')}`;
       let exit = 0;
       if (words[0] === 'add-generic-password') entries.set(key, opt('-w'));
-      else if (words[0] === 'find-generic-password') { if (entries.has(key)) child.stdout.write(`${entries.get(key)}\n`); else exit = 44; }
+      else if (words[0] === 'find-generic-password') { if (entries.has(key)) stdout.write(`${entries.get(key)}\n`); else exit = 44; }
       else if (words[0] === 'delete-generic-password') { if (!entries.delete(key)) exit = 44; }
-      child.stdout.end();
+      stdout.end();
       setImmediate(() => child.emit('close', code ?? exit));
     });
     return child;

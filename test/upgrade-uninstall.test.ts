@@ -11,23 +11,27 @@ import { buildWorker } from '../scripts/build-worker.ts';
 import { GITHUB_OAUTH_CLIENT_ID } from '../src/github/oauth-app.ts';
 import { FILES, STATE_KEY_SECRET, REVOKE_INPUT } from '../src/worker/layout.ts';
 import { openState } from '../src/worker/state-file.ts';
+import type { Migration } from '../src/worker/state-file.ts';
 import { workflowYaml } from '../src/worker/workflow.ts';
-import { cliWorld } from './support/cli-world.mjs';
+import { cliWorld } from './support/cli-world.ts';
+import type { CliFakeWorld } from './support/cli-world.ts';
+import type { FakeRepository } from './support/fake-github.ts';
 
 const OAUTH_APP_LINK = `https://github.com/settings/connections/applications/${GITHUB_OAUTH_CLIENT_ID}`;
 const NEW_WORKER = '// fake worker bundle, next version\n';
 
-async function installed(options) {
+async function installed(options?: Parameters<typeof cliWorld>[0]) {
   const env = await cliWorld(options);
   const { code, io } = await env.run(setup, { answers: [''] });
   assert.equal(code, 0, io.output());
   const repo = env.world.github.repo();
+  assert.ok(repo);
   const state = () => openState(env.world.github.text(repo, FILES.state), env.world.github.secret(repo, STATE_KEY_SECRET));
   return { ...env, repo, state };
 }
 
 // The workflow as a version before «uninstall» wrote it: no revoke input.
-function olderWorkflow(minute) {
+function olderWorkflow(minute: number): string {
   const lines = workflowYaml({ minute }).split('\n');
   lines.splice(lines.findIndex(line => line.trim() === `${REVOKE_INPUT}:`), 5);
   return lines.filter(line => !line.includes(REVOKE_INPUT)).join('\n');
@@ -37,7 +41,7 @@ test('upgrade replaces the worker and the workflow, keeps the cron minute and mi
   const { world, repo, run } = await installed();
   world.github.write(repo, FILES.workflow, olderWorkflow(17));
   // A format step as a format change adds it: version 1 called the weekly rule `autoApply`.
-  const rulesMigrations = [({ autoApply, ...old }) => ({ ...old, weeklyAutoApply: autoApply })];
+  const rulesMigrations: Migration[] = [({ autoApply, ...old }) => ({ ...old, weeklyAutoApply: autoApply })];
   world.github.write(repo, FILES.rules, '{"formatVersion":1,"beforeExpiry":true,"autoApply":true}\n');
   const state = world.github.text(repo, FILES.state);
 
@@ -49,7 +53,7 @@ test('upgrade replaces the worker and the workflow, keeps the cron minute and mi
   assert.equal(world.github.text(repo, FILES.state), state, 'the worker migrates its state itself');
   // The new worker reads older rules, so it goes first; the workflow goes last, as in setup.
   assert.deepEqual(repo.commits.slice(-3).map(c => c.paths[0]), [FILES.worker, FILES.rules, FILES.workflow]);
-  assert.match(io.lines.at(-1), /^Воркер обновлён до версии \d+\.\d+\.\d+\. Изменения заработают со следующего запуска\.$/);
+  assert.match(io.lines.at(-1) ?? '', /^Воркер обновлён до версии \d+\.\d+\.\d+\. Изменения заработают со следующего запуска\.$/);
   assert.deepEqual(world.github.violations, []);
 });
 
@@ -58,7 +62,7 @@ test('upgrade on the current version writes nothing', async () => {
   const commits = repo.commits.length;
   const { code, io } = await run(upgrade);
   assert.equal(code, 0);
-  assert.match(io.lines.at(-1), /^Воркер уже последней версии \(\d+\.\d+\.\d+\)\.$/);
+  assert.match(io.lines.at(-1) ?? '', /^Воркер уже последней версии \(\d+\.\d+\.\d+\)\.$/);
   assert.equal(repo.commits.length, commits);
 });
 
@@ -81,13 +85,13 @@ test('upgrade refuses rules of a newer version and an unreadable workflow, writi
   world.github.write(repo, FILES.rules, '{"formatVersion":9,"beforeExpiry":true,"weeklyAutoApply":false}\n');
   let result = await run(upgrade, { workerSource: NEW_WORKER });
   assert.equal(result.code, 1);
-  assert.match(result.io.lines.at(-1), /более новой версией\. Обновите программу: `brew upgrade aures`/);
+  assert.match(result.io.lines.at(-1) ?? '', /более новой версией\. Обновите программу: `brew upgrade aures`/);
 
   world.github.write(repo, FILES.rules, '{"formatVersion":1,"beforeExpiry":true,"weeklyAutoApply":false}\n');
   world.github.write(repo, FILES.workflow, 'name: edited by hand\n');
   result = await run(upgrade, { workerSource: NEW_WORKER });
   assert.equal(result.code, 1);
-  assert.match(result.io.lines.at(-1), /изменён вручную/);
+  assert.match(result.io.lines.at(-1) ?? '', /изменён вручную/);
   assert.equal(repo.commits.length, commits + 3, 'only the test\'s own writes');
 });
 
@@ -104,7 +108,7 @@ test('uninstall revokes the worker session, deletes the repository and the Keych
   const { code, io } = await run(uninstall, { answers: ['y'] });
   assert.equal(code, 0, io.output());
   assert.match(io.output(), /удаления репозитория[\s\S]*https:\/\/github\.com\/login\/device/);
-  assert.deepEqual(repo.runs[0].inputs, { apply_now: '', [REVOKE_INPUT]: 'true' });
+  assert.deepEqual(repo.runs[0]?.inputs, { apply_now: '', [REVOKE_INPUT]: 'true' });
   assert.deepEqual(world.auth.revoked, [session.refreshToken]);
   assert.equal(world.github.repo(), undefined);
   assert.equal(keychain.entries.size, 0);
@@ -131,7 +135,7 @@ test('uninstall does not wait for a worker that cannot revoke: an older workflow
   for (const [label, prepare, reason] of [
     ['older', (world, repo) => world.github.write(repo, FILES.workflow, olderWorkflow(30)), 'воркер устарел'],
     ['disabled', (world, repo) => { repo.workflowState = 'disabled_manually'; }, 'воркер выключен в GitHub'],
-  ]) {
+  ] satisfies [string, (world: CliFakeWorld, repo: FakeRepository) => void, string][]) {
     const { world, repo, run } = await installed();
     prepare(world, repo);
     const runs = repo.runs.length;

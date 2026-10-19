@@ -4,16 +4,21 @@ import { mkdtemp, writeFile, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { decide, watch } from '../src/cli/watch.ts';
+import type { PassFiles } from '../src/cli/watch.ts';
 import { WatchFiles } from '../src/cli/watch-files.ts';
+import type { WatchState } from '../src/cli/watch-files.ts';
+import type { Quota } from '../src/chatgpt/client.ts';
+import type { Session } from '../src/chatgpt/session.ts';
 import { setup } from '../src/cli/setup.ts';
 import { status } from '../src/cli/status.ts';
 import { shortTime } from '../src/cli/overview.ts';
-import { window } from './support/fake-world.mjs';
-import { cliWorld } from './support/cli-world.mjs';
+import { window } from './support/fake-world.ts';
+import type { FakeWorld } from './support/fake-world.ts';
+import { cliWorld } from './support/cli-world.ts';
 
 const MINUTE = 60_000, HOUR = 60 * MINUTE, DAY = 24 * HOUR;
 const NOW = Date.parse('2026-10-20T12:00:00Z');
-const weekly = (usedPercent, renewsAt) => ({ usedPercent, exhausted: usedPercent >= 100, renewsAt });
+const weekly = (usedPercent: number, renewsAt: number): Quota => ({ usedPercent, exhausted: usedPercent >= 100, renewsAt });
 
 test('decide asks for one check per exhausted weekly window', () => {
   const renewsAt = NOW + 2 * DAY;
@@ -27,7 +32,7 @@ test('decide asks for one check per exhausted weekly window', () => {
   assert.equal(decide(weekly(100, renewsAt - 3_000), asked, NOW + 2 * MINUTE).dispatch, false);
   const next = decide(weekly(100, NOW + 7 * DAY), asked, NOW + HOUR);
   assert.equal(next.dispatch, true, 'a reset renewed the window and it ran out again');
-  assert.equal(next.nextState.dispatched.renewsAt, NOW + 7 * DAY);
+  assert.equal(next.nextState.dispatched?.renewsAt, NOW + 7 * DAY);
 });
 
 test('decide does not ask for a window that has already renewed or a plan without a weekly window', () => {
@@ -35,14 +40,16 @@ test('decide does not ask for a window that has already renewed or a plan withou
   assert.deepEqual(decide(null, {}, NOW), { dispatch: false, nextState: {} });
 });
 
-// Watch files in memory; events lists the writes in order.
-function memoryFiles(session = null) {
-  const files = { session, state: {}, events: [] };
+// Watch files in memory; events lists the writes in order. state is watch.json as it is on
+// disk, of any shape.
+interface MemoryFiles extends PassFiles { session: Session | null; state: WatchState | Record<string, unknown>; events: string[] }
+function memoryFiles(session: Session | null = null): MemoryFiles {
+  const files: Omit<MemoryFiles, keyof PassFiles> = { session, state: {}, events: [] };
   return Object.assign(files, {
     readSession: async () => files.session,
-    writeSession: async next => { files.events.push('session'); files.session = next; },
+    writeSession: async (next: Session) => { files.events.push('session'); files.session = next; },
     readState: async () => files.state,
-    writeState: async next => { files.events.push('state'); files.state = next; },
+    writeState: async (next: WatchState) => { files.events.push('state'); files.state = next; },
   });
 }
 
@@ -56,15 +63,18 @@ async function mac({ session = true, weekly = false } = {}) {
   const { world } = env;
   if (!weekly) world.github.runner = () => null;
   const repo = world.github.repo();
-  const files = weekly ? env.mac.files : memoryFiles(session ? world.login() : null);
-  const lines = [], trial = repo.runs.length;
-  const pass = () => watch({ fetch: world.fetch, keychain: env.keychain, files, log: line => lines.push(line), now: () => world.now });
+  assert.ok(repo);
+  // With weekly the passes go through this Mac's own watch files, and files stay unused.
+  const files = memoryFiles(session && !weekly ? world.login() : null);
+  const lines: string[] = [], trial = repo.runs.length;
+  const pass = () => watch({ fetch: world.fetch, keychain: env.keychain, files: weekly ? env.mac.files : files,
+    log: line => lines.push(line), now: () => world.now });
   // The runs after setup's trial run.
   const dispatches = () => repo.runs.slice(0, repo.runs.length - trial).filter(run => run.event === 'workflow_dispatch');
   return { ...env, repo, files, lines, pass, dispatches };
 }
 
-const exhaust = (world, renewsAt = world.now + 2 * DAY) => { world.chatgpt.secondary = window(604800, 100, renewsAt); };
+const exhaust = (world: FakeWorld, renewsAt = world.now + 2 * DAY) => { world.chatgpt.secondary = window(604800, 100, renewsAt); };
 
 test('watch starts one worker run per exhausted window and none while the quota lasts', async () => {
   const { world, files, lines, pass, dispatches } = await mac();
@@ -77,7 +87,7 @@ test('watch starts one worker run per exhausted window and none while the quota 
   world.advance(2 * MINUTE);
   assert.equal(await pass(), 0);
   assert.equal(dispatches().length, 1);
-  assert.deepEqual(dispatches()[0].inputs, { apply_now: '' });
+  assert.deepEqual(dispatches()[0]?.inputs, { apply_now: '' });
   assert.deepEqual(files.state.dispatched, { renewsAt, at: world.now });
 
   world.advance(2 * MINUTE);
@@ -101,7 +111,7 @@ test('a day of passes: the reset lands within minutes of the weekly quota runnin
   const env = await mac({ weekly: true });
   const { world, lines, pass, dispatches } = env;
   const refusedAt = world.now + 9 * HOUR + MINUTE, renewsAt = refusedAt + 2 * DAY;
-  let refusalLine = null, throttled = 0;
+  let refusalLine: number | null = null, throttled = 0;
   for (let n = 0; n < 720; n++) {
     world.advance(2 * MINUTE);
     if (refusalLine === null && world.now >= refusedAt) {
@@ -111,19 +121,21 @@ test('a day of passes: the reset lands within minutes of the weekly quota runnin
     // Every 7th read is throttled, and so is the first one after the client was refused.
     const throttle = n % 7 === 0 || lines.length === refusalLine;
     world.chatgpt.fail = throttle ? { status: 429 } : null;
-    throttled += throttle;
+    throttled += Number(throttle);
     assert.equal(await pass(), 0);
   }
   world.chatgpt.fail = null;
 
   assert.equal(dispatches().length, 1, 'one worker run for the day');
-  const [run] = dispatches(), startedAt = Date.parse(run.created_at);
+  const [run] = dispatches();
+  assert.ok(run && refusalLine !== null);
+  const startedAt = Date.parse(run.created_at);
   assert.equal(lines[refusalLine], 'transient_error: wham_429');
   assert.equal(lines[refusalLine + 1], 'dispatched');
   assert.ok(startedAt - refusedAt <= 4 * MINUTE, `dispatch ${(startedAt - refusedAt) / MINUTE} min after the refusal`);
   assert.equal(run.conclusion, 'success');
   assert.equal(world.chatgpt.redemptions.length, 1);
-  assert.equal(world.chatgpt.secondary.used_percent, 0, 'the reset renewed the weekly window');
+  assert.equal(world.chatgpt.secondary?.used_percent, 0, 'the reset renewed the weekly window');
   assert.ok(lines.slice(refusalLine + 2).every(line => line === 'idle' || line === 'transient_error: wham_429'));
   assert.equal(lines.filter(line => line === 'transient_error: wham_429').length, throttled);
 
@@ -148,17 +160,20 @@ test('watch without a computer session calls neither ChatGPT nor GitHub', async 
 test('watch saves the refreshed session before it reads the quota', async () => {
   const { world, files, pass } = await mac();
   const old = files.session;
-  const exp = JSON.parse(Buffer.from(old.accessToken.split('.')[1], 'base64url')).exp * 1000;
-  world.advance(exp - world.now - 5 * MINUTE);
+  assert.ok(old);
+  const { exp }: { exp: number } = JSON.parse(Buffer.from(old.accessToken.split('.')[1] ?? '', 'base64url').toString());
+  world.advance(exp * 1000 - world.now - 5 * MINUTE);
   const reads = () => world.requests.filter(r => r.path.endsWith('/wham/usage')).length;
   const before = reads();
-  let readsAtSave = null;
+  let readsAtSave: number | null = null;
   const write = files.writeSession;
   files.writeSession = async next => { readsAtSave = reads(); await write(next); };
   await pass();
   assert.equal(readsAtSave, before);
-  assert.notEqual(files.session.refreshToken, old.refreshToken);
-  assert.equal(files.session.refreshToken, world.auth.current.refresh);
+  const renewed = files.session;
+  assert.ok(renewed);
+  assert.notEqual(renewed.refreshToken, old.refreshToken);
+  assert.equal(renewed.refreshToken, world.auth.current?.refresh);
   assert.deepEqual(files.events, ['session', 'state']);
   assert.equal(reads(), before + 1);
 });
@@ -198,7 +213,7 @@ test('a transient ChatGPT failure or a failed dispatch leaves the window unrecor
 test('watch without a GitHub token, or with one GitHub refuses, logs in nowhere and skips the pass', async () => {
   const { world, keychain, files, lines, pass, dispatches } = await mac();
   exhaust(world);
-  const token = keychain.entries.get('github');
+  const token = keychain.entries.get('github') ?? '';
   keychain.entries.delete('github');
   const github = world.github.requests.length;
   assert.equal(await pass(), 0);

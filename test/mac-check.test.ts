@@ -11,12 +11,12 @@ import { watch } from '../src/cli/watch.ts';
 import { LaunchAgent, AGENT_LABEL } from '../src/cli/launch-agent.ts';
 import { macLogin } from '../src/cli/mac-check.ts';
 import { FILES } from '../src/worker/layout.ts';
-import { window } from './support/fake-world.mjs';
-import { cliWorld } from './support/cli-world.mjs';
+import { window } from './support/fake-world.ts';
+import { cliWorld } from './support/cli-world.ts';
 import { UID } from './support/fake-mac.ts';
 
 const MINUTE = 60_000, HOUR = 60 * MINUTE, DAY = 24 * HOUR;
-const exists = path => stat(path).then(() => true, () => false);
+const exists = (path: string): Promise<boolean> => stat(path).then(() => true, () => false);
 const WEEKLY_OFF = '{"formatVersion":1,"beforeExpiry":true,"weeklyAutoApply":false}\n';
 
 // A worker installed by setup with the default rules (the weekly rule off).
@@ -27,7 +27,9 @@ async function installed() {
   const { mac } = env;
   const session = () => mac.files.readSession();
   const loaded = () => mac.launchctl.loaded.has(AGENT_LABEL);
-  return { ...env, repo: env.world.github.repo(), session, loaded };
+  const repo = env.world.github.repo();
+  assert.ok(repo);
+  return { ...env, repo, session, loaded };
 }
 
 // The weekly rule switched on through `rules`.
@@ -44,8 +46,10 @@ test('turning the weekly rule on logs this Mac into ChatGPT and starts the agent
   assert.equal(code, 0, io.output());
   assert.deepEqual(io.lines.slice(-4), ['Правила сохранены и заработают со следующего запуска воркера.', macLogin(),
     io.lines.at(-2), 'Внеочередная проверка с этого Mac включена.']);
-  assert.match(io.lines.at(-2), /^Откройте https:\/\/auth\.openai\.com\/codex\/device и введите код FAKE-\d+$/);
-  assert.equal((await session()).refreshToken, world.auth.current.refresh);
+  assert.match(io.lines.at(-2) ?? '', /^Откройте https:\/\/auth\.openai\.com\/codex\/device и введите код FAKE-\d+$/);
+  const macSession = await session();
+  assert.ok(macSession);
+  assert.equal(macSession.refreshToken, world.auth.current?.refresh);
   assert.equal(world.auth.sessions.length, 2, 'a session of its own, not the worker one');
   assert.equal(loaded(), true);
   assert.equal(await exists(mac.agent.plistPath), true);
@@ -53,24 +57,25 @@ test('turning the weekly rule on logs this Mac into ChatGPT and starts the agent
   // The agent's pass sees the exhausted quota and calls the worker, which applies a reset on its session.
   world.chatgpt.secondary = window(604800, 100, world.now + 2 * DAY);
   world.advance(10 * MINUTE);
-  const lines = [];
+  const lines: string[] = [];
   await watch({ fetch: world.fetch, keychain, files: mac.files, log: line => lines.push(line),
     now: () => world.now });
   assert.deepEqual(lines, ['dispatched']);
   assert.deepEqual(world.spent(), ['reset-b']);
-  assert.equal(repo.runs[0].event, 'workflow_dispatch');
+  assert.equal(repo.runs[0]?.event, 'workflow_dispatch');
   assert.deepEqual(world.violations, []);
 });
 
 test('turning the weekly rule off unloads the agent and keeps the Mac session; turning it on again asks for no code', async () => {
   const { world, mac, run, session, loaded } = await watching();
-  const macToken = (await session()).refreshToken;
+  const macToken = (await session())?.refreshToken;
+  assert.ok(macToken);
   const off = await run(rules, { answers: ['2', ''] });
   assert.equal(off.code, 0, off.io.output());
   assert.equal(off.io.lines.at(-1), 'Внеочередная проверка с этого Mac выключена.');
   assert.equal(loaded(), false);
   assert.equal(await exists(mac.agent.plistPath), false);
-  assert.equal((await session()).refreshToken, macToken);
+  assert.equal((await session())?.refreshToken, macToken);
   assert.deepEqual(world.auth.revoked, []);
 
   const on = await run(rules, { answers: ['2', ''] });
@@ -101,18 +106,21 @@ test('setup after the Mac session is lost asks for the code again and clears ses
   const dispatched = { renewsAt: world.now + 2 * DAY, at: world.now };
   await mac.files.writeState({ sessionLost: true, dispatched, lastPass: { at: world.now, outcome: 'reauth_required' } });
   const old = await session();
+  assert.ok(old);
 
   const { code, io } = await run(setup, { answers: [] });
   assert.equal(code, 0, io.output());
   assert.ok(io.lines.includes(macLogin()), io.output());
-  assert.notEqual((await session()).refreshToken, old.refreshToken);
+  const renewed = await session();
+  assert.ok(renewed);
+  assert.notEqual(renewed.refreshToken, old.refreshToken);
   const state = await mac.files.readState();
   assert.equal(state.sessionLost, undefined);
   assert.deepEqual(state.dispatched, dispatched, 'the window already asked for stays');
   assert.equal(loaded(), true);
 
   // The next pass reads the quota with the new session.
-  const lines = [];
+  const lines: string[] = [];
   await watch({ fetch: world.fetch, keychain: { read: async () => null }, files: mac.files, log: line => lines.push(line), now: () => world.now });
   assert.deepEqual(lines, ['idle']);
 });
@@ -141,7 +149,7 @@ test('upgrade reloads the agent from a plist with this version\'s program while 
     launchctl: mac.launchctl.run });
   const { code, io } = await run(upgrade, { mac: { ...mac, agent: moved } });
   assert.equal(code, 0, io.output());
-  assert.match(mac.launchctl.loaded.get(AGENT_LABEL), /<string>\/new\/src\/cli\/main\.ts<\/string>/);
+  assert.match(mac.launchctl.loaded.get(AGENT_LABEL) ?? '', /<string>\/new\/src\/cli\/main\.ts<\/string>/);
 });
 
 test('upgrade with the rule off sets up nothing on this Mac', async () => {
@@ -157,7 +165,7 @@ test('uninstall leaves no agent, plist, Mac session, log or watch.json', async (
   const { world, mac, run } = await watching();
   await mac.files.writeState({ lastPass: { at: world.now, outcome: 'idle' } });
   await writeFile(mac.agent.logPath, 'idle\n');
-  const macToken = (await mac.files.readSession()).refreshToken;
+  const macToken = (await mac.files.readSession())?.refreshToken ?? '';
 
   const { code, io } = await run(uninstall, { answers: ['y'] });
   assert.equal(code, 0, io.output());

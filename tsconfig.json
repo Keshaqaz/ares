@@ -15,9 +15,6 @@
     "verbatimModuleSyntax": true,
     "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
-    // Until every .mjs is moved to .ts: .ts may import .mjs, which stays unchecked.
-    "allowJs": true,
-    "checkJs": false,
     "skipLibCheck": true
   },
   "include": ["src", "test", "scripts"]

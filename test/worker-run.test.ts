@@ -4,10 +4,17 @@ import { writeFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { runWorker } from '../src/worker/run.ts';
+import type { RunOptions } from '../src/worker/run.ts';
 import { FILES } from '../src/worker/layout.ts';
 import { sealState, openState, generateKey, BrokenState } from '../src/worker/state-file.ts';
-import { fakeWorld, credit } from './support/fake-world.mjs';
-import { workerRepo } from './support/worker-repo.mjs';
+import type { BrokenStateReason, State } from '../src/worker/state-file.ts';
+import type { Summary } from '../src/worker/summary.ts';
+import type { Session } from '../src/chatgpt/session.ts';
+import type { Fetch } from '../src/chatgpt/http.ts';
+import { fakeWorld, credit } from './support/fake-world.ts';
+import type { FakeWorld } from './support/fake-world.ts';
+import { workerRepo } from './support/worker-repo.ts';
+import type { WorkerRepo } from './support/worker-repo.ts';
 
 const HOUR = 3600_000, DAY = 24 * HOUR;
 const RULES = { formatVersion: 1, beforeExpiry: true, weeklyAutoApply: false };
@@ -15,14 +22,17 @@ const RULES = { formatVersion: 1, beforeExpiry: true, weeklyAutoApply: false };
 async function workerWorld({ rules = RULES } = {}) {
   const world = fakeWorld();
   // The shape setup writes: no pending consume, no applications yet.
-  const initial = { formatVersion: 1, session: world.login(), pending: null, applied: [] };
+  const initial: State = { formatVersion: 1, session: world.login(), pending: null, applied: [] };
   const repo = await workerRepo({ state: initial, rules });
-  const run = (options = {}) => runWorker({ dir: repo.dir, key: repo.key, now: world.now, fetch: world.fetch,
+  const run = (options: Partial<RunOptions> = {}) => runWorker({ dir: repo.dir, key: repo.key, now: world.now, fetch: world.fetch,
     stepSummaryPath: repo.stepSummary, ...options });
   return { world, repo, initial, run };
 }
-const expiry = session => JSON.parse(Buffer.from(session.accessToken.split('.')[1], 'base64url')).exp * 1000;
-const nearExpiry = (world, session) => world.advance(expiry(session) - world.now - 60_000);
+const expiry = (session: Session): number => {
+  const { exp }: { exp: number } = JSON.parse(Buffer.from(session.accessToken.split('.')[1] ?? '', 'base64url').toString());
+  return exp * 1000;
+};
+const nearExpiry = (world: FakeWorld, session: Session) => world.advance(expiry(session) - world.now - 60_000);
 
 test('state seals and opens with the same key, and nothing else opens it', () => {
   const key = generateKey();
@@ -34,7 +44,7 @@ test('state seals and opens with the same key, and nothing else opens it', () =>
   assert.throws(() => openState(sealed, generateKey()), BrokenState);
   const envelope = JSON.parse(sealed);
   const data = Buffer.from(envelope.data, 'base64');
-  data[0] ^= 1;
+  data.writeUInt8(data.readUInt8(0) ^ 1, 0);
   assert.throws(() => openState(JSON.stringify({ ...envelope, data: data.toString('base64') }), key), BrokenState);
   assert.throws(() => openState(sealState({ ...state, formatVersion: 2 }, key), key), { reason: 'state_format_unknown' });
 });
@@ -45,7 +55,7 @@ test('a first tick commits the read state and summary, a tick that changes nothi
   assert.deepEqual(repo.commits(), ['Set up worker', 'Worker tick: idle']);
   const state = repo.state();
   assert.deepEqual(state.session, initial.session);
-  assert.deepEqual(state.observed.resets, [{ id: 'reset-a', expiresAt: world.now + 5 * DAY }]);
+  assert.deepEqual(state.observed?.resets, [{ id: 'reset-a', expiresAt: world.now + 5 * DAY }]);
 
   world.advance(HOUR);
   assert.deepEqual(await run(), { outcome: 'idle', exitCode: 0 });
@@ -54,15 +64,16 @@ test('a first tick commits the read state and summary, a tick that changes nothi
   world.chatgpt.credits.push(credit('reset-b', world.now + 2 * DAY));
   await run();
   assert.equal(repo.commits().length, 3);
-  assert.deepEqual(JSON.parse(repo.show(FILES.summary)).resets.map(r => r.creditId), ['reset-a', 'reset-b']);
+  const summary: Summary = JSON.parse(repo.show(FILES.summary) ?? 'null');
+  assert.deepEqual(summary.resets.map(r => r.creditId), ['reset-a', 'reset-b']);
 });
 
 test('a refreshed session is pushed before the tick reads quotas and resets', async () => {
   const { world, repo, initial, run } = await workerWorld();
   nearExpiry(world, initial.session);
-  const pushedBeforeReads = [];
-  const fetch = (url, init) => {
-    if (new URL(url).host === 'chatgpt.com') pushedBeforeReads.push(repo.state().session.refreshToken);
+  const pushedBeforeReads: string[] = [];
+  const fetch: Fetch = (url, init) => {
+    if (new URL(url instanceof Request ? url.url : url).host === 'chatgpt.com') pushedBeforeReads.push(repo.state().session.refreshToken);
     return world.fetch(url, init);
   };
   assert.equal((await run({ fetch })).outcome, 'idle');
@@ -78,7 +89,7 @@ test('a refresh followed by a failing read keeps the pushed session and commits 
   world.chatgpt.fail = { status: 503 };
   assert.deepEqual(await run(), { outcome: 'transient_error', exitCode: 0 });
   assert.deepEqual(repo.commits(), ['Set up worker', 'Save worker state']);
-  assert.equal(repo.state().session.refreshToken, world.auth.current.refresh);
+  assert.equal(repo.state().session.refreshToken, world.auth.current?.refresh);
   // The next tick works from the pushed session, not a reused refresh token.
   world.chatgpt.fail = null;
   world.advance(HOUR);
@@ -96,13 +107,15 @@ test('a consume is preceded by a pushed pending state and followed by a pushed r
   const commits = repo.commits();
   assert.deepEqual(commits, ['Set up worker', 'Save worker state', 'Worker tick: applied']);
   const pending = repo.state('main~1');
-  assert.equal(pending.pending.creditId, 'reset-a');
-  assert.equal(world.consumeCalls()[0].key, pending.pending.redeemRequestId);
+  assert.equal(pending.pending?.creditId, 'reset-a');
+  const [call] = world.consumeCalls();
+  assert.ok(call && pending.pending);
+  assert.equal(call.key, pending.pending.redeemRequestId);
   const final = repo.state();
   assert.equal(final.pending, null);
-  assert.equal(final.applied.at(-1).creditId, 'reset-a');
-  const summary = JSON.parse(repo.show(FILES.summary));
-  assert.equal(summary.lastApplied.creditId, 'reset-a');
+  assert.equal(final.applied?.at(-1)?.creditId, 'reset-a');
+  const summary: Summary = JSON.parse(repo.show(FILES.summary) ?? 'null');
+  assert.equal(summary.lastApplied?.creditId, 'reset-a');
   // The list was read before the consume; the applied reset is no longer issued.
   assert.deepEqual(summary.resets, []);
 });
@@ -130,15 +143,19 @@ for (const [label, breakRepo, reason] of [
   ['a missing state file', async ({ dir }) => { await rm(join(dir, FILES.state)); return {}; }, 'state_missing'],
   ['a garbled state file', async ({ dir }) => { await writeFile(join(dir, FILES.state), 'not json'); return {}; }, 'state_unreadable'],
   ['a state envelope of another version', async ({ dir, key }) => {
+    // @ts-expect-error: the state inside does not matter, the envelope is broken.
     await writeFile(join(dir, FILES.state), JSON.stringify({ ...JSON.parse(sealState({}, key)), formatVersion: 2 })); return {};
   }, 'state_unreadable'],
   ['a state envelope of another cipher', async ({ dir, key }) => {
+    // @ts-expect-error: the state inside does not matter, the envelope is broken.
     await writeFile(join(dir, FILES.state), JSON.stringify({ ...JSON.parse(sealState({}, key)), cipher: 'aes-128-gcm' })); return {};
   }, 'state_unreadable'],
   ['a state envelope without its nonce', async ({ dir, key }) => {
+    // @ts-expect-error: the state inside does not matter, the envelope is broken.
     await writeFile(join(dir, FILES.state), JSON.stringify({ ...JSON.parse(sealState({}, key)), iv: 7 })); return {};
   }, 'state_undecryptable'],
   ['a state without a session', async ({ dir, key }) => {
+    // @ts-expect-error: a state without a session, as only a broken repository has.
     await writeFile(join(dir, FILES.state), sealState({ formatVersion: 1, pending: null, applied: [] }, key)); return {};
   }, 'state_without_session'],
   ['a missing rules file', async ({ dir }) => { await rm(join(dir, FILES.rules)); return {}; }, 'rules_missing'],
@@ -152,7 +169,7 @@ for (const [label, breakRepo, reason] of [
   ['rules of an unknown format', async ({ dir }) => {
     await writeFile(join(dir, FILES.rules), JSON.stringify({ ...RULES, formatVersion: 2 })); return {};
   }, 'rules_format_unknown'],
-]) {
+] satisfies [string, (repo: WorkerRepo) => Promise<Partial<RunOptions>>, BrokenStateReason][]) {
   test(`${label} fails the run as a broken state without touching the network`, async () => {
     const { world, repo, run } = await workerWorld();
     const options = await breakRepo(repo);
@@ -175,14 +192,14 @@ test('a refreshed session that cannot be pushed fails the run and says so', asyn
 test('rules the CLI pushed during the run survive the worker commit', async () => {
   const { world, repo, run } = await workerWorld();
   const changed = { ...RULES, weeklyAutoApply: true };
-  let pushed = null;
-  const fetch = async (url, init) => {
+  let pushed: Promise<void> | null = null;
+  const fetch: Fetch = async (url, init) => {
     await (pushed ??= repo.pushRules(changed));
     return world.fetch(url, init);
   };
   assert.equal((await run({ fetch })).outcome, 'idle');
   assert.deepEqual(repo.commits(), ['Set up worker', 'Change rules', 'Worker tick: idle']);
-  assert.deepEqual(JSON.parse(repo.show(FILES.rules)), changed);
+  assert.deepEqual(JSON.parse(repo.show(FILES.rules) ?? 'null'), changed);
   assert.ok(repo.state().observed);
 });
 
@@ -193,14 +210,14 @@ test('the summary and Actions Summary carry resets and rules but no secrets', as
   world.chatgpt.lose = 'before';
   await run();
   const state = repo.state();
-  const summary = repo.show(FILES.summary);
+  const summary = repo.show(FILES.summary) ?? '';
   const published = `${summary}\n${await repo.readStepSummary()}`;
   const secrets = [initial.session, state.session].flatMap(s => [s.accessToken, s.refreshToken, s.idToken])
-    .concat(world.accountId, state.pending?.redeemRequestId).filter(Boolean);
+    .concat(world.accountId, state.pending?.redeemRequestId ?? '').filter(Boolean);
   assert.ok(secrets.length >= 7);
   for (const secret of secrets) assert.ok(!published.includes(secret), `published ${secret.slice(0, 12)}…`);
   assert.ok(!/account|token|session|redeem/i.test(summary));
-  const parsed = JSON.parse(summary);
+  const parsed: Summary = JSON.parse(summary);
   assert.equal(parsed.formatVersion, 1);
   assert.deepEqual(parsed.resets.map(r => r.creditId), ['reset-a', 'reset-b']);
   assert.deepEqual(parsed.rules, { beforeExpiry: true, weeklyAutoApply: false });
@@ -217,8 +234,9 @@ test('a login secret replaces the lost session, and the summary tells which logi
   const login = JSON.stringify({ id: 'login-1', session });
   assert.deepEqual(await run({ login }), { outcome: 'idle', exitCode: 0 });
   assert.deepEqual(repo.state().session, session);
-  const summary = repo.show(FILES.summary);
-  assert.deepEqual(JSON.parse(summary).login, { id: 'login-1', result: 'accepted', at: new Date(world.now).toISOString() });
+  const summary = repo.show(FILES.summary) ?? '';
+  const parsed: Summary = JSON.parse(summary);
+  assert.deepEqual(parsed.login, { id: 'login-1', result: 'accepted', at: new Date(world.now).toISOString() });
   assert.ok(!summary.includes(session.refreshToken));
   assert.match(await repo.readStepSummary(), /New sign-in accepted/);
 
@@ -230,7 +248,8 @@ test('a login secret replaces the lost session, and the summary tells which logi
     assert.equal((await run({ login: JSON.stringify(broken) })).outcome, 'idle');
   }
   assert.deepEqual(repo.state().session, session);
-  assert.equal(JSON.parse(repo.show(FILES.summary)).login.id, 'login-1');
+  const last: Summary = JSON.parse(repo.show(FILES.summary) ?? 'null');
+  assert.equal(last.login?.id, 'login-1');
 });
 
 test('a revoke run revokes the worker session in OpenAI and commits nothing', async () => {

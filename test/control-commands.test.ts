@@ -12,20 +12,22 @@ import { buildWorker } from '../scripts/build-worker.ts';
 import { FILES, STATE_KEY_SECRET, LOGIN_SECRET } from '../src/worker/layout.ts';
 import { openState, readRules } from '../src/worker/state-file.ts';
 import { workflowYaml } from '../src/worker/workflow.ts';
-import { credit, window } from './support/fake-world.mjs';
-import { cliWorld } from './support/cli-world.mjs';
+import type { Summary } from '../src/worker/summary.ts';
+import { credit, window } from './support/fake-world.ts';
+import { cliWorld } from './support/cli-world.ts';
 
 const HOUR = 3600_000, DAY = 24 * HOUR;
 
 // A worker installed by setup with the default rules: resets reset-a (in 5 days) and reset-b
 // (in 2 days 3 hours).
-async function installed(options) {
+async function installed(options?: Parameters<typeof cliWorld>[0]) {
   const env = await cliWorld(options);
   const { code, io } = await env.run(setup, { answers: [''] });
   assert.equal(code, 0, io.output());
   const repo = env.world.github.repo();
+  assert.ok(repo);
   const state = () => openState(env.world.github.text(repo, FILES.state), env.world.github.secret(repo, STATE_KEY_SECRET));
-  const summary = () => JSON.parse(env.world.github.text(repo, FILES.summary));
+  const summary = (): Summary => JSON.parse(env.world.github.text(repo, FILES.summary));
   return { ...env, repo, state, summary };
 }
 
@@ -65,7 +67,7 @@ test('status marks a reset inside the before-expiry window', async () => {
   await world.github.schedule();
   world.advance(2 * HOUR);
   const { io } = await run(status);
-  assert.match(io.lines[4], /^ {2}reset-soon {3}скоро применится +20 окт 22:00$/);
+  assert.match(io.lines[4] ?? '', /^ {2}reset-soon {3}скоро применится +20 окт 22:00$/);
 });
 
 test('status warns when the worker has not run for hours', async () => {
@@ -74,7 +76,7 @@ test('status warns when the worker has not run for hours', async () => {
   const { code, io } = await run(status);
   assert.equal(code, 0);
   assert.match(io.output(), /● воркер молчит 5 ч · запуск/);
-  assert.match(io.lines.at(-1), /^! Воркер не запускался уже 5 ч\. Проверьте: https:\/\/github\.com\/.*\/actions$/);
+  assert.match(io.lines.at(-1) ?? '', /^! Воркер не запускался уже 5 ч\. Проверьте: https:\/\/github\.com\/.*\/actions$/);
   assert.match(io.output(), /СБРОСЫ · 2/, 'the last published resets are still shown');
 });
 
@@ -85,7 +87,7 @@ test('status warns that a disabled workflow does not run the worker', async () =
   const { code, io } = await run(status);
   assert.equal(code, 0);
   assert.ok(io.lines.includes('● воркер выключен в GitHub'), io.output());
-  assert.match(io.lines.at(-1), /^! Сбросы не применяются\. Включите воркер кнопкой Enable workflow: .*\/actions\/workflows\/codex-auto-resets\.yml$/);
+  assert.match(io.lines.at(-1) ?? '', /^! Сбросы не применяются\. Включите воркер кнопкой Enable workflow: .*\/actions\/workflows\/codex-auto-resets\.yml$/);
 });
 
 test('status explains a failed last run', async () => {
@@ -96,7 +98,7 @@ test('status explains a failed last run', async () => {
   const { io } = await run(status);
   assert.ok(io.lines.includes('● последний запуск с ошибкой · 20 окт 13:00'), io.output());
   assert.equal(io.lines.at(-1), '! Воркер потерял вход в ChatGPT. Войдите заново: `aures login`. ' +
-    `Подробности: ${repo.runs[0].html_url}`);
+    `Подробности: ${repo.runs[0]?.html_url}`);
 });
 
 test('control commands ask for setup when there is no worker', async () => {
@@ -113,10 +115,10 @@ test('apply-now applies the chosen reset in a dispatched run and shows the resul
   const { code, io } = await run(applyNow, { answers: ['2', 'y'] });
   assert.equal(code, 0, io.output());
   assert.match(io.output(), /1\. reset-b — истекает 22 октября[\s\S]*2\. reset-a — истекает 25 октября/);
-  assert.deepEqual(repo.runs[0].inputs, { apply_now: 'reset-a' });
+  assert.deepEqual(repo.runs[0]?.inputs, { apply_now: 'reset-a' });
   assert.deepEqual(world.spent(), ['reset-a']);
   assert.equal(io.lines.at(-1), 'Сброс reset-a применён.');
-  assert.equal(summary().lastApplied.reason, 'apply_now');
+  assert.equal(summary().lastApplied?.reason, 'apply_now');
 });
 
 test('apply-now does nothing until the user picks a reset and confirms it', async () => {
@@ -141,7 +143,7 @@ test('apply-now reports an application ChatGPT refused and one whose result is u
   world.chatgpt.lose = 'before';
   result = await run(applyNow, { answers: ['1', 'y'] });
   assert.equal(result.code, 1);
-  assert.match(result.io.lines.at(-1), /^Результат пока неизвестен: воркер уточнит его/);
+  assert.match(result.io.lines.at(-1) ?? '', /^Результат пока неизвестен: воркер уточнит его/);
   // The next scheduled tick settles it with the same redeem_request_id.
   world.chatgpt.lose = null;
   world.advance(HOUR);
@@ -155,13 +157,13 @@ test('apply-now explains a failed run and refuses a disabled workflow', async ()
   let result = await run(applyNow, { answers: ['1', 'y'] });
   assert.equal(result.code, 1);
   assert.equal(result.io.lines.at(-2), 'Воркер потерял вход в ChatGPT. Войдите заново: `aures login`.');
-  assert.equal(result.io.lines.at(-1), `Подробности: ${repo.runs[0].html_url}`);
+  assert.equal(result.io.lines.at(-1), `Подробности: ${repo.runs[0]?.html_url}`);
 
   repo.workflowState = 'disabled_inactivity';
   const runs = repo.runs.length;
   result = await run(applyNow);
   assert.equal(result.code, 1);
-  assert.match(result.io.lines.at(-1), /^Воркер выключен в GitHub\. Включите его кнопкой Enable workflow/);
+  assert.match(result.io.lines.at(-1) ?? '', /^Воркер выключен в GitHub\. Включите его кнопкой Enable workflow/);
   assert.equal(repo.runs.length, runs);
 });
 
@@ -173,13 +175,13 @@ test('rules switches a general rule in the open rules file, and the next tick fo
   assert.ok(io.lines.includes('Правила сохранены и заработают со следующего запуска воркера.'), io.output());
   assert.equal(io.lines.at(-1), 'Внеочередная проверка с этого Mac включена.');
   assert.deepEqual(readRules(world.github.text(repo, FILES.rules)), { formatVersion: 1, beforeExpiry: true, weeklyAutoApply: true });
-  assert.equal(repo.commits.at(-1).message, 'Change the general rules');
+  assert.equal(repo.commits.at(-1)?.message, 'Change the general rules');
 
   world.chatgpt.secondary = window(604800, 100, world.now + 2 * DAY);
   world.advance(HOUR);
   await world.github.schedule();
   assert.deepEqual(world.spent(), ['reset-b']);
-  assert.equal(summary().lastApplied.reason, 'weekly');
+  assert.equal(summary().lastApplied?.reason, 'weekly');
   assert.deepEqual(summary().rules, { beforeExpiry: true, weeklyAutoApply: true });
 });
 
@@ -198,26 +200,26 @@ test('login replaces a lost worker session, keeps rules and history, and the nex
   world.chatgpt.credits.push(credit('reset-due', world.now + 2 * HOUR));
   await run(applyNow, { answers: ['1', 'y'] });
   const history = state().applied;
-  assert.equal(history.length, 1);
+  assert.equal(history?.length, 1);
   world.endSession('refresh_token_invalidated');
   world.advance(HOUR);
-  assert.equal((await world.github.schedule()).conclusion, 'failure');
+  assert.equal((await world.github.schedule())?.conclusion, 'failure');
 
   const { code, io } = await run(login);
   assert.equal(code, 0, io.output());
   assert.match(io.output(), /auth\.openai\.com\/codex\/device/);
   assert.equal(io.lines.at(-2), 'Вход обновлён, правила и история на месте.');
-  assert.match(io.lines.at(-1), /^Воркер работает\. Сбросов: 2, ближайший истекает/);
+  assert.match(io.lines.at(-1) ?? '', /^Воркер работает\. Сбросов: 2, ближайший истекает/);
   assert.equal(repo.secrets.has(LOGIN_SECRET), false, 'the login secret is gone');
-  assert.equal(state().session.refreshToken, world.auth.current.refresh);
+  assert.equal(state().session.refreshToken, world.auth.current?.refresh);
   assert.deepEqual(state().applied, history);
   assert.equal(readRules(world.github.text(repo, FILES.rules)).beforeExpiry, false);
 
   world.advance(HOUR);
   const next = await world.github.schedule();
-  assert.equal(next.conclusion, 'success');
-  assert.match(next.log, /Z idle\n$/);
-  assert.equal(summary().login.result, 'accepted');
+  assert.equal(next?.conclusion, 'success');
+  assert.match(next?.log ?? '', /Z idle\n$/);
+  assert.equal(summary().login?.result, 'accepted');
 });
 
 test('login into another ChatGPT account is rejected with a hint to uninstall', async () => {
@@ -226,7 +228,7 @@ test('login into another ChatGPT account is rejected with a hint to uninstall', 
   world.accountId = 'account-other';
   const { code, io } = await run(login);
   assert.equal(code, 1);
-  assert.match(io.lines.at(-1), /^Это другой аккаунт ChatGPT.*`aures uninstall`/);
+  assert.match(io.lines.at(-1) ?? '', /^Это другой аккаунт ChatGPT.*`aures uninstall`/);
   assert.deepEqual(state().session, before);
   assert.equal(repo.secrets.has(LOGIN_SECRET), false, 'the other account\'s session does not stay in GitHub');
 });
@@ -237,7 +239,7 @@ test('login refuses a worker whose workflow does not pass the login secret', asy
   world.github.write(repo, FILES.workflow, old);
   const { code, io } = await run(login);
   assert.equal(code, 1);
-  assert.match(io.lines.at(-1), /^Воркер устарел\. Обновите его: `aures upgrade`/);
+  assert.match(io.lines.at(-1) ?? '', /^Воркер устарел\. Обновите его: `aures upgrade`/);
   assert.doesNotMatch(io.output(), /auth\.openai\.com/, 'no login the worker could not take');
 });
 
@@ -253,12 +255,12 @@ test('end to end on the built worker: rules, apply-now and login reach the worke
   // The child worker's consume does not reach this world, so the reset stays listed here.
   const applied = await run(applyNow, { answers: ['2', 'y'] });
   assert.equal(applied.code, 0, applied.io.output());
-  assert.equal(summary().lastApplied.creditId, 'reset-a');
+  assert.equal(summary().lastApplied?.creditId, 'reset-a');
 
   world.endSession('refresh_token_invalidated');
   const relogged = await run(login);
   assert.equal(relogged.code, 0, relogged.io.output());
-  assert.equal(summary().login.result, 'accepted');
+  assert.equal(summary().login?.result, 'accepted');
 });
 
 test('login removes its secret even when the run is not seen through', async () => {
@@ -266,7 +268,7 @@ test('login removes its secret even when the run is not seen through', async () 
   world.github.runner = () => null;
   const { code, io } = await run(login);
   assert.equal(code, 1);
-  assert.match(io.lines.at(-1), /дольше 10 минут/);
+  assert.match(io.lines.at(-1) ?? '', /дольше 10 минут/);
   assert.equal(repo.secrets.has(LOGIN_SECRET), false);
 });
 
@@ -276,6 +278,6 @@ test('setup with a new state drops a login secret left behind, so it never bring
   repo.files.delete(FILES.state);
   assert.equal((await run(setup)).code, 0);
   assert.equal(repo.secrets.has(LOGIN_SECRET), false);
-  assert.equal(state().session.refreshToken, world.auth.current.refresh);
+  assert.equal(state().session.refreshToken, world.auth.current?.refresh);
   assert.equal(state().login, undefined);
 });

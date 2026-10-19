@@ -2,9 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { liveLine } from '../src/cli/live-line.ts';
 
-const stream = (isTTY, columns = 80) => {
-  const writes = [];
-  return { isTTY, columns, writes, write: text => { writes.push(text); } };
+const stream = (isTTY: boolean, columns = 80) => {
+  const writes: string[] = [];
+  return { isTTY, columns, writes, write: (text: string) => { writes.push(text); } };
 };
 
 test('outside a terminal each new wait text is printed once, among the lines', () => {
@@ -40,7 +40,7 @@ test('a wait text wider than the terminal is cut to stay on one line', () => {
   const { wait } = liveLine(output, { now: () => 0 });
   wait('GitHub поставил воркер в очередь');
   wait(null);
-  const drawn = output.writes[0].replace('\r\x1b[2K', '');
+  const drawn = (output.writes[0] ?? '').replace('\r\x1b[2K', '');
   assert.equal(drawn, '⠋ GitHub пост… 0:00');
   assert.ok([...drawn].length < 20);
 });

@@ -45,13 +45,14 @@ export interface FakeGitHub {
   dispatchNotFound: number;
   // Job log reads answered 404 after the run completed, before the log is ready.
   logDelay: number;
-  // (method, path) → Response | null, to break one call.
-  fail: ((method: string, path: string) => Response | null | undefined) | null;
+  // (method, path) → Response | null, to break one call; a rejected promise drops the connection.
+  fail: ((method: string, path: string) => Response | Promise<Response> | null | undefined) | null;
   // How long a dispatched run waits in the queue before the runner takes it, as in an outage.
   queueMs: number;
   approve(userCode: string, answer?: Approval): void;
   repo(name?: string): FakeRepository | undefined;
-  text(repo: FakeRepository, path: string): string | null;
+  // The text of a file that must be there.
+  text(repo: FakeRepository, path: string): string;
   write(repo: FakeRepository, path: string, text: string): void;
   setSecret(repo: FakeRepository, name: string, value: string): void;
   schedule(repo?: FakeRepository): Promise<FakeRun> | null;
@@ -78,7 +79,11 @@ export async function withGitHub(world: GitHubWorld, { login = 'octo-fake' }: { 
       for (const device of github.devices.values()) if (device.userCode === userCode) device.approved = answer;
     },
     repo: (name = 'codex-auto-resets-worker') => github.repos.get(`${login}/${name}`),
-    text: (repo, path) => repo.files.get(path)?.text ?? null,
+    text: (repo, path) => {
+      const file = repo.files.get(path);
+      if (!file) throw new Error(`no ${path} in ${repo.meta.name}`);
+      return file.text;
+    },
     // A commit by someone other than the CLI, e.g. the worker's own push.
     write: (repo, path, text) => {
       repo.files.set(path, { text, sha: blobSha(text) });

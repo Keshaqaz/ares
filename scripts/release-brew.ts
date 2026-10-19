@@ -14,10 +14,10 @@ const root = fileURLToPath(new URL('..', import.meta.url));
 const REPOSITORY = 'https://github.com/Keshaqaz/aures';
 
 // The name `npm pack` gives the archive; the release asset keeps it.
-export const archiveName = version => `aures-${version}.tgz`;
-export const releaseUrl = version => `${REPOSITORY}/releases/download/v${version}/${archiveName(version)}`;
+export const archiveName = (version: string): string => `aures-${version}.tgz`;
+export const releaseUrl = (version: string): string => `${REPOSITORY}/releases/download/v${version}/${archiveName(version)}`;
 
-export function formula({ version, sha256 }) {
+export function formula({ version, sha256 }: { version: string; sha256: string }): string {
   if (!/^[0-9]+\.[0-9]+\.[0-9]+$/.test(version)) throw new RangeError(`invalid version: ${version}`);
   if (!/^[0-9a-f]{64}$/.test(sha256)) throw new RangeError(`invalid sha256: ${sha256}`);
   return `class Aures < Formula
@@ -44,7 +44,7 @@ end
 `;
 }
 
-export async function packRelease(destination) {
+export async function packRelease(destination: string): Promise<{ file: string; sha256: string }> {
   await promisify(execFile)('npm', ['pack', '--pack-destination', destination], { cwd: root });
   const file = join(destination, archiveName(pkg.version));
   return { file, sha256: createHash('sha256').update(await readFile(file)).digest('hex') };

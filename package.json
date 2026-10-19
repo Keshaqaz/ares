@@ -10,11 +10,11 @@
     "node": ">=26"
   },
   "scripts": {
-    "test": "node --test test/*.test.mjs",
+    "test": "node --test test/*.test.ts",
     "typecheck": "tsc --noEmit",
     "build:worker": "node scripts/build-worker.ts",
     "prepack": "npm run typecheck && npm run build:worker",
-    "release:brew": "node scripts/release-brew.mjs"
+    "release:brew": "node scripts/release-brew.ts"
   },
   "dependencies": {
     "libsodium-wrappers": "0.7.15"

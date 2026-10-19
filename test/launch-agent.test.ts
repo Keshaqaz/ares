@@ -5,7 +5,7 @@ import { join, dirname } from 'node:path';
 import { LaunchAgent, LaunchctlFailed, AGENT_LABEL, agentProgram } from '../src/cli/launch-agent.ts';
 import { fakeMac, UID } from './support/fake-mac.ts';
 
-const exists = path => stat(path).then(() => true, () => false);
+const exists = (path: string): Promise<boolean> => stat(path).then(() => true, () => false);
 
 test('the agent runs through the Homebrew opt path, which survives brew upgrade, or through this node and main.ts', () => {
   assert.deepEqual(agentProgram({ main: '/opt/homebrew/Cellar/aures/0.1.0/libexec/src/cli/main.ts', node: '/opt/homebrew/opt/node/bin/node' }),
@@ -41,7 +41,7 @@ test('install over a loaded agent reloads it from the new plist', async () => {
   await agent.install();
   const moved = new LaunchAgent({ home: agent.home, uid: UID, program: ['/node', '/new/main.ts', 'watch'], launchctl: launchctl.run });
   await moved.install();
-  assert.match(launchctl.loaded.get(AGENT_LABEL), /<string>\/new\/main\.ts<\/string>/);
+  assert.match(launchctl.loaded.get(AGENT_LABEL) ?? '', /<string>\/new\/main\.ts<\/string>/);
   assert.deepEqual(launchctl.calls.slice(-2), [['bootout', `gui/${UID}/${AGENT_LABEL}`], ['bootstrap', `gui/${UID}`, agent.plistPath]]);
 });
 

@@ -1,7 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { tick } from '../src/worker/tick.ts';
-import { fakeWorld, credit, window } from './support/fake-world.mjs';
+import type { TickOptions } from '../src/worker/tick.ts';
+import type { Pending, Rules, State } from '../src/worker/state-file.ts';
+import { fakeWorld, credit, window } from './support/fake-world.ts';
+import type { FakeWorld } from './support/fake-world.ts';
 
 const MINUTE = 60_000, HOUR = 3600_000, DAY = 24 * HOUR;
 const DEFAULT_RULES = { formatVersion: 1, beforeExpiry: true, weeklyAutoApply: false };
@@ -10,13 +13,14 @@ const RULES_OFF = { formatVersion: 1, beforeExpiry: false, weeklyAutoApply: fals
 const BOTH_RULES = { formatVersion: 1, beforeExpiry: true, weeklyAutoApply: true };
 const START = Date.parse('2026-10-20T12:00:00Z'), DEADLINE_MINUTE = Date.parse('2026-10-20T15:00:00Z');
 
-const dueReset = world => { world.chatgpt.credits = [credit('reset-a', world.now + HOUR)]; };
-function setup({ rules = DEFAULT_RULES, ...options } = {}) {
+const dueReset = (world: FakeWorld) => { world.chatgpt.credits = [credit('reset-a', world.now + HOUR)]; };
+function setup({ rules = DEFAULT_RULES, ...options }: { rules?: Rules; now?: number; accountId?: string } = {}) {
   const world = fakeWorld(options);
   world.chatgpt.credits = [];
   // run(state, { rules }) overrides the rules for one tick.
-  const run = (state, extra) => tick({ state, rules, now: world.now, fetch: world.fetch, ...extra });
-  return { world, state: { formatVersion: 1, session: world.login() }, run };
+  const run = (state: State, extra: Partial<TickOptions> = {}) => tick({ state, rules, now: world.now, fetch: world.fetch, ...extra });
+  const state: State = { formatVersion: 1, session: world.login() };
+  return { world, state, run };
 }
 
 test('the before-expiry rule waits until the last 8 hours of the activation deadline', async () => {
@@ -116,15 +120,17 @@ test('the weekly rule skips a group that already had a reset applied', async () 
 test('the chosen reset and its redeem_request_id are persisted before the consume POST', async () => {
   const { world, state, run } = setup();
   dueReset(world);
-  const persisted = [];
+  const persisted: { pending: Pending | null; consumesBefore: number }[] = [];
   const result = await run(state, { persist: async next => {
     persisted.push({ pending: next.pending, consumesBefore: world.consumeCalls().length });
   } });
   assert.equal(result.outcome, 'applied');
   assert.equal(persisted.length, 1);
-  assert.equal(persisted[0].consumesBefore, 0);
-  assert.equal(persisted[0].pending.creditId, 'reset-a');
-  assert.equal(world.consumeCalls()[0].key, persisted[0].pending.redeemRequestId);
+  assert.equal(persisted[0]?.consumesBefore, 0);
+  assert.equal(persisted[0]?.pending?.creditId, 'reset-a');
+  const [call] = world.consumeCalls();
+  assert.ok(call && persisted[0]?.pending);
+  assert.equal(call.key, persisted[0].pending.redeemRequestId);
 });
 
 test('a failed persist sends no consume', async () => {
@@ -140,7 +146,7 @@ test('a lost reply after the server applied the reset is reconciled as applied o
   world.chatgpt.lose = 'after';
   const lost = await run(state);
   assert.equal(lost.outcome, 'pending');
-  assert.equal(lost.state.pending.creditId, 'reset-a');
+  assert.equal(lost.state.pending?.creditId, 'reset-a');
   world.chatgpt.lose = null;
   world.advance(HOUR / 2);
   const next = await run(lost.state);
@@ -162,20 +168,23 @@ test('a lost reply with the reset still listed is retried with the same redeem_r
   const retried = await run(lost.state);
   assert.equal(retried.outcome, 'applied');
   const [first, second] = world.consumeCalls();
+  assert.ok(first && second);
   assert.equal(second.key, first.key);
   assert.equal(second.creditId, 'reset-a');
   assert.deepEqual(world.spent(), ['reset-a']);
 });
 
 for (const [label, change] of [['a 5xx', w => { w.chatgpt.consumeFail = { status: 502 }; }],
-  ['already_redeemed', w => { w.chatgpt.redemptions.push({ creditId: 'reset-a', key: 'other', outcome: 'already_redeemed' }); w.chatgpt.outcome = 'already_redeemed'; }]]) {
+  ['already_redeemed', w => { w.chatgpt.redemptions.push({ creditId: 'reset-a', key: 'other', outcome: 'already_redeemed' }); w.chatgpt.outcome = 'already_redeemed'; }]] satisfies [string, (w: FakeWorld) => void][]) {
   test(`consume answered with ${label} leaves the result unknown and keeps the key`, async () => {
     const { world, state, run } = setup();
     dueReset(world);
     change(world);
     const result = await run(state);
     assert.equal(result.outcome, 'pending');
-    assert.equal(result.state.pending.redeemRequestId, world.consumeCalls()[0].key);
+    const [call] = world.consumeCalls();
+    assert.ok(call && result.state.pending);
+    assert.equal(result.state.pending.redeemRequestId, call.key);
   });
 }
 
@@ -185,7 +194,7 @@ test('a rejected session on consume keeps the pending attempt for after the next
   world.chatgpt.consumeFail = { status: 401 };
   const result = await run(state);
   assert.equal(result.outcome, 'reauth_required');
-  assert.equal(result.state.pending.creditId, 'reset-a');
+  assert.equal(result.state.pending?.creditId, 'reset-a');
 });
 
 test('a pending attempt is retried even after the rules are turned off', async () => {
@@ -212,6 +221,7 @@ for (const outcome of ['nothing_to_reset', 'no_credit']) {
     world.advance(HOUR / 4);
     assert.equal((await run(first.state)).outcome, 'applied');
     const [a, b] = world.consumeCalls();
+    assert.ok(a && b);
     assert.notEqual(a.key, b.key);
   });
 }
@@ -279,7 +289,7 @@ test('apply-now for a reset that is not listed still lets the rules act on the t
   const result = await run(state, { applyNow: 'reset-gone' });
   assert.equal(result.outcome, 'applied');
   assert.deepEqual(world.spent(), ['reset-a']);
-  assert.equal(result.state.lastAttempt.creditId, 'reset-a');
+  assert.equal(result.state.lastAttempt?.creditId, 'reset-a');
 });
 
 test('a weekly renewsAt that drifts by seconds between reads is still the same exhaustion', async () => {

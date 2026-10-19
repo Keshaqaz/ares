@@ -3,30 +3,37 @@ import assert from 'node:assert/strict';
 import { PassThrough } from 'node:stream';
 import { setup } from '../src/cli/setup.ts';
 import { openScreen, runScreen } from '../src/cli/screen.ts';
+import type { Screen } from '../src/cli/screen.ts';
 import { FILES } from '../src/worker/layout.ts';
 import { readRules } from '../src/worker/state-file.ts';
-import { cliWorld } from './support/cli-world.mjs';
-import { credit } from './support/fake-world.mjs';
+import { cliWorld } from './support/cli-world.ts';
+import { credit } from './support/fake-world.ts';
 import { status } from '../src/cli/status.ts';
 import { language } from '../src/cli/language.ts';
+import type { Language } from '../src/cli/language.ts';
 
 const HINT = '↑↓ выбор · Enter применить / переключить · l язык · r обновить · q выход';
 
 // The screen of a worker installed by setup with the default rules: resets reset-b (in 2 days
 // 3 hours) and reset-a (in 5 days). Device codes the screen shows are approved at once.
-async function opened({ language = 'ru' } = {}) {
+async function opened({ language = 'ru' }: { language?: Language } = {}) {
   const env = await cliWorld({ language });
   const { code, io } = await env.run(setup, { answers: [''] });
   assert.equal(code, 0, io.output());
-  let screen;
-  const sleep = async ms => {
+  let screen: Screen | undefined;
+  const sleep = async (ms: number) => {
     for (const note of screen?.notes ?? []) for (const [found] of note.text.matchAll(/FAKE-\d+/g)) env.world.approve(found);
     env.world.advance(ms);
   };
   await env.run(async options => { screen = await openScreen({ ...options, sleep }); return 0; });
-  const press = (...names) => names.reduce((done, name) => done.then(() => screen.press({ name, sequence: name })), Promise.resolve());
-  const text = () => screen.frame().join('\n');
-  return { ...env, repo: env.world.github.repo(), screen, press, text };
+  assert.ok(screen);
+  const shown = screen;
+  const press = (...names: string[]) => names.reduce<Promise<unknown>>((done, name) => done.then(() => shown.press({ name, sequence: name })),
+    Promise.resolve());
+  const text = () => shown.frame().join('\n');
+  const repo = env.world.github.repo();
+  assert.ok(repo);
+  return { ...env, repo, screen: shown, press, text };
 }
 
 test('the screen shows the resets on top, the rules under them and moves the cursor over both', async () => {
@@ -54,7 +61,7 @@ test('Enter on a reset applies it now after a «y», any other key cancels', asy
   await press('return');
   await screen.press({ sequence: 'н' }); // «y» on the Russian layout
   assert.deepEqual(world.spent(), ['reset-a']);
-  assert.deepEqual(repo.runs[0].inputs, { apply_now: 'reset-a' });
+  assert.deepEqual(repo.runs[0]?.inputs, { apply_now: 'reset-a' });
   assert.match(text(), /\nСброс reset-a применён\.\n/);
   assert.match(text(), /СБРОСЫ · 1\n─+\n▸ reset-b/, 'the applied reset is gone and the cursor stays in the list');
   assert.match(text(), /применён reset-a 20 окт 12:00 — вручную/);
@@ -67,7 +74,7 @@ test('Enter on a rule switches it, and the weekly rule sets up the check from th
   const { world, repo, mac, press, text } = await opened();
   await press('down', 'down', 'down', 'return');
   assert.deepEqual(readRules(world.github.text(repo, FILES.rules)), { formatVersion: 1, beforeExpiry: true, weeklyAutoApply: true });
-  assert.equal(repo.commits.at(-1).message, 'Change the general rules');
+  assert.equal(repo.commits.at(-1)?.message, 'Change the general rules');
   assert.match(text(), /Откройте https:\/\/auth\.openai\.com\/codex\/device и введите код FAKE-\d+/);
   assert.match(text(), /Правила сохранены и заработают со следующего запуска воркера\.\n.*\n.*\nВнеочередная проверка с этого Mac включена\.\n\n↑↓/);
   assert.match(text(), /▸ ☑ Когда кончится недельный лимит · проверка с Mac работает/);
@@ -88,9 +95,9 @@ test('a reset with an ID as ChatGPT gives it is shown as RES and the last 4 char
   assert.match(text(), /\n {2}RES67F8 {3}через 3 д/);
   assert.doesNotMatch(text(), /RateLimitResetCredit/);
   await press('down', 'return');
-  assert.match(screen.frame().at(-1), /^Применить RES67F8 сейчас\?/);
+  assert.match(screen.frame().at(-1) ?? '', /^Применить RES67F8 сейчас\?/);
   await press('y');
-  assert.deepEqual(repo.runs[0].inputs, { apply_now: id });
+  assert.deepEqual(repo.runs[0]?.inputs, { apply_now: id });
   assert.match(text(), /\nСброс RES67F8 применён\.\n/);
   assert.match(text(), /применён RES67F8 /);
 });
@@ -106,16 +113,16 @@ test('a failed action shows why and leaves the screen open', async () => {
 });
 
 // The screen in a fake terminal of the size given: its output and keys.
-function terminal(screen, size) {
+function terminal(screen: Screen, size: { columns: number; rows: number }) {
   const input = new PassThrough(), output = Object.assign(new PassThrough(), size);
   let written = '';
-  output.on('data', chunk => { written += chunk; });
+  output.on('data', (chunk: Buffer) => { written += chunk; });
   const done = runScreen(screen, { input, output });
-  const press = async key => { const from = written.length; input.write(key); await new Promise(resolve => setImmediate(resolve));
+  const press = async (key: string) => { const from = written.length; input.write(key); await new Promise(resolve => setImmediate(resolve));
     return written.slice(from); };
   return { input, done, press, written: () => written };
 }
-const visible = text => text.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '');
+const visible = (text: string): string => text.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '');
 
 test('the terminal: the screen takes the alternate screen, redraws the lines that changed, q gives the terminal back', async () => {
   const { screen } = await opened();

@@ -1,14 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { tick } from '../src/worker/tick.ts';
-import { fakeWorld, credit, window, REUSE_GRACE_MS } from './support/fake-world.mjs';
+import type { TickOptions, Ticked } from '../src/worker/tick.ts';
+import type { Migration, State } from '../src/worker/state-file.ts';
+import type { Session } from '../src/chatgpt/session.ts';
+import { fakeWorld, credit, window, REUSE_GRACE_MS } from './support/fake-world.ts';
+import type { AuthFailure, FakeWorld, WhamFailure } from './support/fake-world.ts';
 
 const HOUR = 3600_000, DAY = 24 * HOUR;
 const RULES = { formatVersion: 1, beforeExpiry: true, weeklyAutoApply: false };
-function setup(options) {
+function setup(options?: Parameters<typeof fakeWorld>[0]) {
   const world = fakeWorld(options);
-  const state = { formatVersion: 1, session: world.login() };
-  const run = (s, options) => tick({ state: s, rules: RULES, now: world.now, fetch: world.fetch, ...options });
+  const state: State = { formatVersion: 1, session: world.login() };
+  const run = (s: State, options: Partial<TickOptions> = {}) => tick({ state: s, rules: RULES, now: world.now, fetch: world.fetch, ...options });
   return { world, state, run };
 }
 
@@ -32,8 +36,11 @@ test('tick reads quotas and issued resets with the worker session and stays idle
   assert.deepEqual(world.violations, []);
 });
 
-const expiry = session => JSON.parse(Buffer.from(session.accessToken.split('.')[1], 'base64url')).exp * 1000;
-const nearExpiry = (world, state) => world.advance(expiry(state.session) - world.now - 60_000);
+const expiry = (session: Session): number => {
+  const { exp }: { exp: number } = JSON.parse(Buffer.from(session.accessToken.split('.')[1] ?? '', 'base64url').toString());
+  return exp * 1000;
+};
+const nearExpiry = (world: FakeWorld, state: State) => world.advance(expiry(state.session) - world.now - 60_000);
 
 test('tick refreshes the worker session just before the access token expires and keeps the new tokens', async () => {
   const { world, state, run } = setup();
@@ -45,7 +52,7 @@ test('tick refreshes the worker session just before the access token expires and
   assert.notEqual(result.state.session.accessToken, state.session.accessToken);
   assert.equal(result.state.session.accountId, state.session.accountId);
   assert.ok(expiry(result.state.session) > world.now + 9 * DAY);
-  assert.equal(result.state.observed.resets.length, 1);
+  assert.equal(result.state.observed?.resets.length, 1);
   assert.deepEqual(world.violations, []);
 });
 
@@ -81,7 +88,7 @@ for (const code of ['refresh_token_expired', 'refresh_token_reused', 'refresh_to
 }
 
 for (const [label, fail] of [['a bare 401', { status: 401, body: { detail: 'Unauthorized' } }],
-  ['400 invalid_grant', { status: 400, body: { error: 'invalid_grant' } }]]) {
+  ['400 invalid_grant', { status: 400, body: { error: 'invalid_grant' } }]] satisfies [string, AuthFailure][]) {
   test(`refresh rejected with ${label} means the worker session is lost`, async () => {
     const { world, state, run } = setup();
     world.auth.fail = fail;
@@ -91,7 +98,7 @@ for (const [label, fail] of [['a bare 401', { status: 401, body: { detail: 'Unau
 }
 
 for (const [label, fail] of [['503', { status: 503, body: { detail: 'down' } }], ['429', { status: 429 }],
-  ['an unrelated 400', { status: 400, body: { error: 'invalid_request' } }], ['a network error', { status: 'network' }]]) {
+  ['an unrelated 400', { status: 400, body: { error: 'invalid_request' } }], ['a network error', { status: 'network' }]] satisfies [string, AuthFailure][]) {
   test(`refresh failing with ${label} is a transient error`, async () => {
     const { world, state, run } = setup();
     world.auth.fail = fail;
@@ -102,7 +109,7 @@ for (const [label, fail] of [['503', { status: 503, body: { detail: 'down' } }],
   });
 }
 
-for (const [label, fail] of [['502', { status: 502 }], ['a network error', 'network']]) {
+for (const [label, fail] of [['502', { status: 502 }], ['a network error', 'network']] satisfies [string, WhamFailure][]) {
   test(`reads failing with ${label} are a transient error`, async () => {
     const { world, state, run } = setup();
     world.chatgpt.fail = fail;
@@ -133,21 +140,21 @@ test('a rejected access token means the worker session is lost, without a refres
 test('a refresh hands the rotated state to persist before any read', async () => {
   const { world, state, run } = setup();
   nearExpiry(world, state);
-  const handed = [];
+  const handed: { next: Ticked; readsBefore: number }[] = [];
   const result = await run(state, { persist: async next => {
     handed.push({ next, readsBefore: world.requests.filter(r => r.host === 'chatgpt.com').length });
   } });
   assert.equal(result.outcome, 'idle');
   assert.equal(handed.length, 1);
-  assert.equal(handed[0].readsBefore, 0);
-  assert.deepEqual(handed[0].next.session, result.state.session);
-  assert.notEqual(handed[0].next.session.refreshToken, state.session.refreshToken);
+  assert.equal(handed[0]?.readsBefore, 0);
+  assert.deepEqual(handed[0]?.next.session, result.state.session);
+  assert.notEqual(handed[0]?.next.session.refreshToken, state.session.refreshToken);
 });
 
 test('persist is not called when the session is far from expiry', async () => {
   const { state, run } = setup();
   let calls = 0;
-  await run(state, { persist: () => { calls++; } });
+  await run(state, { persist: async () => { calls++; } });
   assert.equal(calls, 0);
 });
 
@@ -170,9 +177,9 @@ test('the weekly quota is recognised by its window length, not its position', as
   world.chatgpt.secondary = null;
   world.chatgpt.credits = [];
   const { state: next } = await run(state);
-  assert.deepEqual(next.observed.weeklyQuota, { usedPercent: 100, exhausted: true, renewsAt: Math.floor((world.now + DAY) / 1000) * 1000 });
-  assert.equal(next.observed.fiveHourQuota, null);
-  assert.deepEqual(next.observed.resets, []);
+  assert.deepEqual(next.observed?.weeklyQuota, { usedPercent: 100, exhausted: true, renewsAt: Math.floor((world.now + DAY) / 1000) * 1000 });
+  assert.equal(next.observed?.fiveHourQuota, null);
+  assert.deepEqual(next.observed?.resets, []);
 });
 
 test('a malformed reset list is a transient error, not an empty one', async () => {
@@ -183,19 +190,19 @@ test('a malformed reset list is a transient error, not an empty one', async () =
 
 test('tick takes the session of a new login for the same account once and keeps the history', async () => {
   const { world, state, run } = setup();
-  const history = { ...state, applied: [{ creditId: 'reset-old', expiresAt: world.now - DAY, reason: 'before_expiry', at: world.now - 2 * DAY, recovers: null }] };
+  const history: State = { ...state, applied: [{ creditId: 'reset-old', expiresAt: world.now - DAY, reason: 'before_expiry', at: world.now - 2 * DAY, recovers: null }] };
   world.endSession('refresh_token_invalidated');
   assert.equal((await run(history)).outcome, 'reauth_required');
 
   const login = { id: 'login-1', session: world.login() };
-  const saved = [];
+  const saved: Ticked[] = [];
   const result = await run(history, { login, persist: async s => { saved.push(s); } });
   assert.equal(result.outcome, 'idle');
   assert.deepEqual(result.state.session, login.session);
   assert.deepEqual(result.state.login, { id: 'login-1', result: 'accepted', at: world.now });
   assert.deepEqual(result.state.applied, history.applied);
   // The new refresh token reaches the repository before anything can rotate it.
-  assert.deepEqual(saved[0].session, login.session);
+  assert.deepEqual(saved[0]?.session, login.session);
 
   // The secret stays until the CLI deletes it; a later tick never goes back to its tokens.
   world.advance(expiry(login.session) - world.now - 60_000);
@@ -221,11 +228,12 @@ test('tick rejects a login into another ChatGPT account and keeps the old sessio
 test('tick brings a state of an older formatVersion to the current one before it acts on it', async () => {
   const { world, state, run } = setup();
   // A format step as a format change adds it: version 1 kept the history as `history`, 2 calls it `applied`.
-  const migrations = [({ history, ...old }) => ({ ...old, applied: history })];
+  const migrations: Migration[] = [({ history, ...old }) => ({ ...old, applied: history })];
   world.chatgpt.credits = [credit('reset-a', world.now + 3 * HOUR), credit('reset-b', world.now + 3 * HOUR)];
   const old = { ...state, history: [{ creditId: 'reset-old', expiresAt: world.now + 3 * HOUR, reason: 'apply_now', at: world.now - HOUR, recovers: null }] };
   const result = await run(old, { migrations });
   assert.equal(result.state.formatVersion, 2);
+  // @ts-expect-error: the field of the older format is gone.
   assert.equal(result.state.history, undefined);
   // The migrated history counts: the group of matching deadlines already had its reset.
   assert.equal(result.outcome, 'idle');
@@ -236,5 +244,6 @@ test('tick brings a state of an older formatVersion to the current one before it
 test('tick refuses a state newer than its formats', async () => {
   const { state, run } = setup();
   await assert.rejects(run({ ...state, formatVersion: 2 }), { reason: 'state_format_unknown' });
+  // @ts-expect-error: a state without a session is refused at run time.
   await assert.rejects(run({ ...state, session: null }), { reason: 'state_without_session' });
 });
