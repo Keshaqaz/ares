@@ -217,3 +217,23 @@ test('tick rejects a login into another ChatGPT account and keeps the old sessio
   assert.equal(result.outcome, 'reauth_required');
   assert.equal(world.consumeCalls().length, 0);
 });
+
+test('tick brings a state of an older formatVersion to the current one before it acts on it', async () => {
+  const { world, state, run } = setup();
+  // A format step as a format change adds it: version 1 kept the history as `history`, 2 calls it `applied`.
+  const migrations = [({ history, ...old }) => ({ ...old, applied: history })];
+  world.chatgpt.credits = [credit('reset-a', world.now + 3 * HOUR), credit('reset-b', world.now + 3 * HOUR)];
+  const old = { ...state, history: [{ creditId: 'reset-old', expiresAt: world.now + 3 * HOUR, reason: 'apply_now', at: world.now - HOUR, recovers: null }] };
+  const result = await run(old, { migrations });
+  assert.equal(result.state.formatVersion, 2);
+  assert.equal(result.state.history, undefined);
+  // The migrated history counts: the group of matching deadlines already had its reset.
+  assert.equal(result.outcome, 'idle');
+  assert.deepEqual(world.consumeCalls(), []);
+  assert.deepEqual((await run(result.state, { migrations })).state.applied, old.history, 'a current state passes as it is');
+});
+
+test('tick refuses a state newer than its formats', async () => {
+  const { state, run } = setup();
+  await assert.rejects(run({ ...state, formatVersion: 2 }), { reason: 'state_format_unknown' });
+});

@@ -3,6 +3,8 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { join } from 'node:path';
 import { tick } from './tick.mjs';
+import { revoke as revokeSession } from '../chatgpt/session.mjs';
+import { TransientFailure } from '../chatgpt/http.mjs';
 import { sealState, openState, readRules, readLogin, BrokenState } from './state-file.mjs';
 import { openSummary, stepSummary } from './summary.mjs';
 import { FILES } from './layout.mjs';
@@ -43,8 +45,10 @@ const comparable = state => JSON.stringify(sorted({ ...state, observed: state.ob
 
 // One worker run inside a checkout of the worker repository: decrypt state, tick,
 // encrypt and commit what changed. Fails (exitCode 1) only when the user has to act.
-// login is the text of the login secret, if the repository has one.
-export async function runWorker({ dir, key, now, fetch, applyNow = null, login = null, stepSummaryPath = null }) {
+// login is the text of the login secret, if the repository has one. revoke makes the run
+// revoke the worker session in OpenAI instead of a tick, before `uninstall` deletes the
+// repository; the run does not fail when OpenAI does not confirm it, uninstall reports that.
+export async function runWorker({ dir, key, now, fetch, applyNow = null, login = null, revoke = false, stepSummaryPath = null }) {
   const report = async fields => {
     if (stepSummaryPath) await appendFile(stepSummaryPath, stepSummary({ now, ...fields }));
   };
@@ -53,11 +57,23 @@ export async function runWorker({ dir, key, now, fetch, applyNow = null, login =
   try {
     const read = name => readFile(path(name), 'utf8').catch(() => { throw new BrokenState(`${name}_missing`); });
     state = openState(await read('state'), key);
-    rules = readRules(await read('rules'));
+    if (!revoke) rules = readRules(await read('rules'));
   } catch (error) {
     if (!(error instanceof BrokenState)) throw error;
     await report({ outcome: 'broken_state', reason: error.reason });
     return { outcome: 'broken_state', reason: error.reason, exitCode: 1 };
+  }
+
+  if (revoke) {
+    try {
+      await revokeSession(fetch, state.session);
+    } catch (error) {
+      if (!(error instanceof TransientFailure)) throw error;
+      await report({ outcome: 'revoke_failed', reason: error.reason });
+      return { outcome: 'revoke_failed', reason: error.reason, exitCode: 0 };
+    }
+    await report({ outcome: 'revoked' });
+    return { outcome: 'revoked', exitCode: 0 };
   }
 
   let saved = comparable(state);

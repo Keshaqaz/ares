@@ -15,7 +15,8 @@ export const WORKFLOW_FILE = FILES.workflow.split('/').at(-1);
 const RUN_TIMEOUT_MS = 10 * 60_000, POLL_MS = 5_000;
 // Job logs appear a few seconds after the run completes.
 const LOG_ATTEMPTS = 4;
-const OUTCOMES = ['idle', 'applied', 'pending', 'transient_error', 'reauth_required', 'broken_state', 'commit_failed'];
+const OUTCOMES = ['idle', 'applied', 'pending', 'transient_error', 'reauth_required', 'broken_state', 'commit_failed',
+  'revoked', 'revoke_failed'];
 
 // A failure explained to the user in its message.
 export class CommandFailed extends Error {}

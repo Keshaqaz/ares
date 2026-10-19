@@ -1,5 +1,5 @@
 // GitHub side of the fake world: device flow of the project's OAuth App and the REST calls
-// the CLI makes (user, repos, contents, Actions secrets with sealed boxes, dispatch, runs,
+// the CLI makes (user, repos and their deletion, contents, Actions secrets with sealed boxes, dispatch, runs,
 // job logs). withGitHub(world) chains it in front of world.fetch, so one fetch serves
 // ChatGPT, auth.openai.com and GitHub. A dispatch, or github.schedule for the cron, hands the
 // repository to world.github.runner.
@@ -16,7 +16,8 @@ export async function withGitHub(world, { login = 'octo-fake' } = {}) {
   const keys = sodium.crypto_box_keypair();
   let serial = 0;
   const github = {
-    login, devices: new Map(), tokens: new Set(), repos: new Map(), requests: [], violations: [],
+    // tokens: access token → the scopes the user granted to it.
+    login, devices: new Map(), tokens: new Map(), repos: new Map(), requests: [], violations: [],
     // (repo, run) → { conclusion, log } after the run, or null to leave it queued.
     runner: null,
     // Dispatches refused as right after the workflow's push: 404, the last one 422 (trigger not
@@ -62,9 +63,9 @@ export async function withGitHub(world, { login = 'octo-fake' } = {}) {
   function device(path, data) {
     if (data.client_id !== GITHUB_OAUTH_CLIENT_ID) return json(400, { error: 'incorrect_client_credentials' });
     if (path === '/login/device/code') {
-      if (data.scope !== 'repo workflow') github.violations.push(`scope ${data.scope}`);
+      if (!['repo workflow', 'repo workflow delete_repo'].includes(data.scope)) github.violations.push(`scope ${data.scope}`);
       const id = `gh-device-${++serial}`, userCode = `GHFK-${1000 + serial}`;
-      github.devices.set(id, { userCode, approved: false, polls: 0 });
+      github.devices.set(id, { userCode, approved: false, polls: 0, scope: data.scope });
       return json(200, { device_code: id, user_code: userCode, verification_uri: 'https://github.com/login/device',
         expires_in: 899, interval: 5 });
     }
@@ -75,14 +76,14 @@ export async function withGitHub(world, { login = 'octo-fake' } = {}) {
     if (!entry.approved) return json(200, { error: entry.polls++ === 0 ? 'slow_down' : 'authorization_pending', interval: 10 });
     github.devices.delete(data.device_code);
     const token = `gho_fake${String(++serial).padStart(32, '0')}`;
-    github.tokens.add(token);
-    return json(200, { access_token: token, token_type: 'bearer', scope: 'repo,workflow' });
+    github.tokens.set(token, entry.scope.split(' '));
+    return json(200, { access_token: token, token_type: 'bearer', scope: entry.scope.replaceAll(' ', ',') });
   }
 
   const repoView = repo => ({ ...repo.meta, full_name: `${login}/${repo.meta.name}`,
     html_url: `https://github.com/${login}/${repo.meta.name}`, default_branch: 'main', owner: { login } });
 
-  async function api(method, url, body) {
+  async function api(method, url, body, scopes) {
     const path = url.pathname;
     if (path === '/user' && method === 'GET') return json(200, { login, id: 1 });
     if (path === '/user/repos' && method === 'POST') {
@@ -97,6 +98,12 @@ export async function withGitHub(world, { login = 'octo-fake' } = {}) {
     if (!repo) return json(404, { message: 'Not Found' });
     const rest = match[3] ?? '';
     if (rest === '' && method === 'GET') return json(200, repoView(repo));
+    // Deleting a repository takes the delete_repo scope on top of repo.
+    if (rest === '' && method === 'DELETE') {
+      if (!scopes.includes('delete_repo')) return json(403, { message: 'Must have admin rights to Repository.' });
+      github.repos.delete(`${match[1]}/${match[2]}`);
+      return new Response(null, { status: 204 });
+    }
     if (rest.startsWith('/contents/')) {
       const file = decodeURIComponent(rest.slice('/contents/'.length));
       const current = repo.files.get(file);
@@ -187,7 +194,7 @@ export async function withGitHub(world, { login = 'octo-fake' } = {}) {
       try { body = text ? JSON.parse(text) : null; } catch { return json(400, { message: 'Problems parsing JSON' }); }
       const token = headers.get('authorization')?.replace(/^Bearer /, '');
       if (!github.tokens.has(token)) return json(401, { message: 'Bad credentials' });
-      const reply = await api(method, url, body);
+      const reply = await api(method, url, body, github.tokens.get(token));
       if (reply) return reply;
     }
     github.violations.push(`${method} ${url.href}`);

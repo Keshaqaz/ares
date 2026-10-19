@@ -205,3 +205,24 @@ test('a login secret replaces the lost session, and the summary tells which logi
   assert.equal((await run({ login: JSON.stringify({ id: 'login-2' }) })).outcome, 'idle');
   assert.deepEqual(repo.state().session, session);
 });
+
+test('a revoke run revokes the worker session in OpenAI and commits nothing', async () => {
+  const { world, repo, initial, run } = await workerWorld();
+  assert.deepEqual(await run({ revoke: true }), { outcome: 'revoked', exitCode: 0 });
+  assert.deepEqual(world.auth.revoked, [initial.session.refreshToken]);
+  assert.deepEqual(repo.commits(), ['Set up worker']);
+  assert.equal(world.requests.filter(r => r.host === 'chatgpt.com').length, 0, 'no tick');
+  assert.match(await repo.readStepSummary(), /Сессия воркера отозвана/);
+  nearExpiry(world, initial.session);
+  assert.deepEqual(await run(), { outcome: 'reauth_required', exitCode: 1 });
+  assert.deepEqual(world.violations, []);
+});
+
+test('a revoke OpenAI does not confirm is reported, and the run does not fail', async () => {
+  const { world, run } = await workerWorld();
+  world.auth.revokeFail = { status: 503 };
+  assert.deepEqual(await run({ revoke: true }), { outcome: 'revoke_failed', reason: 'revoke_503', exitCode: 0 });
+  world.auth.revokeFail = 'network';
+  assert.deepEqual(await run({ revoke: true }), { outcome: 'revoke_failed', reason: 'network', exitCode: 0 });
+  assert.deepEqual(world.auth.revoked, []);
+});

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { usage, issuedResets, consume } from '../chatgpt/client.mjs';
 import { needsRefresh, refresh } from '../chatgpt/session.mjs';
 import { SessionLost, TransientFailure } from '../chatgpt/http.mjs';
+import { migrateState, STATE_MIGRATIONS } from './state-file.mjs';
 
 // The before-expiry rule makes its first attempt on the first tick inside this window.
 export const BEFORE_EXPIRY_MS = 8 * 3600_000;
@@ -38,8 +39,11 @@ function chooseByRules({ weeklyQuota, resets }, applied, rules, now) {
 // whatever the outcome. persist(state) is awaited after a new session (a refresh has
 // already rotated the refresh token, a login must not be lost) and before a consume POST
 // (its redeem_request_id must survive a lost reply), so the caller commits those states first.
-export async function tick({ state, rules, now, fetch, applyNow = null, login = null, persist = async () => {} }) {
-  let next = { pending: null, applied: [], ...state };
+// A state of an older formatVersion is migrated first, and the returned state is in the
+// current one; migrations are the format steps (state-file.mjs).
+export async function tick({ state, rules, now, fetch, applyNow = null, login = null, persist = async () => {},
+  migrations = STATE_MIGRATIONS }) {
+  let next = { pending: null, applied: [], ...migrateState(state, migrations) };
   try {
     // The login secret outlives its use; its tokens are rotated away after the first tick.
     if (login && login.id !== next.login?.id) {

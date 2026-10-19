@@ -1,7 +1,7 @@
-import { FILES, STATE_KEY_SECRET, LOGIN_SECRET } from './layout.mjs';
+import { FILES, STATE_KEY_SECRET, LOGIN_SECRET, REVOKE_INPUT } from './layout.mjs';
 
-// The worker repository's only workflow. The cron is static and never rewritten after
-// setup (ADR-0004); setup picks the minute so that installations do not all start together.
+// The worker repository's only workflow. The cron is static (ADR-0004): setup picks the
+// minute so that installations do not all start together, and upgrade keeps it.
 
 export function workflowYaml({ minute }) {
   // Minute 0 is GitHub's busiest moment for schedules.
@@ -17,6 +17,11 @@ on:
         required: false
         default: ''
         type: string
+      ${REVOKE_INPUT}:
+        description: 'Revoke the worker session in OpenAI instead of a tick, before uninstall'
+        required: false
+        default: false
+        type: boolean
 # The worker commits its encrypted state and nothing else.
 permissions:
   contents: write
@@ -37,6 +42,13 @@ jobs:
           STATE_KEY: \${{ secrets.${STATE_KEY_SECRET} }}
           WORKER_LOGIN: \${{ secrets.${LOGIN_SECRET} }}
           APPLY_NOW: \${{ inputs.apply_now }}
+          REVOKE_SESSION: \${{ inputs.${REVOKE_INPUT} }}
         run: node ${FILES.worker}
 `;
+}
+
+// The minute of the workflow's cron, or null when the file is not ours.
+export function workflowMinute(text) {
+  const minute = Number(text.match(/^\s+- cron: '(\d{1,2}) \* \* \* \*'$/m)?.[1]);
+  return Number.isInteger(minute) && minute >= 1 && minute <= 59 ? minute : null;
 }

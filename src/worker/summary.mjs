@@ -29,6 +29,8 @@ const VERDICTS = {
   transient_error: 'Временная ошибка, следующий тик повторит проверку.',
   reauth_required: 'Сессия воркера потеряна. Войдите заново: `codex-auto-resets login`.',
   broken_state: 'Файлы воркера не читаются. Переустановите воркер: `codex-auto-resets setup`.',
+  revoked: 'Сессия воркера отозвана в OpenAI.',
+  revoke_failed: 'OpenAI не подтвердил отзыв сессии воркера.',
   commit_failed: 'State не удалось сохранить в репозитории. Если следующий запуск сообщит о потере сессии, войдите заново: `codex-auto-resets login`.',
 };
 

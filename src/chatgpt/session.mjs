@@ -83,3 +83,11 @@ export async function refresh(fetch, session) {
   }
   return next;
 }
+
+// Revokes the worker session's refresh token before uninstall (live check 01: a refresh after
+// it gets 401 refresh_token_invalidated). Throws TransientFailure unless OpenAI confirms it.
+export async function revoke(fetch, session) {
+  const { status } = await request(fetch, `${ISSUER}/oauth/revoke`, { method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ client_id: CODEX_CLIENT_ID, token_type_hint: 'refresh_token', token: session.refreshToken }) });
+  if (status !== 200) throw new TransientFailure(`revoke_${status}`);
+}

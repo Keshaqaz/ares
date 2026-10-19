@@ -4,6 +4,8 @@ import { USER_AGENT } from '../chatgpt/http.mjs';
 
 const API = 'https://api.github.com';
 const GITHUB_SCOPES = 'repo workflow';
+// `uninstall` alone needs to delete the repository, which repo does not cover.
+export const UNINSTALL_SCOPES = `${GITHUB_SCOPES} delete_repo`;
 
 // GitHub refused or could not be reached. reason: network, unauthorized, or `<what>_<status>`.
 export class GitHubFailure extends Error {
@@ -27,10 +29,10 @@ async function send(fetch, url, { method = 'GET', headers = {}, body, timeoutMs 
 
 // Device flow of the project's OAuth App: the user enters onCode's userCode at
 // verificationUrl while we poll. Returns the user's access token; it never expires.
-export async function githubDeviceLogin({ fetch, onCode, sleep, now }) {
+export async function githubDeviceLogin({ fetch, onCode, sleep, now, scopes = GITHUB_SCOPES }) {
   const headers = { accept: 'application/json' };
   const issued = await send(fetch, 'https://github.com/login/device/code', { method: 'POST', headers,
-    body: new URLSearchParams({ client_id: GITHUB_OAUTH_CLIENT_ID, scope: GITHUB_SCOPES }) });
+    body: new URLSearchParams({ client_id: GITHUB_OAUTH_CLIENT_ID, scope: scopes }) });
   const device = issued.value;
   if (issued.status !== 200 || typeof device?.device_code !== 'string' || typeof device.user_code !== 'string') {
     throw new GitHubFailure(`device_code_${issued.status}`);
@@ -90,6 +92,10 @@ export class GitHubApi {
     const { value } = await this.expect('create_repository', '/user/repos', [201], { method: 'POST',
       body: { name, description, private: true, auto_init: false, has_issues: false, has_projects: false, has_wiki: false } });
     return value;
+  }
+  // Takes a token with the delete_repo scope. A repository already gone is not an error.
+  async deleteRepository(repo) {
+    await this.expect('delete_repository', `/repos/${repo}`, [204, 404], { method: 'DELETE' });
   }
   // { text, sha } of a file on the default branch, or null when it is missing (an empty
   // repository answers 404 to every read).

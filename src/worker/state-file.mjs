@@ -1,7 +1,12 @@
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 
-export const STATE_FORMAT_VERSION = 1;
-export const RULES_FORMAT_VERSION = 1;
+// Format steps: steps[i] turns formatVersion i + 1 into i + 2, so the current version is
+// steps.length + 1. A format change appends its step. The worker migrates state when it
+// opens it (and tick, for a state handed to it directly); `upgrade` migrates the rules file, and the worker reads older rules meanwhile.
+export const STATE_MIGRATIONS = [];
+export const RULES_MIGRATIONS = [];
+export const STATE_FORMAT_VERSION = STATE_MIGRATIONS.length + 1;
+export const RULES_FORMAT_VERSION = RULES_MIGRATIONS.length + 1;
 // Version of the encryption envelope, separate from the state's own formatVersion.
 const ENVELOPE_VERSION = 1;
 const CIPHER = 'aes-256-gcm';
@@ -12,6 +17,17 @@ const AAD = Buffer.from('codex-auto-resets/state');
 // a lost or wrong key, a tampered or unknown state, unreadable rules.
 export class BrokenState extends Error {
   constructor(reason) { super(reason); this.reason = reason; }
+}
+
+const known = (value, steps) => Number.isInteger(value?.formatVersion) && value.formatVersion >= 1 &&
+  value.formatVersion <= steps.length + 1;
+const migrate = (value, steps) => steps.slice(value.formatVersion - 1)
+  .reduce((old, step) => ({ ...step(old), formatVersion: old.formatVersion + 1 }), value);
+
+// State of any known formatVersion in the current one.
+export function migrateState(state, steps = STATE_MIGRATIONS) {
+  if (!known(state, steps)) throw new BrokenState('state_format_unknown');
+  return migrate(state, steps);
 }
 
 // The installer generates the key once and stores it base64 in the Actions secret.
@@ -44,7 +60,7 @@ export function openState(text, key) {
   } catch { throw new BrokenState('state_undecryptable'); }
   let state;
   try { state = JSON.parse(plain); } catch { throw new BrokenState('state_unreadable'); }
-  if (state?.formatVersion !== STATE_FORMAT_VERSION) throw new BrokenState('state_format_unknown');
+  state = migrateState(state);
   if (typeof state.session?.refreshToken !== 'string') throw new BrokenState('state_without_session');
   return state;
 }
@@ -60,11 +76,12 @@ export function readLogin(text) {
   return { id, session };
 }
 
-// Rules are open JSON that only the CLI writes.
-export function readRules(text) {
+// Rules are open JSON that only the CLI writes; an older formatVersion comes back in the current one.
+export function readRules(text, steps = RULES_MIGRATIONS) {
   let rules;
   try { rules = JSON.parse(text); } catch { throw new BrokenState('rules_unreadable'); }
-  if (rules?.formatVersion !== RULES_FORMAT_VERSION) throw new BrokenState('rules_format_unknown');
+  if (!known(rules, steps)) throw new BrokenState('rules_format_unknown');
+  rules = migrate(rules, steps);
   if (typeof rules.beforeExpiry !== 'boolean' || typeof rules.weeklyAutoApply !== 'boolean') throw new BrokenState('rules_unreadable');
   return { formatVersion: rules.formatVersion, beforeExpiry: rules.beforeExpiry, weeklyAutoApply: rules.weeklyAutoApply };
 }

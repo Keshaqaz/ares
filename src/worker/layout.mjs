@@ -9,3 +9,5 @@ export const STATE_KEY_SECRET = 'STATE_KEY';
 // The Actions secret through which `login` hands a new worker session to the worker: the CLI
 // cannot open the state, and the session must not lie in the repository unsealed.
 export const LOGIN_SECRET = 'WORKER_LOGIN';
+// The workflow_dispatch input with which `uninstall` has the worker revoke its session.
+export const REVOKE_INPUT = 'revoke_session';

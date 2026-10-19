@@ -44,6 +44,8 @@ export function fakeWorld({ now = Date.parse('2026-10-20T12:00:00Z'), accountId 
       devices: new Map(), codes: new Map(), refreshes: 0, fail: null, omit: [], family: 'active',
       current: null, // { access, refresh }
       rotated: new Map(), // old refresh token → rotation time
+      revoked: [], // refresh tokens revoked through /oauth/revoke
+      revokeFail: null, // { status } or 'network' for /oauth/revoke
     },
   };
   let serial = 0;
@@ -104,6 +106,20 @@ export function fakeWorld({ now = Date.parse('2026-10-20T12:00:00Z'), accountId 
     const reply = mint();
     for (const key of world.auth.omit) delete reply[key];
     return json(200, reply);
+  }
+
+  // Live check 01: a refresh after revoking the latest refresh token gets refresh_token_invalidated.
+  function revoke(body, contentType) {
+    if (!contentType?.startsWith('application/json')) return json(400, { error: 'invalid_request' });
+    const data = JSON.parse(body || '{}');
+    if (data.client_id !== CODEX_CLIENT_ID) return authError(400, 'invalid_client');
+    const { revokeFail } = world.auth;
+    if (revokeFail === 'network') return Promise.reject(new TypeError('fetch failed'));
+    if (revokeFail) return json(revokeFail.status, {});
+    if (data.token_type_hint !== 'refresh_token' || typeof data.token !== 'string') return json(400, { error: 'invalid_request' });
+    world.auth.revoked.push(data.token);
+    if (data.token === world.auth.current?.refresh) world.auth.family = 'refresh_token_invalidated';
+    return json(200, {});
   }
 
   function deviceUsercode(data) {
@@ -201,6 +217,7 @@ export function fakeWorld({ now = Date.parse('2026-10-20T12:00:00Z'), accountId 
     let reply = null;
     if (url.origin === ISSUER && method === 'POST') {
       if (url.pathname === '/oauth/token') reply = await token(body, headers.get('content-type'));
+      else if (url.pathname === '/oauth/revoke') reply = await revoke(body, headers.get('content-type'));
       else if (url.pathname === '/api/accounts/deviceauth/usercode') reply = deviceUsercode(JSON.parse(body));
       else if (url.pathname === '/api/accounts/deviceauth/token') reply = devicePoll(JSON.parse(body));
     } else if (url.origin === 'https://chatgpt.com' && url.pathname.startsWith('/backend-api/wham/')) {
