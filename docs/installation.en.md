@@ -12,24 +12,25 @@ The CLI speaks Russian; the messages quoted below are given in Russian with a tr
 
 ## Install
 
-```sh
-brew install keshaqaz/tap/codex-auto-resets
-```
-
-From source (Node 26 required):
+From source, with Node 26:
 
 ```sh
 git clone https://github.com/Keshaqaz/ares.git && cd ares
-npm ci
-npm run build:worker
-node src/cli/main.mjs setup      # then use node src/cli/main.mjs in place of codex-auto-resets
+npm ci && npm run build:worker
+echo "alias codex-auto-resets='node $PWD/src/cli/main.mjs'" >> ~/.zshrc && source ~/.zshrc
 ```
+
+The last line sets up the `codex-auto-resets` command this guide uses. Without it, run `node src/cli/main.mjs` from the project folder.
+
+Homebrew (`brew install keshaqaz/tap/codex-auto-resets`) arrives with the first release.
 
 ## First setup
 
 ```sh
 codex-auto-resets setup
 ```
+
+<img src="assets/setup.png" alt="codex-auto-resets setup: GitHub and ChatGPT sign-in, rules, the Mac check and a trial run">
 
 1. **GitHub sign-in.** Open the link, enter the code and allow access. The sign-in is kept in the Keychain, so you won't be asked again.
 2. **Repository.** A private repository `codex-auto-resets-worker` appears in your account. The worker lives there.
@@ -103,6 +104,8 @@ A line ending in `(watch.json not saved)` means the pass could not write `watch.
 codex-auto-resets status
 ```
 
+<img src="assets/status.png" alt="codex-auto-resets status and apply-now in the terminal">
+
 Shows the resets, the rules, the Mac check, the last run and the last application. If something is wrong, a line starting with «Внимание!» ("Warning!") at the bottom says what to do.
 
 The line about the Mac check comes in three forms:
@@ -142,27 +145,37 @@ If `setup`, `rules` or `upgrade` prints «Внеочередная провер�
 
 ## Upgrade
 
+From source, in the project folder:
+
+```sh
+git pull && npm ci && npm run build:worker
+codex-auto-resets upgrade
+```
+
+With Homebrew:
+
 ```sh
 brew upgrade codex-auto-resets
 codex-auto-resets upgrade
 ```
 
-The second command updates the worker in your repository; without it, the old version keeps running there. Rules, history and the ChatGPT sign-in are kept.
-
-The Mac check agent runs the program through the Homebrew link `$(brew --prefix)/opt/codex-auto-resets`, so after `brew upgrade` it runs the new version right away. With the weekly rule on, `upgrade` also reloads the agent when its plist changed.
+`codex-auto-resets upgrade` updates the worker in your repository; without it, the old version keeps running there. Rules, history and the ChatGPT sign-in are kept. With the weekly rule on, `upgrade` also reloads the Mac check agent when its plist changed.
 
 Installed from source, the agent runs the `node` and the `src/cli/main.mjs` you last ran `setup`, `rules` or `upgrade` with. If you move the folder or change Node, run `setup` again.
+
+Installed with Homebrew, the agent runs the program through the link `$(brew --prefix)/opt/codex-auto-resets`, so after `brew upgrade` it runs the new version right away.
 
 ## Uninstall
 
 ```sh
 codex-auto-resets uninstall
-brew uninstall codex-auto-resets
 ```
+
+Then remove the program: the source folder and the `alias codex-auto-resets=…` line in `~/.zshrc`, or `brew uninstall codex-auto-resets` if you installed with Homebrew.
 
 `uninstall` asks you to sign in to GitHub once more: deleting a repository needs a separate permission, which the CLI does not keep. It then revokes the worker's ChatGPT sign-in and deletes the repository. Next it removes the Mac check agent, revokes the Mac's ChatGPT sign-in and deletes its files and log, and finally removes the GitHub sign-in from the Keychain. Open the GitHub page it links and click **Revoke** to close access completely.
 
-If the program is already gone through `brew uninstall` and the agent is still there, it's best to install the program again and run `uninstall`: only it revokes the Mac's ChatGPT sign-in. To remove the agent and the files by hand, without revoking the sign-in:
+If the program is already gone and the agent is still there, it's best to install the program again and run `uninstall`: only it revokes the Mac's ChatGPT sign-in. To remove the agent and the files by hand, without revoking the sign-in:
 
 ```sh
 launchctl bootout gui/$(id -u)/com.github.keshaqaz.codex-auto-resets.watch

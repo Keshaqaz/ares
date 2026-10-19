@@ -10,24 +10,25 @@
 
 ## Установка
 
-```sh
-brew install keshaqaz/tap/codex-auto-resets
-```
-
-Из исходников (нужен Node 26):
+Из исходников, нужен Node 26:
 
 ```sh
 git clone https://github.com/Keshaqaz/ares.git && cd ares
-npm ci
-npm run build:worker
-node src/cli/main.mjs setup      # дальше вместо codex-auto-resets пишите node src/cli/main.mjs
+npm ci && npm run build:worker
+echo "alias codex-auto-resets='node $PWD/src/cli/main.mjs'" >> ~/.zshrc && source ~/.zshrc
 ```
+
+Последняя строка заводит команду `codex-auto-resets`, которой пользуется эта инструкция. Без неё пишите `node src/cli/main.mjs` из папки проекта.
+
+Установка через Homebrew (`brew install keshaqaz/tap/codex-auto-resets`) появится с первым выпуском.
 
 ## Первая настройка
 
 ```sh
 codex-auto-resets setup
 ```
+
+<img src="assets/setup.png" alt="codex-auto-resets setup: вход в GitHub и ChatGPT, правила, проверка с Mac и пробный запуск">
 
 1. **Вход в GitHub.** Откройте ссылку, введите код и разрешите доступ. Вход сохраняется в Связке ключей, повторно его не спросят.
 2. **Репозиторий.** В вашем аккаунте появится приватный репозиторий `codex-auto-resets-worker`. В нём живёт воркер.
@@ -97,6 +98,8 @@ codex-auto-resets setup
 codex-auto-resets status
 ```
 
+<img src="assets/status.png" alt="codex-auto-resets status и apply-now в терминале">
+
 Покажет сбросы, правила, проверку с Mac, последний запуск и последнее применение. Если что-то не так, внизу будет строка «Внимание!» с подсказкой, что делать.
 
 Строка о проверке с Mac бывает трёх видов:
@@ -136,27 +139,37 @@ codex-auto-resets apply-now
 
 ## Обновление
 
+Из исходников, в папке проекта:
+
+```sh
+git pull && npm ci && npm run build:worker
+codex-auto-resets upgrade
+```
+
+Через Homebrew:
+
 ```sh
 brew upgrade codex-auto-resets
 codex-auto-resets upgrade
 ```
 
-Вторая команда обновляет воркер в вашем репозитории. Без неё там продолжит работать прежняя версия. Правила, история и вход в ChatGPT сохраняются.
-
-Агент проверки с Mac запускает программу через ссылку Homebrew `$(brew --prefix)/opt/codex-auto-resets`, поэтому после `brew upgrade` он сразу работает в новой версии. Если недельное правило включено, `upgrade` вдобавок перезагружает агента, когда его plist изменился.
+`codex-auto-resets upgrade` обновляет воркер в вашем репозитории. Без неё там продолжит работать прежняя версия. Правила, история и вход в ChatGPT сохраняются. Если недельное правило включено, `upgrade` вдобавок перезагружает агента проверки с Mac, когда его plist изменился.
 
 При установке из исходников агент запускает тот `node` и тот `src/cli/main.mjs`, из которых вы последний раз запускали `setup`, `rules` или `upgrade`. Если перенесёте папку или смените Node, запустите `setup` ещё раз.
+
+При установке через Homebrew агент запускает программу через ссылку `$(brew --prefix)/opt/codex-auto-resets`, поэтому после `brew upgrade` он сразу работает в новой версии.
 
 ## Удаление
 
 ```sh
 codex-auto-resets uninstall
-brew uninstall codex-auto-resets
 ```
+
+Затем удалите программу: папку с исходниками и строку `alias codex-auto-resets=…` из `~/.zshrc`, или `brew uninstall codex-auto-resets`, если ставили через Homebrew.
 
 `uninstall` попросит ещё раз войти в GitHub: на удаление репозитория нужно отдельное разрешение, и CLI его не сохраняет. Затем он отзовёт вход воркера в ChatGPT и удалит репозиторий. Потом уберёт с Mac агента проверки, отзовёт вход Mac в ChatGPT, удалит его файлы и лог, а в конце удалит вход в GitHub из Связки ключей. Дойдите по ссылке на страницу GitHub и нажмите **Revoke**, чтобы закрыть доступ полностью.
 
-Если программу уже удалили через `brew uninstall`, а агент остался, лучше поставить её снова и выполнить `uninstall`: только он отзывает вход Mac в ChatGPT. Убрать агента и файлы вручную, без отзыва входа:
+Если программу уже удалили, а агент остался, лучше поставить её снова и выполнить `uninstall`: только он отзывает вход Mac в ChatGPT. Убрать агента и файлы вручную, без отзыва входа:
 
 ```sh
 launchctl bootout gui/$(id -u)/com.github.keshaqaz.codex-auto-resets.watch
