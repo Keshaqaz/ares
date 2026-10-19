@@ -54,7 +54,7 @@ test('status shows the resets, the rules, the last run and the last application'
     '  ☑ Перед истечением (в последние 8 часов)',
     '  ☐ Когда кончится недельный лимит',
     '',
-    '● воркер работает · запуск 20 окт 13:00',
+    '● воркер работает · ждёт запуска по расписанию',
     '  применён reset-due 20 окт 13:00 — перед истечением',
     '  https://github.com/octo-fake/codex-auto-resets-worker',
   ]);
@@ -71,13 +71,31 @@ test('status marks a reset inside the before-expiry window', async () => {
   assert.match(io.lines[4] ?? '', /^ {2}reset-soon {3}скоро применится +20 окт 22:00$/);
 });
 
+test('status counts down to the next scheduled run by the usual gap between them', async () => {
+  const { world, run } = await installed();
+  for (const gap of [HOUR, 6 * HOUR, 6 * HOUR]) {
+    world.advance(gap);
+    await world.github.schedule();
+  }
+  world.advance(2 * HOUR);
+  assert.ok((await run(status)).io.lines.includes('● воркер работает · следующий запуск ожидается через 4 ч'));
+
+  // A dispatched run does not move the schedule.
+  await world.github.dispatch();
+  world.advance(30 * 60_000);
+  assert.ok((await run(status)).io.lines.includes('● воркер работает · следующий запуск ожидается через 3 ч'));
+
+  world.advance(4 * HOUR);
+  assert.ok((await run(status)).io.lines.includes('● воркер работает · следующий запуск ожидается в любой момент'));
+});
+
 test('status warns when the worker has not run for hours', async () => {
   const { world, run } = await installed();
-  world.advance(5 * HOUR);
+  world.advance(9 * HOUR);
   const { code, io } = await run(status);
   assert.equal(code, 0);
-  assert.match(io.output(), /● воркер молчит 5 ч · запуск/);
-  assert.match(io.lines.at(-1) ?? '', /^! Воркер не запускался уже 5 ч\. Проверьте: https:\/\/github\.com\/.*\/actions$/);
+  assert.ok(io.lines.includes('● воркер молчит 9 ч'), io.output());
+  assert.match(io.lines.at(-1) ?? '', /^! Воркер не запускался уже 9 ч\. Проверьте: https:\/\/github\.com\/.*\/actions$/);
   assert.match(io.output(), /СБРОСЫ · 2/, 'the last published resets are still shown');
 });
 

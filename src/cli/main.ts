@@ -32,6 +32,12 @@ const withBundle = (command: (options: CommandOptions & { workerSource: string }
   }
   return command({ ...options, workerSource });
 };
+// «2026-10-20T05:02:21+07:00»: the Mac's time with its offset, as the screen shows times.
+function localStamp(date = new Date()): string {
+  const offset = -date.getTimezoneOffset(), pad = (n: number) => String(n).padStart(2, '0');
+  const local = new Date(date.getTime() + offset * 60_000).toISOString().slice(0, 19);
+  return `${local}${offset < 0 ? '-' : '+'}${pad(Math.floor(Math.abs(offset) / 60))}:${pad(Math.abs(offset) % 60)}`;
+}
 const COMMANDS: Record<string, Command> = { setup: withBundle(setup), status, 'apply-now': applyNow, rules, login,
   upgrade: withBundle(upgrade), uninstall };
 // The launchd agent runs `watch`; it is not in the usage. A locked Keychain may ask for the
@@ -87,7 +93,7 @@ async function main(): Promise<number> {
   }
   if (run === 'watch') {
     return watch({ fetch: globalThis.fetch, keychain: new GitHubTokenKeychain({ timeoutMs: WATCH_KEYCHAIN_MS }),
-      files, log: line => console.log(`${new Date().toISOString()} ${line}`) });
+      files, log: line => console.log(`${localStamp()} ${line}`) });
   }
   const color = Boolean(process.stdout.isTTY) && !process.env.NO_COLOR;
   if (run === 'screen') {

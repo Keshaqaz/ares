@@ -202,6 +202,11 @@ export class GitHubApi {
     const { status, value } = await this.expect('runs', `/repos/${repo}/actions/workflows/${workflow}/runs?per_page=1`, [200, 404]);
     return status === 200 ? (value as Runs | null)?.workflow_runs?.[0] ?? null : null;
   }
+  // The latest runs the cron started, newest first; empty while GitHub does not know the workflow yet (404).
+  async scheduledRuns(repo: string, workflow: string): Promise<WorkflowRun[]> {
+    const { status, value } = await this.expect('runs', `/repos/${repo}/actions/workflows/${workflow}/runs?event=schedule&per_page=10`, [200, 404]);
+    return status === 200 ? (value as Runs | null)?.workflow_runs ?? [] : [];
+  }
   // Empty while GitHub does not know the workflow yet (404).
   async dispatchRuns(repo: string, workflow: string): Promise<WorkflowRun[]> {
     const { status, value } = await this.expect('runs',

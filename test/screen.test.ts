@@ -156,7 +156,7 @@ test('the screen in English: l switches to Russian and back, keeping the choice 
   assert.equal(screen.frame()[0], `aures ${pkg.version}${' '.repeat(44 - pkg.version.length)}20 Oct 12:00   EN · RU`);
   assert.equal(screen.frame()[4], `▸ reset-b   in 2d 2h${' '.repeat(40)}22 Oct 15:00`);
   assert.match(text(), /RULES\n─+\n {2}☑ Before expiry \(in the last 8 hours\)\n {2}☐ When the weekly limit runs out/);
-  assert.match(text(), /● worker works · last run 20 Oct 12:00/);
+  assert.match(text(), /● worker works · waiting for a scheduled run/);
   assert.equal(screen.frame().at(-1), '↑↓ select · Enter apply / switch · l language · r refresh · q quit');
 
   await press('l');

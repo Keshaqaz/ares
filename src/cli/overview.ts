@@ -16,9 +16,9 @@ import pkg from '../../package.json' with { type: 'json' };
 // one line about the worker and the warnings that need the user. The overview keeps what it
 // read and is worded when drawn, so the screen can change the language on the spot.
 
-// The cron runs hourly and GitHub may delay it by an hour or two; the before-expiry rule
+// The cron asks for every hour, but GitHub runs it every 6–7 hours; the before-expiry rule
 // leaves 8 hours, so a longer silence is worth the user's attention.
-export const STALE_MS = 4 * 3600_000;
+export const STALE_MS = 8 * 3600_000;
 export const WIDTH = 72;
 export const RULES: Rule[] = ['beforeExpiry', 'weeklyAutoApply'];
 
@@ -49,6 +49,15 @@ function timeLeft(ms: number): string {
 
 const runAt = (run: WorkflowRun): number => Date.parse(run.run_started_at ?? run.created_at);
 
+// When the cron should run next: the last scheduled run plus the median gap between the recent
+// ones, newest first. Dispatched runs do not move the schedule. null until two scheduled runs.
+function nextScheduledRun(runs: WorkflowRun[]): number | null {
+  const times = runs.map(runAt);
+  const gaps = times.slice(1).map((at, i) => (times[i] ?? at) - at).sort((a, b) => a - b);
+  const median = gaps[Math.floor(gaps.length / 2)];
+  return times[0] === undefined || median === undefined ? null : times[0] + median;
+}
+
 // Everything the overview shows, read from the worker repository (what the worker publishes
 // openly: it cannot read the sealed state) and from this Mac.
 export interface Overview {
@@ -62,25 +71,27 @@ export interface Overview {
   check: MacCheck;
   workflowState: string | null;
   lastRun: WorkflowRun | null;
+  // null until the cron has run twice.
+  nextRunAt: number | null;
   logged: Logged | null;
   lastApplied: Summary['lastApplied'];
   lastAttempt: Summary['lastAttempt'];
 }
 export async function readOverview({ api, repo, mac, now }: { api: GitHubApi; repo: Repository; mac: Mac; now: () => number }): Promise<Overview> {
   const name = repo.full_name;
-  const [summary, rulesFile, workflowState, lastRun] = await Promise.all([readSummary(api, repo), api.file(name, FILES.rules),
-    api.workflowState(name, WORKFLOW_FILE), api.latestRun(name, WORKFLOW_FILE)]);
+  const [summary, rulesFile, workflowState, lastRun, scheduled] = await Promise.all([readSummary(api, repo), api.file(name, FILES.rules),
+    api.workflowState(name, WORKFLOW_FILE), api.latestRun(name, WORKFLOW_FILE), api.scheduledRuns(name, WORKFLOW_FILE)]);
   let rules: Rules | null = null;
   try { rules = rulesFile && readRules(rulesFile.text); } catch (error) { if (!(error instanceof BrokenState)) throw error; }
   const check = await macCheckStatus({ weekly: rules?.weeklyAutoApply ?? null, mac });
   const failed = lastRun?.status === 'completed' && lastRun.conclusion !== 'success';
   const logged = failed ? loggedOutcome(await api.runLog(name, lastRun.id).catch(() => null)) : null;
   return { repo, readAt: now(), resets: summary ? byDeadline(summary.resets) : null, rules, rulesBroken: Boolean(rulesFile && !rules),
-    check, workflowState, lastRun, logged, lastApplied: summary?.lastApplied ?? null, lastAttempt: summary?.lastAttempt ?? null };
+    check, workflowState, lastRun, nextRunAt: nextScheduledRun(scheduled), logged, lastApplied: summary?.lastApplied ?? null, lastAttempt: summary?.lastAttempt ?? null };
 }
 
 // The worker in one line, and what the user should do about it.
-function workerState({ repo, workflowState, lastRun, readAt }: Overview, timeZone?: string): { tone: Tone; text: string; warning?: string } {
+function workerState({ repo, workflowState, lastRun, nextRunAt, readAt }: Overview, timeZone?: string): { tone: Tone; text: string; warning?: string } {
   if (!workflowState) return { tone: 'warn', text: t('setup is not finished', 'установка не завершена'), warning: unfinished() };
   if (workflowState !== 'active') {
     return { tone: 'bad', text: t('worker is disabled in GitHub', 'воркер выключен в GitHub'),
@@ -93,11 +104,14 @@ function workerState({ repo, workflowState, lastRun, readAt }: Overview, timeZon
   if (lastRun.conclusion !== 'success') return { tone: 'bad', text: t(`last run failed · ${at}`, `последний запуск с ошибкой · ${at}`) };
   const hours = Math.floor((readAt - runAt(lastRun)) / 3600_000);
   if (readAt - runAt(lastRun) > STALE_MS) {
-    return { tone: 'warn', text: t(`worker silent for ${hours}h · last run ${at}`, `воркер молчит ${hours} ч · запуск ${at}`),
+    return { tone: 'warn', text: t(`worker silent for ${hours}h`, `воркер молчит ${hours} ч`),
       warning: t(`The worker has not run for ${hours}h. Check: ${repo.html_url}/actions`,
         `Воркер не запускался уже ${hours} ч. Проверьте: ${repo.html_url}/actions`) };
   }
-  return { tone: 'ok', text: t(`worker works · last run ${at}`, `воркер работает · запуск ${at}`) };
+  if (nextRunAt === null) return { tone: 'ok', text: t('worker works · waiting for a scheduled run', 'воркер работает · ждёт запуска по расписанию') };
+  if (nextRunAt <= readAt) return { tone: 'ok', text: t('worker works · next run due any moment', 'воркер работает · следующий запуск ожидается в любой момент') };
+  return { tone: 'ok', text: t(`worker works · next run expected ${timeLeft(nextRunAt - readAt)}`,
+    `воркер работает · следующий запуск ожидается ${timeLeft(nextRunAt - readAt)}`) };
 }
 
 // The latest application, or a later attempt that did not apply.

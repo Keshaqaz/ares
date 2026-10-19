@@ -56,6 +56,7 @@ export interface FakeGitHub {
   write(repo: FakeRepository, path: string, text: string): void;
   setSecret(repo: FakeRepository, name: string, value: string): void;
   schedule(repo?: FakeRepository): Promise<FakeRun> | null;
+  dispatch(repo?: FakeRepository): Promise<FakeRun>;
   secret(repo: FakeRepository, name: string): string | undefined;
 }
 // The part of the fake world GitHub runs in: its fetch and clock.
@@ -97,6 +98,11 @@ export async function withGitHub(world: GitHubWorld, { login = 'octo-fake' }: { 
     schedule: (repo = github.repo()) => {
       if (!repo) throw new Error('no worker repository to schedule');
       return repo.workflowState === 'active' ? startRun(repo, 'schedule', {}) : null;
+    },
+    // A run started by hand with the Run workflow button.
+    dispatch: (repo = github.repo()) => {
+      if (!repo) throw new Error('no worker repository to dispatch');
+      return startRun(repo, 'workflow_dispatch', {});
     },
     secret: (repo, name) => {
       const sealed = repo.secrets.get(name);
