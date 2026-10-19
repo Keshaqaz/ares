@@ -10,11 +10,12 @@ import { t, language, setLanguage } from './language.mjs';
 // `aures` without a command: the overview of `status` with a cursor. Enter on a
 // reset applies it now after a «y», Enter on a rule switches it; both do what `apply-now` and
 // `rules` do. l switches the language between English and Russian and keeps the choice.
-// Drawn in place in the ordinary terminal flow, no alternate screen.
+// Takes the whole terminal on its alternate screen; q gives the terminal back as it was.
 const SPINNER = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏';
 const hint = () => t('↑↓ select · Enter apply / switch · l language · r refresh · q quit',
   '↑↓ выбор · Enter применить / переключить · l язык · r обновить · q выход');
 const TONES = { ok: S.green, warn: S.yellow };
+const MARGIN = '  ';
 // The same keys on the Russian layout.
 const RUSSIAN = { н: 'y', й: 'q', к: 'r', о: 'j', л: 'k', д: 'l' };
 
@@ -27,7 +28,6 @@ export class Screen {
     this.confirm = null; // the reset waiting for «y»
     this.busy = null; // what is being done
     this.notes = []; // what the last action said
-    this.closed = false;
     this.tick = 0;
     this.changed = () => {};
   }
@@ -45,11 +45,9 @@ export class Screen {
 
   // Lines of the frame, painted when color.
   frame(width = WIDTH, color = false) {
-    const lines = renderOverview(this.model, { now: this.now, timeZone: this.timeZone, width, cursor: this.closed ? null : this.cursor,
-      toggle: !this.closed });
-    if (this.notes.length || !this.closed) lines.push([]);
+    const lines = renderOverview(this.model, { now: this.now, timeZone: this.timeZone, width, cursor: this.cursor, toggle: true });
+    lines.push([]);
     for (const note of this.notes) lines.push([[note.text, TONES[note.tone] ?? '']]);
-    if (this.closed) return lines.map(line => paint(line, color));
     if (this.notes.length) lines.push([]);
     if (this.busy) lines.push([[`${SPINNER[this.tick % SPINNER.length]} `, S.cyan], [this.busy, '']]);
     else if (this.confirm) {
@@ -154,20 +152,17 @@ export async function openScreen({ fetch, keychain, io, mac, now = Date.now,
   return screen;
 }
 
-// Shows the screen in the terminal until q. Every frame redraws the previous one in place;
-// on exit the overview stays without the cursor. Resolves to the exit code: 130 when Ctrl-C
-// left an action unfinished.
+// Shows the screen in the terminal until q, on the alternate screen with a margin around it.
+// Every frame is drawn from the top left over the previous one. Resolves to the exit code: 130
+// when Ctrl-C left an action unfinished; what it was doing is then printed after the screen.
 export function runScreen(screen, { input, output }) {
-  let drawn = 0, done = false;
+  let done = false;
   const draw = () => {
     if (done) return;
-    const columns = output.columns || 80, width = Math.min(WIDTH, columns - 1);
-    const lines = screen.frame(width, true);
-    output.write(`\x1b[?2026h${drawn ? `\x1b[${drawn}A\r` : ''}\x1b[0J${lines.join('\n')}\n\x1b[?2026l`);
-    // A line longer than the terminal wraps and takes more rows.
-    drawn = screen.frame(width).reduce((rows, line) => rows + Math.max(1, Math.ceil([...line].length / columns)), 0);
+    const columns = output.columns || 80, width = Math.min(WIDTH, columns - 1 - MARGIN.length);
+    const lines = ['', ...screen.frame(width, true).map(line => MARGIN + line)];
+    output.write(`\x1b[?2026h\x1b[H${lines.join('\x1b[K\n')}\x1b[K\x1b[J\x1b[?2026l`);
   };
-  const resize = () => { output.write('\x1b[2J\x1b[H'); drawn = 0; draw(); };
   // The spinner turns while an action runs; the clock and the time left move every half minute.
   let ticks = 0;
   const spin = setInterval(() => {
@@ -179,26 +174,24 @@ export function runScreen(screen, { input, output }) {
   const raw = input.isRaw;
   input.setRawMode?.(true);
   input.resume();
-  output.write('\x1b[?25l');
-  output.on?.('resize', resize);
+  output.write('\x1b[?1049h\x1b[?25l');
+  output.on?.('resize', draw);
   screen.changed = draw;
   draw();
   return new Promise((resolve, reject) => {
     const finish = error => {
       if (done) return;
-      const interrupted = Boolean(screen.busy);
-      screen.closed = true;
-      screen.busy = null;
-      draw();
+      const unfinished = screen.busy;
       done = true;
       clearInterval(spin);
       input.off('keypress', onKey);
-      output.off?.('resize', resize);
+      output.off?.('resize', draw);
       input.setRawMode?.(raw ?? false);
       input.pause();
-      output.write('\x1b[?25h');
+      output.write('\x1b[?25h\x1b[?1049l');
+      if (unfinished) output.write(`${t('Interrupted', 'Прервано')}: ${unfinished}\n`);
       if (error) reject(error);
-      else resolve(interrupted ? 130 : 0);
+      else resolve(unfinished ? 130 : 0);
     };
     const onKey = (sequence, key = {}) => {
       screen.press({ ...key, sequence, name: key.name ?? sequence }).then(result => { if (result === 'exit') finish(); }, finish);
