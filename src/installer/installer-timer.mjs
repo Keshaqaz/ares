@@ -9,7 +9,7 @@ import { TIMER_PERMISSIONS, appJwt, importAppKey, readInstallationToken, tokenRe
 // registers the App from a manifest, finds its installation and pipes the key to the Worker
 // secret. The key lives only in memory here: never in arguments, environment, files, the
 // journal, state or logs. State receives the App ID, slug and installation ID.
-export const WRANGLER = 'wrangler@4.139.0'; // Version verified in E1 (ticket 35), as in src/worker/README.md.
+export const WRANGLER = 'wrangler@4.139.0'; // Version verified in E1 (ticket 35).
 const BRANCH = 'main'; // The Worker dispatches and reads the plan on main only.
 const HOOK_URL = 'https://example.invalid/auto-reset-timer'; // GitHub rejects a manifest without one (39).
 const fail = kind => { throw new StateFailure(kind); };

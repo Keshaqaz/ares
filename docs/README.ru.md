@@ -9,117 +9,106 @@
 ╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝╚══════╝
 ```
 
-**Auto-RESets for Codex** — применяет выданные сбросы лимитов до истечения их срока.<br>
-Работает в вашем private repo на GitHub. Компьютер может быть выключен.
+**Auto-RESets for Codex** — сам применяет выданные сбросы лимита ChatGPT, чтобы они не сгорали.<br>
+Работает в вашем приватном репозитории на GitHub. Компьютер можно выключить.
 
 [![version](https://img.shields.io/badge/version-0.1.0-8A2BE2)](NOTICES.md)
-[![platform](https://img.shields.io/badge/installer-macOS-000?logo=apple)](installation.md)
-[![node](https://img.shields.io/badge/node-26.10.0-339933?logo=nodedotjs&logoColor=white)](installation.md)
+[![platform](https://img.shields.io/badge/CLI-macOS-000?logo=apple)](installation.md)
 [![license](https://img.shields.io/badge/license-MIT-blue)](../LICENSE)
 
 [English](../README.md) · **Русский**
 
-<img src="assets/monitor-ru.png" width="760" alt="Монитор ARES: выданные сбросы, общие правила и диалог «Применить сейчас»">
-
 </div>
 
-## Возможности
+## Что умеет
 
-- **Сброс не сгорит** — применяется за `Δ` минут до истечения или по общему правилу «за 30 минут».
-- **Недельное автоприменение** — сброс с ближайшим сроком тратится сразу после подтверждённого исчерпания недельной квоты.
-- **Применить сейчас** — одна клавиша в мониторе, с подтверждением.
-- **Без сервера** — работу выполняет GitHub Actions, бесплатный Cloudflare Worker будит его раз в 5 минут.
-- **Свои credentials** — отдельный CI-вход; данные desktop-клиента не копируются.
-- **$0 по устройству** — расход Actions читается перед каждой job, ограничитель — бюджет `$0 + Stop usage`.
-- **Мастер настройки** — терминальный интерфейс ru/en, токен хранится в macOS Keychain.
+- **Сброс не сгорит.** В последние 8 часов перед истечением воркер применяет сброс сам.
+- **Кончился недельный лимит — сразу сброс.** Правило можно включить: воркер применит сброс с ближайшим сроком. По умолчанию выключено.
+- **Применить сейчас.** Выбираете сброс в терминале, и воркер применяет его без всяких правил.
+- **Без серверов и подписок.** Работает только GitHub Actions в вашем аккаунте: до ~750 минут в месяц из 2000 бесплатных.
+- **Codex на Mac не затронут.** У воркера свой вход в ChatGPT, данные Codex с компьютера не копируются.
+
+## Быстрый старт
+
+```sh
+brew install keshaqaz/tap/codex-auto-resets
+codex-auto-resets setup
+```
+
+`setup` попросит войти в GitHub и в ChatGPT по коду, предложит правила и проверит воркер:
+
+```
+Когда применять сбросы:
+  1. Перед истечением (в последние 8 часов) — включено
+  2. Когда кончится недельный лимит — выключено
+Enter — готово, 1 или 2 — переключить:
+Проверяем воркер…
+Воркер работает. Сбросов: 2, ближайший истекает 22 октября 2026 г. в 15:00 UTC.
+```
+
+Подробно, в том числе об установке из исходников, — в [инструкции](installation.md).
+
+## Команды
+
+| Команда | Что делает |
+| --- | --- |
+| `codex-auto-resets setup` | установить или продолжить прерванную установку |
+| `codex-auto-resets status` | сбросы, правила и состояние воркера |
+| `codex-auto-resets apply-now` | применить выбранный сброс сейчас |
+| `codex-auto-resets rules` | выбрать, когда применять сбросы |
+| `codex-auto-resets login` | заново войти в ChatGPT, если воркер потерял вход |
+| `codex-auto-resets upgrade` | обновить воркер после `brew upgrade` |
+| `codex-auto-resets uninstall` | удалить воркер и вход в GitHub |
 
 ## Как это работает
 
 ```mermaid
 flowchart LR
-  W["Cloudflare Worker<br/>таймер, раз в 5 мин"] -- пустой dispatch --> A
-  subgraph GH["ваш private repo на GitHub"]
-    A["Actions job"] --> S[("durable state")]
+  CLI["codex-auto-resets<br/>на Mac"] -- "установка, правила,<br/>«применить сейчас»" --> R
+  subgraph R["ваш приватный репозиторий codex-auto-resets-worker"]
+    W["воркер<br/>GitHub Actions, раз в час"] --> S[("зашифрованный вход<br/>и история")]
   end
-  A -- "account RPC, без модели" --> C["Codex App Server<br/>→ аккаунт ChatGPT"]
-  M["установщик на Mac<br/>настройка · монитор"] -- sealed-команды --> GH
+  W -- "читает сбросы и лимиты,<br/>применяет сброс" --> C["ChatGPT"]
 ```
 
-Целевой момент — `expiresAt − Δ`; попытки повторяются раз в 5 минут до успеха или истечения.
-Подробнее: [ADR-0002 внешний таймер](adr/0002-external-timer.md), [private workflow](internals/private-workflow.md).
-
-## Быстрый старт
-
-Нужны macOS, Node **26.10.0**, официальный Codex **0.160.1** и бесплатный аккаунт Cloudflare.
-
-```sh
-git clone https://github.com/Keshaqaz/ares.git && cd ares
-npm ci --ignore-scripts --no-audit --no-fund
-npm run install:macos
-```
-
-Мастер (`i`) проводит по шагам: private repo → токен установки → установка → вход ChatGPT →
-квота → внешний таймер. Включение (`6`) — отдельное решение владельца: сначала задайте
-repository variable `AUTO_RESET_PILOT_APPROVED` = `owner/repo`.
-Полная инструкция: [docs/installation.md](installation.md).
-
-## Монитор
-
-<img src="assets/status-ru.png" width="760" alt="Экран статуса ARES: подключение, прогноз квоты и журнал">
-
-| Клавиша | Действие |
-| --- | --- |
-| `↑` `↓` | выбор сброса или блока правил |
-| `Enter` | применить сейчас (подтверждение `y`) / войти в правила |
-| `Space` | переключить общее правило |
-| `2` | статус и журнал |
-| `r` | обновить |
-| `q` | назад в меню |
-
-<sub>На скриншотах синтетические данные.</sub>
+Воркер запускается по расписанию GitHub Actions примерно раз в час, сверяет сбросы с правилами и применяет нужный. Компьютер для этого не нужен: Mac участвует только в установке и управлении.
 
 ## Ограничения
 
-- Без SLA: ни Cloudflare, ни GitHub не обещают пунктуальность — слот может задержаться или пропасть.
-- Рассчитано на платные планы ChatGPT (пятичасовое и недельное окна).
-- Принятая команда ≠ применение; неподтверждённый исход останавливает новые попытки.
-
-Что проверено вживую, а что нет — [таблица поддержки](support.md).
+- **Время не точное.** GitHub запускает расписание с задержками и пропусками, иногда по нескольку часов. Поэтому правило «перед истечением» срабатывает в окне 8 часов, а не в конкретную минуту.
+- **Нужен платный план ChatGPT** с пятичасовым и недельным лимитами. Если у плана один месячный лимит, правило «когда кончится недельный лимит» не срабатывает.
+- **Только macOS.** CLI хранит вход в GitHub в Связке ключей.
+- **Широкий доступ к GitHub.** Вход в GitHub даёт CLI доступ ко всем вашим репозиториям, как у `gh`.
+- **Применение настоящего сброса воркером вживую пока не проверено.** Чтение сбросов и лимитов, вход и запрос применения проверены, подробности — в [ADR-0004](adr/0004-github-only-worker.md).
 
 ## Документация
 
 [Установка](installation.md) ·
-[Поддержка](support.md) ·
-[Private workflow](internals/private-workflow.md) ·
-[Auth и storage](internals/auth-storage.md) ·
-[Циклы сбросов](internals/reset-cycle-state.md) ·
-[Планировщик и квота](internals/schedule-planner.md) ·
-[Словарь](CONTEXT.md)
+[Устройство: ADR-0004](adr/0004-github-only-worker.md) ·
+[Словарь](CONTEXT.md) ·
+[Выпуск версии](releasing.md)
 
 ## Разработка
 
 ```
 src/
-  account/    App Server RPC, чтение аккаунта, observer
-  session/    host-owned OAuth, CI-сессия, revoke
-  core/       движок циклов, durable state, отчёты
-  schedule/   планировщик, cron-диалект, приложение таймера
-  github/     storage в repo, billing, квота, план таймера
-  workflow/   точка входа private Actions job
-  installer/  установщик macOS, мастер, монитор
-  cli.mjs     synthetic CLI
-  worker/     Worker внешнего таймера Cloudflare
-  runtime-lock.json  закреплённые версии Node и Codex
-templates/    шаблон private workflow
-test/         тесты; support/ — фикстуры и contract runner
-docs/         руководства, словарь, notices; internals/, adr/, schema/
+  cli/        команды codex-auto-resets
+  worker/     воркер: запуск, правила, шифрованный state, сводка, workflow
+  chatgpt/    вход в ChatGPT по коду, сбросы и лимиты по HTTP
+  github/     GitHub API и OAuth App
+scripts/      сборка воркера и выпуск для Homebrew
+test/         тесты; support/ — фикстуры
+docs/         инструкции, словарь, adr/
 ```
 
+Папки `account/`, `session/`, `core/`, `schedule/`, `workflow/`, `installer/`, а также `src/cli.mjs` и Cloudflare-часть `src/worker/` — прежняя архитектура (ADR-0001–0003). Новый CLI их не использует.
+
 ```sh
-npm test                      # offline, без credentials и сети
-npm run test:contract         # pinned App Server + synthetic backend
-node src/cli.mjs --mode mock  # synthetic CLI
-node scripts/release-package.mjs --verify
+npm ci
+npm test                          # офлайн, без сети и учётных данных
+npm run build:worker              # dist/worker.mjs, его кладут в репозиторий setup и upgrade
+node src/cli/main.mjs status      # CLI из исходников
+npm run release:brew              # архив и формула Homebrew, см. docs/releasing.md
 ```
 
 ## Лицензия

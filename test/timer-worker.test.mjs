@@ -227,7 +227,7 @@ test('scheduled handler uses controller.scheduledTime', async () => {
   assert.equal(typeof tick, 'function');
 });
 
-test('wrangler config pins the planner grid, has no secrets and the deploy guide pins Wrangler', async () => {
+test('wrangler config pins the planner grid and has no secrets', async () => {
   const toml = await readFile(new URL('../src/worker/wrangler.toml', import.meta.url), 'utf8');
   assert.deepEqual([...toml.matchAll(/^crons = (.+)$/gm)].map(m => JSON.parse(m[1])), [['2-57/5 * * * *']]);
   const minutes = Array.from({ length: 60 }, (_, m) => m).filter(m => firstSlot(m * 60) === m * 60);
@@ -236,11 +236,6 @@ test('wrangler config pins the planner grid, has no secrets and the deploy guide
   assert.match(toml, /^workers_dev = false$/m);
   for (const name of ['REPOSITORY', 'TIMER_APP_ID', 'TIMER_INSTALLATION_ID']) assert.match(toml, new RegExp(`^${name} = ""$`, 'm'));
   assert.ok(!/TOKEN|github_pat_|ghp_/.test(toml));
-  const guide = await readFile(new URL('../src/worker/README.md', import.meta.url), 'utf8');
-  const versions = [...guide.matchAll(/wrangler@([^\s`]+)/g)].map(m => m[1]);
-  assert.ok(versions.length >= 2);
-  assert.deepEqual([...new Set(versions)], ['4.139.0']);
-  assert.match(guide, /secret put TIMER_APP_KEY/);
 });
 
 test('Worker bundle imports only dependency-free repository modules', async () => {

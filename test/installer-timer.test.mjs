@@ -462,7 +462,4 @@ test('installer texts agree with ADR-0002 and ADR-0003 in both languages', async
     assert.ok(!/Workflows|Secrets|Variables|PAT/.test(w.timerSteps.join(' '))); // The timer app is not the installation token.
     assert.match(w.timerAppDelete, /Delete GitHub App/);
   }
-  const workerReadme = await readFile(new URL('../src/worker/README.md', import.meta.url), 'utf8');
-  assert.ok(workerReadme.includes(`npx --yes ${WRANGLER} deploy --config src/worker/wrangler.toml`));
-  assert.ok(workerReadme.includes('secret put TIMER_APP_KEY') && workerReadme.includes('openssl pkcs8 -topk8'));
 });
