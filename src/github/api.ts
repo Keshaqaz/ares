@@ -30,6 +30,16 @@ export interface WorkflowRun {
   created_at: string; run_started_at: string; updated_at: string;
 }
 interface Runs { workflow_runs?: WorkflowRun[] }
+
+// The JSON bodies the client sends.
+export interface NewRepositoryBody {
+  name: string; description: string; private: boolean; auto_init: boolean; has_issues: boolean; has_projects: boolean;
+  has_wiki: boolean;
+}
+// sha is absent for a new file.
+export interface PutFileBody { message: string; content: string; sha?: string }
+export interface PutSecretBody { key_id: string; encrypted_value: string }
+export interface DispatchBody { ref: string; inputs: Record<string, string> }
 // A file on the default branch; sha names this version of it.
 export interface RepositoryFile { text: string; sha: string }
 
@@ -139,7 +149,7 @@ export class GitHubApi {
   }
   async createRepository({ name, description }: { name: string; description: string }): Promise<Repository> {
     const { value } = await this.expect('create_repository', '/user/repos', [201], { method: 'POST',
-      body: { name, description, private: true, auto_init: false, has_issues: false, has_projects: false, has_wiki: false } });
+      body: { name, description, private: true, auto_init: false, has_issues: false, has_projects: false, has_wiki: false } satisfies NewRepositoryBody });
     return value as Repository;
   }
   // Takes a token with the delete_repo scope. A repository already gone is not an error.
@@ -158,7 +168,7 @@ export class GitHubApi {
   // One commit on the default branch. sha names the version being replaced.
   async putFile(repo: string, file: string, text: string, { message, sha }: { message: string; sha?: string | null }): Promise<void> {
     await this.expect('write_file', `/repos/${repo}/contents/${path(file)}`, [200, 201], { method: 'PUT',
-      body: { message, content: Buffer.from(text).toString('base64'), ...(sha ? { sha } : {}) } });
+      body: { message, content: Buffer.from(text).toString('base64'), ...(sha ? { sha } : {}) } satisfies PutFileBody });
   }
   async hasSecret(repo: string, secret: string): Promise<boolean> {
     return (await this.expect('read_secret', `/repos/${repo}/actions/secrets/${secret}`, [200, 404])).status === 200;
@@ -170,7 +180,7 @@ export class GitHubApi {
     await sodium.ready;
     const sealed = sodium.crypto_box_seal(Buffer.from(value), Buffer.from(key.key, 'base64'));
     await this.expect('write_secret', `/repos/${repo}/actions/secrets/${secret}`, [201, 204], { method: 'PUT',
-      body: { key_id: key.key_id, encrypted_value: Buffer.from(sealed).toString('base64') } });
+      body: { key_id: key.key_id, encrypted_value: Buffer.from(sealed).toString('base64') } satisfies PutSecretBody });
   }
   async deleteSecret(repo: string, secret: string): Promise<void> {
     await this.expect('delete_secret', `/repos/${repo}/actions/secrets/${secret}`, [204, 404], { method: 'DELETE' });
@@ -179,7 +189,7 @@ export class GitHubApi {
   // 404, or 422 while the workflow_dispatch trigger is not registered.
   async dispatch(repo: string, workflow: string, { ref, inputs }: { ref: string; inputs: Record<string, string> }): Promise<boolean> {
     const reply = await this.expect('dispatch', `/repos/${repo}/actions/workflows/${workflow}/dispatches`, [204, 404, 422],
-      { method: 'POST', body: { ref, inputs } });
+      { method: 'POST', body: { ref, inputs } satisfies DispatchBody });
     return reply.status === 204;
   }
   // active, disabled_manually, disabled_inactivity…; null while GitHub does not know the workflow.

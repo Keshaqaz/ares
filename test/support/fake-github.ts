@@ -8,7 +8,7 @@ import sodium from 'libsodium-wrappers';
 import { GITHUB_OAUTH_CLIENT_ID } from '../../src/github/oauth-app.ts';
 import { USER_AGENT } from '../../src/chatgpt/http.ts';
 import type { Fetch } from '../../src/chatgpt/http.ts';
-import type { Repository, WorkflowRun } from '../../src/github/api.ts';
+import type { Repository, WorkflowRun, NewRepositoryBody, PutFileBody, PutSecretBody, DispatchBody } from '../../src/github/api.ts';
 
 export interface FakeRun extends WorkflowRun {
   inputs: Record<string, string>;
@@ -60,11 +60,8 @@ export interface FakeGitHub {
 // The part of the fake world GitHub runs in: its fetch and clock.
 export interface GitHubWorld { fetch: Fetch; now: number; github?: FakeGitHub }
 
-// The JSON bodies the client sends; the fake reads them as they come.
-interface Sent {
-  name?: string; description?: string; private?: boolean; message?: string; content?: string; sha?: string;
-  key_id?: string; encrypted_value?: string; ref?: string; inputs?: Record<string, string>;
-}
+// Any of the JSON bodies the client sends; the fake reads them as they come.
+type Sent = Partial<NewRepositoryBody & PutFileBody & PutSecretBody & DispatchBody>;
 
 const json = (status: number, value: unknown): Response =>
   new Response(JSON.stringify(value), { status, headers: { 'content-type': 'application/json' } });
