@@ -21,10 +21,10 @@ From source (Node 26 required):
 ```sh
 git clone https://github.com/Keshaqaz/aures.git && cd aures
 npm ci && npm run build:worker
-echo "alias aures='node $PWD/src/cli/main.mjs'" >> ~/.zshrc && source ~/.zshrc
+echo "alias aures='node $PWD/src/cli/main.ts'" >> ~/.zshrc && source ~/.zshrc
 ```
 
-The last line sets up the `aures` command this guide uses. Without it, run `node src/cli/main.mjs` from the project folder.
+The last line sets up the `aures` command this guide uses. Without it, run `node src/cli/main.ts` from the project folder.
 
 ## First setup
 
@@ -149,7 +149,7 @@ aures upgrade
 
 `aures upgrade` updates the worker in your repository; without it, the old version keeps running there. Rules, history and the ChatGPT sign-in are kept. With the weekly rule on, `upgrade` also reloads the Mac check agent when its plist changed.
 
-Installed from source, the agent runs the `node` and the `src/cli/main.mjs` you last ran `setup`, `rules` or `upgrade` with. If you move the folder or change Node, run `setup` again.
+Installed from source, the agent runs the `node` and the `src/cli/main.ts` you last ran `setup`, `rules` or `upgrade` with. If you move the folder or change Node, run `setup` again.
 
 Installed with Homebrew, the agent runs the program through the link `$(brew --prefix)/opt/aures`, so after `brew upgrade` it runs the new version right away.
 

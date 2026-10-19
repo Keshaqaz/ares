@@ -1,5 +1,5 @@
 // Builds the Homebrew release: the archive for the GitHub Release and the formula for the tap.
-// The archive is `npm pack` of this package: `prepack` builds dist/worker.mjs and
+// The archive is `npm pack` of this package: `prepack` checks types and builds dist/worker.mjs, and
 // bundleDependencies put libsodium inside, so `brew install` needs no npm and no network.
 // Release steps: docs/releasing.md.
 import { createHash } from 'node:crypto';

@@ -6,16 +6,16 @@
 brew install keshaqaz/tap/aures
 ```
 
-Формула скачивает архив выпуска из GitHub Release этого репозитория. Архив — `npm pack` пакета: `prepack` собирает `dist/worker.mjs`, а `bundleDependencies` кладут внутрь libsodium. Поэтому `brew install` не запускает npm и не ходит в сеть, кроме загрузки архива. Единственная зависимость формулы — `node` из Homebrew.
+Формула скачивает архив выпуска из GitHub Release этого репозитория. Архив — `npm pack` пакета: `prepack` проверяет типы (`npm run typecheck`) и собирает `dist/worker.mjs`, а `bundleDependencies` кладут внутрь libsodium. Поэтому `brew install` не запускает npm и не ходит в сеть, кроме загрузки архива. Единственная зависимость формулы — `node` из Homebrew.
 
 Архив скачивается без авторизации, поэтому репозиторий и его выпуски должны быть публичными.
 
-Агент launchd проверки с Mac (ADR-0005) запускает `<prefix>/opt/aures/bin/aures watch`. Ссылка `opt` после `brew upgrade` указывает на новую версию, поэтому формуле ничего добавлять не нужно. `agentProgram` в `src/cli/launch-agent.mjs` узнаёт установку Homebrew по пути `…/Cellar/aures/<версия>/libexec/src/cli/main.mjs`, который задаёт обёртка формулы. Если формула меняет `libexec` или имя файла в `bin`, поменяйте `agentProgram` вместе с ней: `test/brew-release.test.mjs` сверяет их.
+Агент launchd проверки с Mac (ADR-0005) запускает `<prefix>/opt/aures/bin/aures watch`. Ссылка `opt` после `brew upgrade` указывает на новую версию, поэтому формуле ничего добавлять не нужно. `agentProgram` в `src/cli/launch-agent.ts` узнаёт установку Homebrew по пути `…/Cellar/aures/<версия>/libexec/src/cli/main.ts`, который задаёт обёртка формулы. Если формула меняет `libexec` или имя файла в `bin`, поменяйте `agentProgram` вместе с ней: `test/brew-release.test.ts` сверяет их.
 
 ## Шаги
 
 0. Первый выпуск закрыт воротами по замеру из [ADR-0004](adr/0004-github-only-worker.md): нужен результат `prototype/cron-lag`, и максимальный разрыв между запусками cron должен укладываться в 8 часов.
-1. Поднимите `version` в `package.json`, закоммитьте и проверьте: `npm test`.
+1. Поднимите `version` в `package.json`, закоммитьте и проверьте: `npm run typecheck && npm test`.
 2. Соберите архив и формулу:
 
    ```sh

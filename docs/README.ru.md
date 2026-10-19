@@ -7,7 +7,7 @@
 Сам применяет выданные сбросы лимита ChatGPT, чтобы они не сгорали.<br>
 Работает в вашем приватном репозитории на GitHub. Компьютер можно выключить.
 
-[![version](https://img.shields.io/badge/version-0.3.3-8A2BE2)](https://github.com/Keshaqaz/aures/releases/latest)
+[![version](https://img.shields.io/badge/version-0.4.0-8A2BE2)](https://github.com/Keshaqaz/aures/releases/latest)
 [![platform](https://img.shields.io/badge/CLI-macOS-000?logo=apple)](installation.md)
 [![node](https://img.shields.io/badge/node-%E2%89%A526-339933?logo=nodedotjs&logoColor=white)](installation.md)
 [![license](https://img.shields.io/badge/license-MIT-blue)](../LICENSE)
@@ -143,9 +143,10 @@ docs/         инструкции, словарь, adr/
 ```sh
 npm ci
 npm test                          # офлайн, без сети и учётных данных
+npm run typecheck                 # проверка типов tsc без сборки; Node запускает .ts напрямую
 npm run build:worker              # dist/worker.mjs, его кладут в репозиторий setup и upgrade
-node src/cli/main.mjs status      # CLI из исходников
-node src/cli/main.mjs watch       # один проход проверки с Mac, как его запускает агент
+node src/cli/main.ts status       # CLI из исходников
+node src/cli/main.ts watch        # один проход проверки с Mac, как его запускает агент
 npm run release:brew              # архив и формула Homebrew, см. docs/releasing.md
 ```
 

@@ -7,7 +7,7 @@
 Applies your issued ChatGPT rate-limit resets so they don't go to waste.<br>
 Runs in your own private GitHub repo. Your Mac can be off.
 
-[![version](https://img.shields.io/badge/version-0.3.3-8A2BE2)](https://github.com/Keshaqaz/aures/releases/latest)
+[![version](https://img.shields.io/badge/version-0.4.0-8A2BE2)](https://github.com/Keshaqaz/aures/releases/latest)
 [![platform](https://img.shields.io/badge/CLI-macOS-000?logo=apple)](docs/installation.en.md)
 [![node](https://img.shields.io/badge/node-%E2%89%A526-339933?logo=nodedotjs&logoColor=white)](docs/installation.en.md)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
@@ -142,9 +142,10 @@ docs/         guides, glossary, adr/
 ```sh
 npm ci
 npm test                          # offline, no network or credentials
+npm run typecheck                 # tsc type check, no build; Node runs the .ts directly
 npm run build:worker              # dist/worker.mjs, which setup and upgrade put into the repo
-node src/cli/main.mjs status      # CLI from source
-node src/cli/main.mjs watch       # one pass of the Mac check, as the agent runs it
+node src/cli/main.ts status       # CLI from source
+node src/cli/main.ts watch        # one pass of the Mac check, as the agent runs it
 npm run release:brew              # Homebrew archive and formula, see docs/releasing.md
 ```
 

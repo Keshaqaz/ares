@@ -19,10 +19,10 @@ brew install keshaqaz/tap/aures
 ```sh
 git clone https://github.com/Keshaqaz/aures.git && cd aures
 npm ci && npm run build:worker
-echo "alias aures='node $PWD/src/cli/main.mjs'" >> ~/.zshrc && source ~/.zshrc
+echo "alias aures='node $PWD/src/cli/main.ts'" >> ~/.zshrc && source ~/.zshrc
 ```
 
-Последняя строка заводит команду `aures`, которой пользуется эта инструкция. Без неё пишите `node src/cli/main.mjs` из папки проекта.
+Последняя строка заводит команду `aures`, которой пользуется эта инструкция. Без неё пишите `node src/cli/main.ts` из папки проекта.
 
 ## Первая настройка
 
@@ -150,7 +150,7 @@ aures upgrade
 
 `aures upgrade` обновляет воркер в вашем репозитории. Без неё там продолжит работать прежняя версия. Правила, история и вход в ChatGPT сохраняются. Если недельное правило включено, `upgrade` вдобавок перезагружает агента проверки с Mac, когда его plist изменился.
 
-При установке из исходников агент запускает тот `node` и тот `src/cli/main.mjs`, из которых вы последний раз запускали `setup`, `rules` или `upgrade`. Если перенесёте папку или смените Node, запустите `setup` ещё раз.
+При установке из исходников агент запускает тот `node` и тот `src/cli/main.ts`, из которых вы последний раз запускали `setup`, `rules` или `upgrade`. Если перенесёте папку или смените Node, запустите `setup` ещё раз.
 
 При установке через Homebrew агент запускает программу через ссылку `$(brew --prefix)/opt/aures`, поэтому после `brew upgrade` он сразу работает в новой версии.
 
