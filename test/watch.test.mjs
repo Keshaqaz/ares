@@ -226,7 +226,7 @@ test('watch exits with 0 whatever breaks', async () => {
 });
 
 test('watch files keep the session private and read a broken file as empty', async () => {
-  const dir = join(await mkdtemp(join(tmpdir(), 'watch-files-')), 'codex-auto-resets');
+  const dir = join(await mkdtemp(join(tmpdir(), 'watch-files-')), 'aures');
   const files = new WatchFiles({ dir });
   assert.equal(await files.readSession(), null);
   assert.deepEqual(await files.readState(), {});

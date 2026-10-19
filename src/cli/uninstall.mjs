@@ -41,7 +41,7 @@ async function revoke({ api, repo, io, now, sleep }) {
   return t(`the worker ended with an error: ${run.html_url}`, `воркер завершился с ошибкой: ${run.html_url}`);
 }
 
-// `codex-auto-resets uninstall`: revokes the worker session in OpenAI where it can, deletes
+// `aures uninstall`: revokes the worker session in OpenAI where it can, deletes
 // the worker repository and the GitHub token in the Keychain, and links the page where the
 // user takes back the OAuth App's access, which only the user can do. A failed revocation
 // does not stop the removal: the session's tokens go with the repository and its key. The
@@ -57,8 +57,8 @@ export async function uninstall({ fetch, keychain, io, mac, now = Date.now, slee
     const repo = await api.repository(`${login}/${WORKER_REPOSITORY}`);
     if (!repo) io.print(t('There is no worker repository.', 'Репозитория воркера нет.'));
     else if (repo.description !== WORKER_DESCRIPTION) {
-      io.print(t(`The repository ${repo.html_url} was not created by codex-auto-resets and is left as it is.`,
-        `Репозиторий ${repo.html_url} создан не codex-auto-resets, оставлен как есть.`));
+      io.print(t(`The repository ${repo.html_url} was not created by aures and is left as it is.`,
+        `Репозиторий ${repo.html_url} создан не aures, оставлен как есть.`));
     } else {
       io.print(t(`This deletes the repository ${repo.html_url} with all its history, the check from this Mac and the GitHub sign-in in the Keychain.`,
         `Будут удалены репозиторий ${repo.html_url} со всей историей, проверка с этого Mac и вход в GitHub из Связки ключей.`));

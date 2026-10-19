@@ -150,7 +150,7 @@ export async function withGitHub(world, { login = 'octo-fake' } = {}) {
       const exists = [...repo.files.keys()].includes(`.github/workflows/${workflow[1]}`);
       if (!workflow[2] && method === 'GET') {
         if (!exists || github.dispatchNotFound > 0) return json(404, { message: 'Not Found' });
-        return json(200, { id: 77, name: 'codex-auto-resets', path: `.github/workflows/${workflow[1]}`, state: repo.workflowState });
+        return json(200, { id: 77, name: 'aures', path: `.github/workflows/${workflow[1]}`, state: repo.workflowState });
       }
       if (workflow[2] === 'dispatches' && method === 'POST') {
         if (!exists) return json(404, { message: 'Not Found' });

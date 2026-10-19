@@ -6,11 +6,11 @@ import { CommandFailed, unfinished, chatgptLogin, showCode, workingLine, connect
 import { t } from './language.mjs';
 
 const otherAccount = () => t('This is another ChatGPT account, the sign-in is rejected. Sign in to the one the worker was set up for. ' +
-  'To change the account, reinstall the worker: `codex-auto-resets uninstall`, then `codex-auto-resets setup`.',
+  'To change the account, reinstall the worker: `aures uninstall`, then `aures setup`.',
 'Это другой аккаунт ChatGPT, вход отклонён. Войдите в тот, для которого установлен воркер. ' +
-  'Чтобы сменить аккаунт, переустановите воркер: `codex-auto-resets uninstall`, затем `codex-auto-resets setup`.');
+  'Чтобы сменить аккаунт, переустановите воркер: `aures uninstall`, затем `aures setup`.');
 
-// `codex-auto-resets login`: a new worker session after the old one is lost. The CLI cannot
+// `aures login`: a new worker session after the old one is lost. The CLI cannot
 // open the sealed state, so it hands the session to the worker through the login secret; the
 // worker takes it in place of the old one, keeping rules and history, and rejects another
 // ChatGPT account. The verdict comes back in the open summary.
@@ -26,8 +26,8 @@ export async function login({ fetch, keychain, io, now = Date.now,
       throw new CommandFailed(unfinished());
     }
     if (!workflow.text.includes(LOGIN_SECRET)) {
-      throw new CommandFailed(t('The worker is out of date. Update it: `codex-auto-resets upgrade`, then run login again.',
-        'Воркер устарел. Обновите его: `codex-auto-resets upgrade`, затем повторите login.'));
+      throw new CommandFailed(t('The worker is out of date. Update it: `aures upgrade`, then run login again.',
+        'Воркер устарел. Обновите его: `aures upgrade`, затем повторите login.'));
     }
     await runnableWorkflow(api, repo);
 

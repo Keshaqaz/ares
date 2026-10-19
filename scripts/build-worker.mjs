@@ -11,7 +11,7 @@ export async function buildWorker(outfile = `${root}dist/worker.mjs`) {
     entryPoints: [`${root}src/worker/main.mjs`], outfile, bundle: true, platform: 'node', format: 'esm',
     // The node preinstalled on the runner, not the pinned one: the workflow installs nothing.
     target: 'node20', minify: false, legalComments: 'none', logLevel: 'warning',
-    banner: { js: `// codex-auto-resets worker ${pkg.version}, built from src/worker/main.mjs. Do not edit.` },
+    banner: { js: `// aures worker ${pkg.version}, built from src/worker/main.mjs. Do not edit.` },
   });
   return outfile;
 }

@@ -34,7 +34,7 @@ function chooseByRules({ weeklyQuota, resets }, applied, rules, now) {
 // One worker run: refresh the worker session if it is about to expire, read quotas and
 // issued resets, then apply at most one reset: the general rules choose it, or applyNow
 // names it (a reset id from «Применить сейчас») regardless of the rules. login is a new
-// worker session from `codex-auto-resets login`, { id, session }: it replaces the session
+// worker session from `aures login`, { id, session }: it replaces the session
 // once, and only for the same ChatGPT account. The caller persists the returned state
 // whatever the outcome. persist(state) is awaited after a new session (a refresh has
 // already rotated the refresh token, a login must not be lost) and before a consume POST

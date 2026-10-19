@@ -9,7 +9,7 @@ import { t } from './language.mjs';
 // the LaunchAgent.
 export const macLogin = () => t('Sign in to ChatGPT for this Mac: it notices the end of the weekly limit (Codex is not affected).',
   'Вход в ChatGPT для этого Mac: он замечает конец недельного лимита (Codex не затронут).');
-const SETUP = '`codex-auto-resets setup`';
+const SETUP = '`aures setup`';
 
 // Brings this Mac in line with the weekly rule, as setup and rules leave it.
 export async function followWeeklyRule({ weekly, mac, fetch, io, now, sleep }) {

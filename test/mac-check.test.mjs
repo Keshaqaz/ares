@@ -136,7 +136,7 @@ test('an agent launchctl does not load is reported, and the command still succee
   mac.launchctl.fail = { verb: 'bootstrap', code: 5 };
   const { code, io } = await run(rules, { answers: ['2', ''] });
   assert.equal(code, 0, io.output());
-  assert.equal(io.lines.at(-1), 'Внеочередная проверка с этого Mac не запустилась (launchctl bootstrap: 5). Повторите `codex-auto-resets setup`.');
+  assert.equal(io.lines.at(-1), 'Внеочередная проверка с этого Mac не запустилась (launchctl bootstrap: 5). Повторите `aures setup`.');
 });
 
 test('upgrade reloads the agent from a plist with this version\'s program while the rule is on', async () => {
@@ -196,10 +196,10 @@ test('status tells whether the check from this Mac works, and what to do when it
 
   await mac.files.writeState({ sessionLost: true });
   assert.deepEqual(await line(), { rule: '  ☑ Когда кончится недельный лимит · проверка с Mac не работает',
-    warnings: ['! Вход этого Mac в ChatGPT потерян. Войдите заново: `codex-auto-resets setup`.'] });
+    warnings: ['! Вход этого Mac в ChatGPT потерян. Войдите заново: `aures setup`.'] });
 
   await mac.files.writeState({});
   await mac.agent.remove();
   assert.deepEqual(await line(), { rule: '  ☑ Когда кончится недельный лимит · проверка с Mac не работает',
-    warnings: ['! Внеочередная проверка с этого Mac не запущена. Запустите `codex-auto-resets setup`.'] });
+    warnings: ['! Внеочередная проверка с этого Mac не запущена. Запустите `aures setup`.'] });
 });

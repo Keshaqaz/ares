@@ -52,7 +52,7 @@ test('end to end: the worker setup committed runs on plain node and ticks on the
   const { code, io } = await run();
   assert.equal(code, 0, io.output());
   const repo = world.github.repo();
-  assert.match(world.github.text(repo, FILES.worker), /^\/\/ codex-auto-resets worker /);
+  assert.match(world.github.text(repo, FILES.worker), /^\/\/ aures worker /);
   assert.match(repo.runs[0].log, /Z applied\n$/);
   // The before-expiry rule setup wrote reached the worker: it applied the reset due in 3 hours.
   const summary = JSON.parse(world.github.text(repo, FILES.summary));
@@ -121,7 +121,7 @@ for (const [label, path, logins] of [
     dropFirstWrite(world, path);
     const first = await run();
     assert.equal(first.code, 1);
-    assert.match(first.io.lines.at(-1), /GitHub недоступен\. Повторите `codex-auto-resets setup`: сделанное сохранится/);
+    assert.match(first.io.lines.at(-1), /GitHub недоступен\. Повторите `aures setup`: сделанное сохранится/);
     const repo = world.github.repo();
     assert.equal(repo.runs.length, 0);
     assert.equal(repo.files.has(FILES.workflow), false, 'no schedule over a half-filled repository');
@@ -157,7 +157,7 @@ test('a failed trial run names the cause and the fix', async () => {
   assert.equal(code, 1);
   const [failed] = world.github.repo().runs;
   assert.equal(failed.conclusion, 'failure');
-  assert.equal(io.lines.at(-2), 'Воркер потерял вход в ChatGPT. Войдите заново: `codex-auto-resets login`.');
+  assert.equal(io.lines.at(-2), 'Воркер потерял вход в ChatGPT. Войдите заново: `aures login`.');
   assert.equal(io.lines.at(-1), `Подробности: ${failed.html_url}`);
 });
 
@@ -169,7 +169,7 @@ test('a trial run that cannot open the state tells to delete it and run setup ag
   world.github.setSecret(repo, STATE_KEY_SECRET, Buffer.alloc(32, 7).toString('base64'));
   const { code, io } = await run({ answers: [] });
   assert.equal(code, 1);
-  assert.match(io.lines.at(-2), new RegExp(`state_undecryptable.*Удалите ${FILES.state.replace('.', '\\.')}.*codex-auto-resets setup`));
+  assert.match(io.lines.at(-2), new RegExp(`state_undecryptable.*Удалите ${FILES.state.replace('.', '\\.')}.*aures setup`));
   // The advice works: setup refills the deleted state.
   repo.files.delete(FILES.state);
   const again = await run({ answers: [] });
@@ -244,7 +244,7 @@ test('setup never takes over a foreign repository of the same name or a public o
   repo.meta = { ...repo.meta, private: true, description: 'My own project' };
   result = await run({ answers: [] });
   assert.equal(result.code, 1);
-  assert.match(result.io.lines.at(-1), /создан не codex-auto-resets/);
+  assert.match(result.io.lines.at(-1), /создан не aures/);
   assert.equal(repo.files.size, files);
   assert.equal(repo.runs.length, 1);
 });

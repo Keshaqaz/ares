@@ -16,7 +16,7 @@ export async function saveRules({ api, repo, sha, current, chosen, mac, fetch, i
   await followWeeklyRule({ weekly: chosen.weeklyAutoApply, mac, fetch, io, now, sleep });
 }
 
-// `codex-auto-resets rules`: switches the general rules. The CLI is the only writer of the
+// `aures rules`: switches the general rules. The CLI is the only writer of the
 // open rules file; the worker reads it on every run, so a change works from the next one.
 export async function rules({ fetch, keychain, io, mac, now = Date.now, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)) }) {
   return command('rules', io, async () => {

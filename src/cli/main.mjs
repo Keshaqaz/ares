@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// `codex-auto-resets <command>`.
+// `aures <command>`.
 import { createInterface } from 'node:readline/promises';
 import { readFile } from 'node:fs/promises';
 import { setup } from './setup.mjs';
@@ -24,7 +24,7 @@ const COMMANDS = { setup, status, 'apply-now': applyNow, rules, login, upgrade, 
 // The launchd agent runs `watch`; it is not in the usage. A locked Keychain may ask for the
 // password in a dialog nobody sees, so the agent waits for it briefly.
 const WATCH_KEYCHAIN_MS = 10_000;
-const usage = () => t(`Usage: codex-auto-resets [command]
+const usage = () => t(`Usage: aures [command]
   (no command)   the screen: resets and rules; Enter applies a reset or switches a rule
   status         the same printed once, without controls
   setup          install, or finish an interrupted install
@@ -34,7 +34,7 @@ const usage = () => t(`Usage: codex-auto-resets [command]
   upgrade        update the worker after brew upgrade
   uninstall      remove the worker, the Mac check and the GitHub sign-in
   language       en or ru: the language of the CLI
-  --version      the program version`, `Использование: codex-auto-resets [команда]
+  --version      the program version`, `Использование: aures [команда]
   (без команды)  экран: сбросы и правила; Enter применяет сброс или переключает правило
   status         то же одним выводом, без управления
   setup          установить или продолжить установку
@@ -68,7 +68,7 @@ async function main() {
     return 2;
   }
   if (process.platform !== 'darwin') {
-    console.error(t('codex-auto-resets runs on macOS only.', 'codex-auto-resets работает только на macOS.'));
+    console.error(t('aures runs on macOS only.', 'aures работает только на macOS.'));
     return 1;
   }
   if (run === watch) {

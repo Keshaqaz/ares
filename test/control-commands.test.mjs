@@ -39,7 +39,7 @@ test('status shows the resets, the rules, the last run and the last application'
   const { code, io } = await run(status);
   assert.equal(code, 0);
   assert.deepEqual(io.lines, [
-    `codex-auto-resets${' '.repeat(43)}20 окт 13:30`,
+    `aures${' '.repeat(55)}20 окт 13:30`,
     '',
     'СБРОСЫ · 2',
     '─'.repeat(72),
@@ -95,7 +95,7 @@ test('status explains a failed last run', async () => {
   await world.github.schedule();
   const { io } = await run(status);
   assert.ok(io.lines.includes('● последний запуск с ошибкой · 20 окт 13:00'), io.output());
-  assert.equal(io.lines.at(-1), '! Воркер потерял вход в ChatGPT. Войдите заново: `codex-auto-resets login`. ' +
+  assert.equal(io.lines.at(-1), '! Воркер потерял вход в ChatGPT. Войдите заново: `aures login`. ' +
     `Подробности: ${repo.runs[0].html_url}`);
 });
 
@@ -104,7 +104,7 @@ test('control commands ask for setup when there is no worker', async () => {
   for (const command of [status, applyNow, rules, login]) {
     const { code, io } = await run(command);
     assert.equal(code, 1);
-    assert.equal(io.lines.at(-1), 'Воркер не установлен. Запустите `codex-auto-resets setup`.');
+    assert.equal(io.lines.at(-1), 'Воркер не установлен. Запустите `aures setup`.');
   }
 });
 
@@ -154,7 +154,7 @@ test('apply-now explains a failed run and refuses a disabled workflow', async ()
   world.revokeAccess();
   let result = await run(applyNow, { answers: ['1', 'y'] });
   assert.equal(result.code, 1);
-  assert.equal(result.io.lines.at(-2), 'Воркер потерял вход в ChatGPT. Войдите заново: `codex-auto-resets login`.');
+  assert.equal(result.io.lines.at(-2), 'Воркер потерял вход в ChatGPT. Войдите заново: `aures login`.');
   assert.equal(result.io.lines.at(-1), `Подробности: ${repo.runs[0].html_url}`);
 
   repo.workflowState = 'disabled_inactivity';
@@ -226,7 +226,7 @@ test('login into another ChatGPT account is rejected with a hint to uninstall', 
   world.accountId = 'account-other';
   const { code, io } = await run(login);
   assert.equal(code, 1);
-  assert.match(io.lines.at(-1), /^Это другой аккаунт ChatGPT.*`codex-auto-resets uninstall`/);
+  assert.match(io.lines.at(-1), /^Это другой аккаунт ChatGPT.*`aures uninstall`/);
   assert.deepEqual(state().session, before);
   assert.equal(repo.secrets.has(LOGIN_SECRET), false, 'the other account\'s session does not stay in GitHub');
 });
@@ -237,7 +237,7 @@ test('login refuses a worker whose workflow does not pass the login secret', asy
   world.github.write(repo, FILES.workflow, old);
   const { code, io } = await run(login);
   assert.equal(code, 1);
-  assert.match(io.lines.at(-1), /^Воркер устарел\. Обновите его: `codex-auto-resets upgrade`/);
+  assert.match(io.lines.at(-1), /^Воркер устарел\. Обновите его: `aures upgrade`/);
   assert.doesNotMatch(io.output(), /auth\.openai\.com/, 'no login the worker could not take');
 });
 

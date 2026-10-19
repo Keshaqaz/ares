@@ -22,7 +22,7 @@ const OUTCOMES = ['idle', 'applied', 'pending', 'transient_error', 'reauth_requi
 // A failure explained to the user in its message.
 export class CommandFailed extends Error {}
 
-export const unfinished = () => t('Setup is not finished. Run `codex-auto-resets setup`.', 'Установка не завершена. Запустите `codex-auto-resets setup`.');
+export const unfinished = () => t('Setup is not finished. Run `aures setup`.', 'Установка не завершена. Запустите `aures setup`.');
 export const enableUrl = repo => `${repo.html_url}/actions/workflows/${WORKFLOW_FILE}`;
 
 // Answers that confirm a one-way action.
@@ -88,14 +88,14 @@ export async function workerRepository({ api, login }) {
   const repo = await api.repository(`${login}/${WORKER_REPOSITORY}`);
   if (!repo) return null;
   if (repo.description !== WORKER_DESCRIPTION) {
-    throw new CommandFailed(t(`The repository ${repo.html_url} was not created by codex-auto-resets. ` +
-      'Rename or delete it and run `codex-auto-resets setup` again.',
-    `Репозиторий ${repo.html_url} создан не codex-auto-resets. Переименуйте или удалите его и повторите \`codex-auto-resets setup\`.`));
+    throw new CommandFailed(t(`The repository ${repo.html_url} was not created by aures. ` +
+      'Rename or delete it and run `aures setup` again.',
+    `Репозиторий ${repo.html_url} создан не aures. Переименуйте или удалите его и повторите \`aures setup\`.`));
   }
   // The repository holds the sealed session and the reset schedule.
   if (!repo.private) {
-    throw new CommandFailed(t(`The repository ${repo.html_url} is public. Make it private and run \`codex-auto-resets setup\` again.`,
-      `Репозиторий ${repo.html_url} открыт всем. Сделайте его приватным и повторите \`codex-auto-resets setup\`.`));
+    throw new CommandFailed(t(`The repository ${repo.html_url} is public. Make it private and run \`aures setup\` again.`,
+      `Репозиторий ${repo.html_url} открыт всем. Сделайте его приватным и повторите \`aures setup\`.`));
   }
   return repo;
 }
@@ -103,7 +103,7 @@ export async function workerRepository({ api, login }) {
 // The worker repository for a command that needs an installed worker.
 export async function installedWorker(options) {
   const repo = await workerRepository(options);
-  if (!repo) throw new CommandFailed(t('The worker is not installed. Run `codex-auto-resets setup`.', 'Воркер не установлен. Запустите `codex-auto-resets setup`.'));
+  if (!repo) throw new CommandFailed(t('The worker is not installed. Run `aures setup`.', 'Воркер не установлен. Запустите `aures setup`.'));
   return repo;
 }
 
@@ -162,19 +162,19 @@ export function loggedOutcome(log) {
 // What the user does about a run that failed with this outcome.
 export function failedRunAdvice({ outcome, reason } = {}) {
   return {
-    reauth_required: t('The worker lost its ChatGPT sign-in. Sign in again: `codex-auto-resets login`.',
-      'Воркер потерял вход в ChatGPT. Войдите заново: `codex-auto-resets login`.'),
+    reauth_required: t('The worker lost its ChatGPT sign-in. Sign in again: `aures login`.',
+      'Воркер потерял вход в ChatGPT. Войдите заново: `aures login`.'),
     broken_state: reason?.startsWith('rules_') ?
-      t(`The rules file does not read (${reason}). Delete ${FILES.rules} in the repository and run \`codex-auto-resets setup\` again.`,
-        `Файл правил не читается (${reason}). Удалите ${FILES.rules} в репозитории и повторите \`codex-auto-resets setup\`.`) :
+      t(`The rules file does not read (${reason}). Delete ${FILES.rules} in the repository and run \`aures setup\` again.`,
+        `Файл правил не читается (${reason}). Удалите ${FILES.rules} в репозитории и повторите \`aures setup\`.`) :
       t(`The file with the ChatGPT sign-in does not read (${reason}). Delete ${FILES.state} in the repository and run ` +
-        '`codex-auto-resets setup` again: it will ask you to sign in to ChatGPT again.',
-      `Файл со входом в ChatGPT не читается (${reason}). Удалите ${FILES.state} в репозитории и повторите \`codex-auto-resets setup\`: ` +
+        '`aures setup` again: it will ask you to sign in to ChatGPT again.',
+      `Файл со входом в ChatGPT не читается (${reason}). Удалите ${FILES.state} в репозитории и повторите \`aures setup\`: ` +
         'он попросит войти в ChatGPT заново.'),
-    commit_failed: t('The worker could not save its data in the repository. Run `codex-auto-resets setup` again. ' +
-      'If an email about a worker failure follows, sign in again: `codex-auto-resets login`.',
-    'Воркер не смог сохранить данные в репозитории. Повторите `codex-auto-resets setup`. ' +
-      'Если потом придёт письмо об ошибке воркера, войдите заново: `codex-auto-resets login`.'),
+    commit_failed: t('The worker could not save its data in the repository. Run `aures setup` again. ' +
+      'If an email about a worker failure follows, sign in again: `aures login`.',
+    'Воркер не смог сохранить данные в репозитории. Повторите `aures setup`. ' +
+      'Если потом придёт письмо об ошибке воркера, войдите заново: `aures login`.'),
   }[outcome] ?? t('The worker ended with an error.', 'Воркер завершился с ошибкой.');
 }
 
@@ -242,7 +242,7 @@ export async function runWorkerNow({ api, repo, inputs, now, sleep, wait = () =>
 // the screen itself, null an action on the screen, which the user just repeats.
 export function explain(error, command = null) {
   if (error instanceof CommandFailed) return error.message;
-  const program = `\`codex-auto-resets${command ? ` ${command}` : ''}\``;
+  const program = `\`aures${command ? ` ${command}` : ''}\``;
   const again = command === null ? t('Try again', 'Повторите') : t(`Run ${program} again`, `Повторите ${program}`);
   const kept = t('what is done is kept', 'сделанное сохранится');
   if (error instanceof GitHubFailure) {

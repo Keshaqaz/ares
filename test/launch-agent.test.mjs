@@ -8,12 +8,12 @@ import { fakeMac, UID } from './support/fake-mac.mjs';
 const exists = path => stat(path).then(() => true, () => false);
 
 test('the agent runs through the Homebrew opt path, which survives brew upgrade, or through this node and main.mjs', () => {
-  assert.deepEqual(agentProgram({ main: '/opt/homebrew/Cellar/codex-auto-resets/0.1.0/libexec/src/cli/main.mjs', node: '/opt/homebrew/opt/node/bin/node' }),
-    ['/opt/homebrew/opt/codex-auto-resets/bin/codex-auto-resets', 'watch']);
-  assert.deepEqual(agentProgram({ main: '/usr/local/Cellar/codex-auto-resets/0.2.0_1/libexec/src/cli/main.mjs', node: '/usr/local/bin/node' }),
-    ['/usr/local/opt/codex-auto-resets/bin/codex-auto-resets', 'watch']);
-  assert.deepEqual(agentProgram({ main: '/Users/me/src/codex-auto-resets/src/cli/main.mjs', node: '/Users/me/.cache/node/bin/node' }),
-    ['/Users/me/.cache/node/bin/node', '/Users/me/src/codex-auto-resets/src/cli/main.mjs', 'watch']);
+  assert.deepEqual(agentProgram({ main: '/opt/homebrew/Cellar/aures/0.1.0/libexec/src/cli/main.mjs', node: '/opt/homebrew/opt/node/bin/node' }),
+    ['/opt/homebrew/opt/aures/bin/aures', 'watch']);
+  assert.deepEqual(agentProgram({ main: '/usr/local/Cellar/aures/0.2.0_1/libexec/src/cli/main.mjs', node: '/usr/local/bin/node' }),
+    ['/usr/local/opt/aures/bin/aures', 'watch']);
+  assert.deepEqual(agentProgram({ main: '/Users/me/src/aures/src/cli/main.mjs', node: '/Users/me/.cache/node/bin/node' }),
+    ['/Users/me/.cache/node/bin/node', '/Users/me/src/aures/src/cli/main.mjs', 'watch']);
 });
 
 test('install writes the plist and loads it into the user GUI domain', async () => {
@@ -23,7 +23,7 @@ test('install writes the plist and loads it into the user GUI domain', async () 
   assert.equal(agent.plistPath, join(home, 'Library', 'LaunchAgents', `${AGENT_LABEL}.plist`));
   assert.match(plist, /^<\?xml version="1\.0" encoding="UTF-8"\?>\n<!DOCTYPE plist/);
   assert.match(plist, new RegExp(`<key>Label</key>\\s*<string>${AGENT_LABEL.replaceAll('.', '\\.')}</string>`));
-  assert.match(plist, /<key>ProgramArguments<\/key>\s*<array>\s*<string>\/opt\/homebrew\/opt\/codex-auto-resets\/bin\/codex-auto-resets<\/string>\s*<string>watch<\/string>\s*<\/array>/);
+  assert.match(plist, /<key>ProgramArguments<\/key>\s*<array>\s*<string>\/opt\/homebrew\/opt\/aures\/bin\/aures<\/string>\s*<string>watch<\/string>\s*<\/array>/);
   assert.match(plist, /<key>StartInterval<\/key>\s*<integer>120<\/integer>/);
   assert.match(plist, /<key>RunAtLoad<\/key>\s*<true\/>/);
   const log = join(home, 'Library', 'Logs', 'codex-auto-resets', 'watch.log');

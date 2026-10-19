@@ -21,14 +21,14 @@ test('--version prints the package version on any platform', async () => {
 test('the formula installs the release archive behind a node wrapper and tests --version', () => {
   const sha256 = 'a'.repeat(64);
   const text = formula({ version: '1.2.3', sha256 });
-  assert.equal(releaseUrl('1.2.3'), 'https://github.com/Keshaqaz/ares/releases/download/v1.2.3/codex-auto-resets-1.2.3.tgz');
-  assert.match(text, /^class CodexAutoResets < Formula$/m);
+  assert.equal(releaseUrl('1.2.3'), 'https://github.com/Keshaqaz/ares/releases/download/v1.2.3/aures-1.2.3.tgz');
+  assert.match(text, /^class Aures < Formula$/m);
   assert.match(text, new RegExp(`^  url "${releaseUrl('1.2.3')}"$`, 'm'));
   assert.match(text, new RegExp(`^  sha256 "${sha256}"$`, 'm'));
   assert.match(text, /^  license "MIT"$/m);
   assert.match(text, /^  depends_on "node"$/m);
   assert.match(text, /formula_opt_bin\("node"\)}\/node" "#\{libexec}\/src\/cli\/main\.mjs" "\$@"/);
-  assert.match(text, /assert_equal version\.to_s, shell_output\("#\{bin}\/codex-auto-resets --version"\)\.strip/);
+  assert.match(text, /assert_equal version\.to_s, shell_output\("#\{bin}\/aures --version"\)\.strip/);
   assert.throws(() => formula({ version: '1.2', sha256 }), RangeError);
   assert.throws(() => formula({ version: '1.2.3', sha256: 'abc' }), RangeError);
 });
@@ -37,9 +37,9 @@ test('the launchd agent recognizes a keg laid out by the formula and runs it thr
   const text = formula({ version: '1.2.3', sha256: 'a'.repeat(64) });
   const [, bin] = text.match(/\(bin\/"([^"]+)"\)\.write/);
   const [, main] = text.match(/"#\{libexec}\/([^"]+)" "\$@"/);
-  const keg = '/opt/homebrew/Cellar/codex-auto-resets/1.2.3';
+  const keg = '/opt/homebrew/Cellar/aures/1.2.3';
   assert.deepEqual(agentProgram({ main: `${keg}/libexec/${main}`, node: '/opt/homebrew/opt/node/bin/node' }),
-    [`/opt/homebrew/opt/codex-auto-resets/bin/${bin}`, 'watch']);
+    [`/opt/homebrew/opt/aures/bin/${bin}`, 'watch']);
 });
 
 test('the release archive carries the CLI, the worker bundle and its dependencies, and runs on its own', async t => {

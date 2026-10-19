@@ -6,7 +6,7 @@ import { CommandFailed, unfinished, connectGitHub, installedWorker, command } fr
 import { t } from './language.mjs';
 import { reloadAgent } from './mac-check.mjs';
 
-// `codex-auto-resets upgrade`, after `brew upgrade`: puts this version's worker and workflow
+// `aures upgrade`, after `brew upgrade`: puts this version's worker and workflow
 // into the user's repository and migrates the rules file. The worker migrates its sealed
 // state itself when it reads it. Nothing changes the code that runs with the user's
 // session until the user runs this. The agent of the check from this Mac is reloaded with
@@ -25,17 +25,17 @@ export async function upgrade({ fetch, keychain, io, workerSource, mac, now = Da
     // The cron is never rewritten: the new workflow runs at the same minute.
     const minute = workflowMinute(workflow.text);
     if (minute === null) {
-      throw new CommandFailed(t(`The file ${FILES.workflow} was changed by hand. Delete it in the repository and run \`codex-auto-resets setup\`.`,
-        `Файл ${FILES.workflow} изменён вручную. Удалите его в репозитории и запустите \`codex-auto-resets setup\`.`));
+      throw new CommandFailed(t(`The file ${FILES.workflow} was changed by hand. Delete it in the repository and run \`aures setup\`.`,
+        `Файл ${FILES.workflow} изменён вручную. Удалите его в репозитории и запустите \`aures setup\`.`));
     }
     let current;
     try { current = readRules(rules.text, rulesMigrations); } catch (error) {
       if (!(error instanceof BrokenState)) throw error;
       throw new CommandFailed(error.reason === 'rules_format_unknown' ?
-        t('The rules were saved by a newer version. Update the program: `brew upgrade codex-auto-resets`.',
-          'Правила сохранены более новой версией. Обновите программу: `brew upgrade codex-auto-resets`.') :
-        t('The rules do not read. Choose them again: `codex-auto-resets rules`, then run upgrade again.',
-          'Правила не читаются. Выберите их заново: `codex-auto-resets rules`, затем повторите upgrade.'));
+        t('The rules were saved by a newer version. Update the program: `brew upgrade aures`.',
+          'Правила сохранены более новой версией. Обновите программу: `brew upgrade aures`.') :
+        t('The rules do not read. Choose them again: `aures rules`, then run upgrade again.',
+          'Правила не читаются. Выберите их заново: `aures rules`, затем повторите upgrade.'));
     }
     await reloadAgent({ weekly: current.weeklyAutoApply, mac, io });
 

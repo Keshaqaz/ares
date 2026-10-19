@@ -16,8 +16,8 @@ function verdict({ creditId, before, after, run, logged }) {
   }
   if (run.conclusion !== 'success') return { code: 1, message: `${failedRunAdvice(logged ?? {})}\n${t('Details', 'Подробности')}: ${run.html_url}` };
   if (logged?.outcome === 'pending') {
-    return { code: 1, message: t('The result is not known yet: the worker will settle it on its next run. Check later: `codex-auto-resets status`.',
-      'Результат пока неизвестен: воркер уточнит его при следующем запуске. Проверьте позже: `codex-auto-resets status`.') };
+    return { code: 1, message: t('The result is not known yet: the worker will settle it on its next run. Check later: `aures status`.',
+      'Результат пока неизвестен: воркер уточнит его при следующем запуске. Проверьте позже: `aures status`.') };
   }
   if (logged?.outcome === 'transient_error') {
     return { code: 1, message: t('ChatGPT is temporarily unavailable, the reset is not applied. Try again later.',
@@ -35,7 +35,7 @@ export async function applyReset({ api, repo, creditId, before, now, sleep, wait
   return verdict({ creditId, before, after, run, logged });
 }
 
-// `codex-auto-resets apply-now`: «Применить сейчас». The user picks one of the resets the
+// `aures apply-now`: «Применить сейчас». The user picks one of the resets the
 // worker last published; the worker applies it in a dispatched run regardless of the rules,
 // and the command waits for that run.
 export async function applyNow({ fetch, keychain, io, now = Date.now,

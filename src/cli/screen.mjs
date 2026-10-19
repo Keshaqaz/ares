@@ -7,7 +7,7 @@ import { saveRules } from './rules.mjs';
 import { readOverview, renderOverview, overviewItems, paint, S, WIDTH } from './overview.mjs';
 import { t, language, setLanguage } from './language.mjs';
 
-// `codex-auto-resets` without a command: the overview of `status` with a cursor. Enter on a
+// `aures` without a command: the overview of `status` with a cursor. Enter on a
 // reset applies it now after a «y», Enter on a rule switches it; both do what `apply-now` and
 // `rules` do. l switches the language between English and Russian and keeps the choice.
 // Drawn in place in the ordinary terminal flow, no alternate screen.
@@ -128,8 +128,8 @@ export class Screen {
     let current;
     try { current = readRules(file.text); } catch (error) {
       if (!(error instanceof BrokenState)) throw error;
-      throw new CommandFailed(t(`The rules do not read (${error.reason}). Choose them again: \`codex-auto-resets rules\`.`,
-        `Правила не читаются (${error.reason}). Выберите их заново: \`codex-auto-resets rules\`.`));
+      throw new CommandFailed(t(`The rules do not read (${error.reason}). Choose them again: \`aures rules\`.`,
+        `Правила не читаются (${error.reason}). Выберите их заново: \`aures rules\`.`));
     }
     const chosen = { formatVersion: RULES_FORMAT_VERSION, beforeExpiry: current.beforeExpiry, weeklyAutoApply: current.weeklyAutoApply,
       [rule]: !current[rule] };
@@ -207,7 +207,7 @@ export function runScreen(screen, { input, output }) {
   });
 }
 
-// `codex-auto-resets`: the interactive screen. terminal is { input, output } of a TTY.
+// `aures`: the interactive screen. terminal is { input, output } of a TTY.
 export async function screen({ terminal, io, ...options }) {
   return command('', io, async () => runScreen(await openScreen({ io, ...options }), terminal));
 }

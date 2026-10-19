@@ -120,7 +120,7 @@ test('a lost worker session fails the run and asks for a new login', async () =>
   world.revokeAccess();
   assert.deepEqual(await run(), { outcome: 'reauth_required', exitCode: 1 });
   assert.deepEqual(repo.commits(), ['Set up worker']);
-  assert.match(await repo.readStepSummary(), /codex-auto-resets login/);
+  assert.match(await repo.readStepSummary(), /aures login/);
 });
 
 for (const [label, breakRepo, reason] of [

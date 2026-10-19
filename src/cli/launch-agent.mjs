@@ -4,7 +4,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { mkdir, readFile, writeFile, rename, rm, stat } from 'node:fs/promises';
 
-// The launchd agent that runs `codex-auto-resets watch` every 2 minutes while the weekly rule
+// The launchd agent that runs `aures watch` every 2 minutes while the weekly rule
 // is on (ADR-0005). It lives in the user's GUI domain, so it runs only while the user is
 // logged in, and launchd starts no pass while the previous one runs.
 export const AGENT_LABEL = 'com.github.keshaqaz.codex-auto-resets.watch';
@@ -20,8 +20,8 @@ export class LaunchctlFailed extends Error {}
 // to the new one on `brew upgrade`, so the agent goes through it. From sources: this node and
 // this main.mjs.
 export function agentProgram({ main, node }) {
-  const brew = main.match(/^(.+)\/Cellar\/codex-auto-resets\/[^/]+\/libexec\/src\/cli\/main\.mjs$/);
-  return brew ? [`${brew[1]}/opt/codex-auto-resets/bin/codex-auto-resets`, 'watch'] : [node, main, 'watch'];
+  const brew = main.match(/^(.+)\/Cellar\/aures\/[^/]+\/libexec\/src\/cli\/main\.mjs$/);
+  return brew ? [`${brew[1]}/opt/aures/bin/aures`, 'watch'] : [node, main, 'watch'];
 }
 
 const xml = text => text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');

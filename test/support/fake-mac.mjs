@@ -7,7 +7,7 @@ import { LaunchAgent } from '../../src/cli/launch-agent.mjs';
 import { WatchFiles } from '../../src/cli/watch-files.mjs';
 
 export const UID = 501;
-export const PROGRAM = ['/opt/homebrew/opt/codex-auto-resets/bin/codex-auto-resets', 'watch'];
+export const PROGRAM = ['/opt/homebrew/opt/aures/bin/aures', 'watch'];
 
 // launchctl for one user's GUI domain: bootstrap loads the plist as it is on disk now, as
 // launchd does; exit codes as launchctl gives them.

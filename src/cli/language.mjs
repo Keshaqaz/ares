@@ -1,5 +1,5 @@
 // The language of the CLI: English by default, Russian when the user picks it with `l` on
-// the screen or with `codex-auto-resets language ru`. The choice lives on this Mac in
+// the screen or with `aures language ru`. The choice lives on this Mac in
 // settings.json next to the watch files.
 export const LANGUAGES = ['en', 'ru'];
 let current = 'en';

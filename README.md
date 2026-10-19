@@ -14,7 +14,7 @@ Runs in your own private GitHub repo. Your Mac can be off.
 
 **English** · [Русский](docs/README.ru.md)
 
-<img src="docs/assets/status-en.png" alt="The codex-auto-resets screen: resets on top, rules below">
+<img src="docs/assets/status-en.png" alt="The aures screen: resets on top, rules below">
 
 </div>
 
@@ -22,22 +22,22 @@ Runs in your own private GitHub repo. Your Mac can be off.
 
 - **No reset expires unused.** In the last 8 hours before a reset expires, the worker applies it.
 - **Weekly limit hit — reset within minutes.** An optional rule applies the reset that expires first. While your Mac is awake, it checks the weekly limit every 2 minutes and calls the worker as soon as it runs out, whichever client used it up: Codex, opencode, your phone.
-- **One screen.** `codex-auto-resets` shows the resets on top and the rules below. Enter on a reset applies it now, regardless of the rules; Enter on a rule switches it.
+- **One screen.** `aures` shows the resets on top and the rules below. Enter on a reset applies it now, regardless of the rules; Enter on a rule switches it.
 - **No servers, no subscriptions.** Only GitHub Actions in your account: up to ~750 of the 2,000 free minutes a month.
 - **Codex on your Mac is untouched.** The worker and the Mac check have ChatGPT sign-ins of their own; nothing is copied from Codex.
 
 ## Quick start
 
 ```sh
-brew install keshaqaz/tap/codex-auto-resets
-codex-auto-resets setup
+brew install keshaqaz/tap/aures
+aures setup
 ```
 
 `setup` signs you in to GitHub and ChatGPT with one-time codes, creates the private repo `codex-auto-resets-worker`, offers the rules and runs the worker once:
 
-<img src="docs/assets/setup-en.png" alt="codex-auto-resets setup: GitHub and ChatGPT sign-in, rules, the Mac check and a trial run">
+<img src="docs/assets/setup-en.png" alt="aures setup: GitHub and ChatGPT sign-in, rules, the Mac check and a trial run">
 
-The CLI speaks English; for Russian press `l` on the screen or run `codex-auto-resets language ru`.
+The CLI speaks English; for Russian press `l` on the screen or run `aures language ru`.
 
 Full guide, including installing from source: [docs/installation.en.md](docs/installation.en.md).
 
@@ -95,7 +95,7 @@ flowchart LR
 | Before expiry | on | less than 8 hours are left before it expires |
 | When the weekly limit runs out | off | the weekly limit is used up; the reset that expires first goes |
 
-Both rules cover all resets and work independently; change them with `codex-auto-resets rules`.
+Both rules cover all resets and work independently; change them with `aures rules`.
 
 ## Limitations
 
@@ -118,7 +118,7 @@ Both rules cover all resets and work independently; change them with `codex-auto
 
 ```
 src/
-  cli/        codex-auto-resets commands; watch, mac-check, launch-agent — the Mac check
+  cli/        aures commands; watch, mac-check, launch-agent — the Mac check
   worker/     the worker: run, rules, encrypted state, summary, workflow
   chatgpt/    ChatGPT device sign-in, resets and limits over HTTP
   github/     GitHub API and the OAuth App

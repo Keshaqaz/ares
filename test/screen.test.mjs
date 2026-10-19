@@ -109,7 +109,7 @@ test('the terminal: keys are read raw, frames are drawn in place, q leaves the o
 
 test('the screen in English: l switches to Russian and back, keeping the choice on this Mac', async () => {
   const { mac, press, text, screen, run } = await opened({ language: 'en' });
-  assert.equal(screen.frame()[0], `codex-auto-resets${' '.repeat(33)}20 Oct 12:00   EN · RU`);
+  assert.equal(screen.frame()[0], `aures${' '.repeat(45)}20 Oct 12:00   EN · RU`);
   assert.equal(screen.frame()[4], `▸ reset-b   in 2d 2h${' '.repeat(40)}22 Oct 15:00`);
   assert.match(text(), /RULES\n─+\n {2}☑ Before expiry \(in the last 8 hours\)\n {2}☐ When the weekly limit runs out/);
   assert.match(text(), /● worker works · last run 20 Oct 12:00/);
@@ -126,6 +126,6 @@ test('the screen in English: l switches to Russian and back, keeping the choice 
   assert.match(text(), /RESETS · 2/);
 
   const { io } = await run(status);
-  assert.match(io.output(), /^codex-auto-resets +20 Oct 12:00\n/, 'status has no language toggle');
+  assert.match(io.output(), /^aures +20 Oct 12:00\n/, 'status has no language toggle');
   assert.match(io.output(), /RESETS · 2/);
 });

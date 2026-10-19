@@ -3,14 +3,14 @@
 Пользователь ставит программу из tap `Keshaqaz/homebrew-tap`:
 
 ```sh
-brew install keshaqaz/tap/codex-auto-resets
+brew install keshaqaz/tap/aures
 ```
 
 Формула скачивает архив выпуска из GitHub Release этого репозитория. Архив — `npm pack` пакета: `prepack` собирает `dist/worker.mjs`, а `bundleDependencies` кладут внутрь libsodium. Поэтому `brew install` не запускает npm и не ходит в сеть, кроме загрузки архива. Единственная зависимость формулы — `node` из Homebrew.
 
 Архив скачивается без авторизации, поэтому репозиторий и его выпуски должны быть публичными.
 
-Агент launchd проверки с Mac (ADR-0005) запускает `<prefix>/opt/codex-auto-resets/bin/codex-auto-resets watch`. Ссылка `opt` после `brew upgrade` указывает на новую версию, поэтому формуле ничего добавлять не нужно. `agentProgram` в `src/cli/launch-agent.mjs` узнаёт установку Homebrew по пути `…/Cellar/codex-auto-resets/<версия>/libexec/src/cli/main.mjs`, который задаёт обёртка формулы. Если формула меняет `libexec` или имя файла в `bin`, поменяйте `agentProgram` вместе с ней: `test/brew-release.test.mjs` сверяет их.
+Агент launchd проверки с Mac (ADR-0005) запускает `<prefix>/opt/aures/bin/aures watch`. Ссылка `opt` после `brew upgrade` указывает на новую версию, поэтому формуле ничего добавлять не нужно. `agentProgram` в `src/cli/launch-agent.mjs` узнаёт установку Homebrew по пути `…/Cellar/aures/<версия>/libexec/src/cli/main.mjs`, который задаёт обёртка формулы. Если формула меняет `libexec` или имя файла в `bin`, поменяйте `agentProgram` вместе с ней: `test/brew-release.test.mjs` сверяет их.
 
 ## Шаги
 
@@ -22,24 +22,24 @@ brew install keshaqaz/tap/codex-auto-resets
    npm run release:brew
    ```
 
-   Скрипт печатает пути к `dist/codex-auto-resets-<версия>.tgz`, `dist/codex-auto-resets.rb` и sha256 архива.
+   Скрипт печатает пути к `dist/aures-<версия>.tgz`, `dist/aures.rb` и sha256 архива.
 3. Поставьте тег и опубликуйте выпуск с архивом:
 
    ```sh
    git tag v<версия> && git push origin v<версия>
-   gh release create v<версия> dist/codex-auto-resets-<версия>.tgz --title v<версия> --notes "…"
+   gh release create v<версия> dist/aures-<версия>.tgz --title v<версия> --notes "…"
    ```
 
-   Имя файла в выпуске должно остаться `codex-auto-resets-<версия>.tgz`: на него указывает `url` формулы.
-4. Скопируйте `dist/codex-auto-resets.rb` в `Formula/codex-auto-resets.rb` репозитория `Keshaqaz/homebrew-tap`, закоммитьте и запушьте.
+   Имя файла в выпуске должно остаться `aures-<версия>.tgz`: на него указывает `url` формулы.
+4. Скопируйте `dist/aures.rb` в `Formula/aures.rb` репозитория `Keshaqaz/homebrew-tap`, закоммитьте и запушьте. До 0.3.0 формула называлась `codex-auto-resets`: `formula_renames.json` в tap переводит старые установки на `aures`, его не удаляйте.
 5. Проверьте установку из tap:
 
    ```sh
    brew update
-   brew install keshaqaz/tap/codex-auto-resets   # или brew upgrade
-   brew test codex-auto-resets
-   brew audit --strict --online codex-auto-resets
-   codex-auto-resets --version
+   brew install keshaqaz/tap/aures   # или brew upgrade
+   brew test aures
+   brew audit --strict --online aures
+   aures --version
    ```
 
    Если на этом Mac включено недельное правило, проверьте, что агент запускает программу через `opt`-путь, а не через папку версии:
@@ -48,7 +48,7 @@ brew install keshaqaz/tap/codex-auto-resets
    plutil -extract ProgramArguments json -o - ~/Library/LaunchAgents/com.github.keshaqaz.codex-auto-resets.watch.plist
    ```
 
-После `brew upgrade` пользователь обновляет воркер в своём репозитории командой `codex-auto-resets upgrade`.
+После `brew upgrade` пользователь обновляет воркер в своём репозитории командой `aures upgrade`.
 
 ## Проверка формулы до публикации
 
@@ -57,11 +57,11 @@ brew install keshaqaz/tap/codex-auto-resets
 ```sh
 brew tap-new keshaqaz/local --no-git
 TAP=$(brew --repository keshaqaz/local)
-sed "s#url \".*\"#url \"file://$PWD/dist/codex-auto-resets-$(node -p 'require("./package.json").version').tgz\"#" \
-  dist/codex-auto-resets.rb > "$TAP/Formula/codex-auto-resets.rb"
-HOMEBREW_NO_INSTALL_FROM_API=1 brew install keshaqaz/local/codex-auto-resets
-brew test keshaqaz/local/codex-auto-resets
-brew uninstall codex-auto-resets && brew untap keshaqaz/local
+sed "s#url \".*\"#url \"file://$PWD/dist/aures-$(node -p 'require("./package.json").version').tgz\"#" \
+  dist/aures.rb > "$TAP/Formula/aures.rb"
+HOMEBREW_NO_INSTALL_FROM_API=1 brew install keshaqaz/local/aures
+brew test keshaqaz/local/aures
+brew uninstall aures && brew untap keshaqaz/local
 ```
 
 `brew audit --strict` на этом tap проходит офлайн; `--online` дополнительно проверяет, что `homepage` и `url` доступны.

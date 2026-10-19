@@ -2,7 +2,7 @@
 
 **English** · [Русский](installation.md)
 
-The CLI speaks English. For Russian press `l` on the screen or run `codex-auto-resets language ru`.
+The CLI speaks English. For Russian press `l` on the screen or run `aures language ru`.
 
 ## What you need
 
@@ -13,7 +13,7 @@ The CLI speaks English. For Russian press `l` on the screen or run `codex-auto-r
 ## Install
 
 ```sh
-brew install keshaqaz/tap/codex-auto-resets
+brew install keshaqaz/tap/aures
 ```
 
 From source (Node 26 required):
@@ -21,18 +21,18 @@ From source (Node 26 required):
 ```sh
 git clone https://github.com/Keshaqaz/ares.git && cd ares
 npm ci && npm run build:worker
-echo "alias codex-auto-resets='node $PWD/src/cli/main.mjs'" >> ~/.zshrc && source ~/.zshrc
+echo "alias aures='node $PWD/src/cli/main.mjs'" >> ~/.zshrc && source ~/.zshrc
 ```
 
-The last line sets up the `codex-auto-resets` command this guide uses. Without it, run `node src/cli/main.mjs` from the project folder.
+The last line sets up the `aures` command this guide uses. Without it, run `node src/cli/main.mjs` from the project folder.
 
 ## First setup
 
 ```sh
-codex-auto-resets setup
+aures setup
 ```
 
-<img src="assets/setup-en.png" alt="codex-auto-resets setup: GitHub and ChatGPT sign-in, rules, the Mac check and a trial run">
+<img src="assets/setup-en.png" alt="aures setup: GitHub and ChatGPT sign-in, rules, the Mac check and a trial run">
 
 1. **GitHub sign-in.** Open the link, enter the code and allow access. The sign-in is kept in the Keychain, so you won't be asked again.
 2. **Repository.** A private repository `codex-auto-resets-worker` appears in your account. The worker lives there.
@@ -61,13 +61,13 @@ If `setup` is interrupted, run it again: it picks up where it stopped and loses 
 | Before expiry (last 8 hours) | on | Applies a reset when less than 8 hours are left before it expires. |
 | When the weekly limit runs out | off | As soon as the worker sees the weekly limit is used up, applies the reset that expires first. While the Mac is awake, the Mac check notices the end of the limit, and the reset comes within minutes. |
 
-The rules cover all resets at once and work independently. Change them any time on the `codex-auto-resets` screen or with `codex-auto-resets rules`; new rules take effect from the next worker run. Turning the weekly rule on asks for a ChatGPT code for this Mac, as in step 5 of setup. Turning it off removes the Mac check and revokes the Mac's ChatGPT sign-in.
+The rules cover all resets at once and work independently. Change them any time on the `aures` screen or with `aures rules`; new rules take effect from the next worker run. Turning the weekly rule on asks for a ChatGPT code for this Mac, as in step 5 of setup. Turning it off removes the Mac check and revokes the Mac's ChatGPT sign-in.
 
 The worker runs about once an hour, but GitHub sometimes delays runs by several hours, so the rules don't fire at an exact minute.
 
 ## The Mac check
 
-While the rule "When the weekly limit runs out" is on, a launchd agent runs `codex-auto-resets watch` every 2 minutes. It is a short pass with no windows and no questions:
+While the rule "When the weekly limit runs out" is on, a launchd agent runs `aures watch` every 2 minutes. It is a short pass with no windows and no questions:
 
 1. It reads the weekly limit with the Mac's own ChatGPT sign-in. This spends neither the limit nor tokens.
 2. If the limit has run out, it starts the worker through GitHub, once per weekly window, with the same GitHub sign-in from the Keychain that the commands use.
@@ -86,10 +86,10 @@ Lines in `watch.log` (after the time of the pass):
 | `idle` | The limit has not run out, or the worker was already started for this weekly window. |
 | `dispatched` | The limit ran out; the worker was started. |
 | `transient_error: …` | ChatGPT did not answer this time; the next pass retries. If `transient_error: wham_429` keeps repeating, ChatGPT is throttling the polling, and the reset will come later. |
-| `reauth_required…` | The Mac's ChatGPT sign-in is lost. Run `codex-auto-resets setup`. |
-| `no_session` | The Mac has no ChatGPT sign-in. If the weekly rule is on, run `codex-auto-resets setup`. |
-| `no_github_token`, `github_error: unauthorized` | The GitHub sign-in is missing from the Keychain, has expired, or the Keychain is locked. Any command, such as `codex-auto-resets status`, asks you to sign in again. |
-| `no_worker`, `foreign_repository`, `dispatch_refused`, `github_error: …` | There is no worker repository, it was not created by the CLI or is public, the workflow is disabled, or GitHub did not answer. `codex-auto-resets status` shows the details. |
+| `reauth_required…` | The Mac's ChatGPT sign-in is lost. Run `aures setup`. |
+| `no_session` | The Mac has no ChatGPT sign-in. If the weekly rule is on, run `aures setup`. |
+| `no_github_token`, `github_error: unauthorized` | The GitHub sign-in is missing from the Keychain, has expired, or the Keychain is locked. Any command, such as `aures status`, asks you to sign in again. |
+| `no_worker`, `foreign_repository`, `dispatch_refused`, `github_error: …` | There is no worker repository, it was not created by the CLI or is public, the workflow is disabled, or GitHub did not answer. `aures status` shows the details. |
 | `error: …` | An unexpected error in the pass; the next pass starts over. |
 
 A line ending in `(watch.json not saved)` means the pass could not write `watch.json`.
@@ -99,10 +99,10 @@ A line ending in `(watch.json not saved)` means the pass could not write `watch.
 Open the screen:
 
 ```sh
-codex-auto-resets
+aures
 ```
 
-<img src="assets/status-en.png" alt="The codex-auto-resets screen: resets on top, rules below">
+<img src="assets/status-en.png" alt="The aures screen: resets on top, rules below">
 
 The resets and their deadlines are on top, the general rules below, and under them a line about the worker: when it last ran and what it last applied. "applies soon" next to a reset means it is in its last 8 hours and the before-expiry rule will apply it.
 
@@ -114,52 +114,54 @@ The resets and their deadlines are on top, the general rules below, and under th
 
 If something is wrong, a line starting with `!` at the bottom says what to do. The weekly rule shows whether the Mac check works: "Mac check works" or "Mac check is not working". In the latter case the agent is not running or the Mac's ChatGPT sign-in is lost, and the `!` line says what to do.
 
-`codex-auto-resets status` prints the same once, without the controls. `apply-now` and `rules` do what `Enter` on the screen does, with questions in the terminal.
+`aures status` prints the same once, without the controls. `apply-now` and `rules` do what `Enter` on the screen does, with questions in the terminal.
 
 ## When something breaks
 
-When a worker run fails, GitHub emails you. Run `codex-auto-resets status`: it shows the cause and the fix. Common cases:
+When a worker run fails, GitHub emails you. Run `aures status`: it shows the cause and the fix. Common cases:
 
 | Message | What to do |
 | --- | --- |
-| The worker lost its ChatGPT sign-in | `codex-auto-resets login` and sign in again. Rules and history are kept. |
+| The worker lost its ChatGPT sign-in | `aures login` and sign in again. Rules and history are kept. |
 | The worker is disabled in GitHub | Open the link in the message and click **Enable workflow**. |
 | The worker has not run for N h | Open the link in the message and check that GitHub Actions is working. Runs usually resume on their own. |
 | This is another ChatGPT account | Sign in to the account the worker was set up for. Switching accounts takes a reinstall: `uninstall`, then `setup`. |
-| Setup is not finished | `codex-auto-resets setup`. |
-| The worker is out of date | `codex-auto-resets upgrade`. |
-| This Mac's ChatGPT sign-in is lost | `codex-auto-resets setup` and enter a ChatGPT code for this Mac again. |
-| The check from this Mac is not running | `codex-auto-resets setup`: it installs the agent again. |
+| Setup is not finished | `aures setup`. |
+| The worker is out of date | `aures upgrade`. |
+| This Mac's ChatGPT sign-in is lost | `aures setup` and enter a ChatGPT code for this Mac again. |
+| The check from this Mac is not running | `aures setup`: it installs the agent again. |
 
-If `setup`, `rules` or `upgrade` prints "The check from this Mac did not start (launchctl …)", launchd did not take the agent. The rest of the command is done; run `codex-auto-resets setup` again.
+If `setup`, `rules` or `upgrade` prints "The check from this Mac did not start (launchctl …)", launchd did not take the agent. The rest of the command is done; run `aures setup` again.
 
 ## Upgrade
 
 ```sh
-brew upgrade codex-auto-resets
-codex-auto-resets upgrade
+brew upgrade aures
+aures upgrade
 ```
 
 From source, in the project folder:
 
 ```sh
 git pull && npm ci && npm run build:worker
-codex-auto-resets upgrade
+aures upgrade
 ```
 
-`codex-auto-resets upgrade` updates the worker in your repository; without it, the old version keeps running there. Rules, history and the ChatGPT sign-in are kept. With the weekly rule on, `upgrade` also reloads the Mac check agent when its plist changed.
+`aures upgrade` updates the worker in your repository; without it, the old version keeps running there. Rules, history and the ChatGPT sign-in are kept. With the weekly rule on, `upgrade` also reloads the Mac check agent when its plist changed.
 
 Installed from source, the agent runs the `node` and the `src/cli/main.mjs` you last ran `setup`, `rules` or `upgrade` with. If you move the folder or change Node, run `setup` again.
 
-Installed with Homebrew, the agent runs the program through the link `$(brew --prefix)/opt/codex-auto-resets`, so after `brew upgrade` it runs the new version right away.
+Installed with Homebrew, the agent runs the program through the link `$(brew --prefix)/opt/aures`, so after `brew upgrade` it runs the new version right away.
+
+Before 0.3.0 the program was called `codex-auto-resets`. `brew upgrade` reinstalls it under the new name by itself; then run `aures upgrade`. It updates the worker and moves the Mac check agent to the `aures` command. The `codex-auto-resets-worker` repository, the GitHub sign-in and the files on the Mac keep their old names, so there is nothing to reinstall.
 
 ## Uninstall
 
 ```sh
-codex-auto-resets uninstall
+aures uninstall
 ```
 
-Then remove the program: `brew uninstall codex-auto-resets`. Installed from source, delete the project folder and the `alias codex-auto-resets=…` line in `~/.zshrc`.
+Then remove the program: `brew uninstall aures`. Installed from source, delete the project folder and the `alias aures=…` line in `~/.zshrc`.
 
 `uninstall` asks you to sign in to GitHub once more: deleting a repository needs a separate permission, which the CLI does not keep. It then revokes the worker's ChatGPT sign-in and deletes the repository. Next it removes the Mac check agent, revokes the Mac's ChatGPT sign-in and deletes its files and log, and finally removes the GitHub sign-in from the Keychain. Open the GitHub page it links and click **Revoke** to close access completely.
 

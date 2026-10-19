@@ -1,7 +1,7 @@
 import { connectGitHub, installedWorker, command } from './common.mjs';
 import { readOverview, renderOverview, paint, WIDTH } from './overview.mjs';
 
-// `codex-auto-resets status`: the overview of the screen, printed once: the resets, the
+// `aures status`: the overview of the screen, printed once: the resets, the
 // rules, the worker and the warnings when the worker or the check from this Mac is not running.
 export async function status({ fetch, keychain, io, mac, now = Date.now,
   sleep = ms => new Promise(resolve => setTimeout(resolve, ms)), timeZone }) {

@@ -110,7 +110,7 @@ export function renderOverview(model, { now, timeZone, width = WIDTH, cursor = n
 
   const languages = toggle ? LANGUAGES.flatMap((code, i) => [[i ? ' · ' : '   ', S.dim],
     [code.toUpperCase(), code === language() ? S.cyan : S.dim]]) : [];
-  lines.push(spread([['codex-auto-resets', S.bold]], [[shortTime(now(), timeZone), S.dim], ...languages], width), []);
+  lines.push(spread([['aures', S.bold]], [[shortTime(now(), timeZone), S.dim], ...languages], width), []);
   const resetsTitle = t('RESETS', 'СБРОСЫ');
   heading(model.resets?.length ? `${resetsTitle} · ${model.resets.length}` : resetsTitle);
   if (!model.resets) lines.push([[t('  not read yet — the worker reads them on its next run', '  ещё не прочитаны — воркер прочитает их при следующем запуске'), S.dim]]);
@@ -143,8 +143,8 @@ export function renderOverview(model, { now, timeZone, width = WIDTH, cursor = n
   if (last) lines.push([[`  ${last}`, S.dim]]);
   lines.push([[`  ${model.repo.html_url}`, S.dim]]);
   const warnings = [worker.warning];
-  if (model.rulesBroken) warnings.push(t('The rules do not read. Choose them again: `codex-auto-resets rules`.',
-    'Правила не читаются. Выберите их заново: `codex-auto-resets rules`.'));
+  if (model.rulesBroken) warnings.push(t('The rules do not read. Choose them again: `aures rules`.',
+    'Правила не читаются. Выберите их заново: `aures rules`.'));
   if (model.lastRun?.status === 'completed' && model.lastRun.conclusion !== 'success') {
     warnings.push(`${failedRunAdvice(model.logged ?? {})} ${t('Details', 'Подробности')}: ${model.lastRun.html_url}`);
   }

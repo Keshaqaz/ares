@@ -81,7 +81,7 @@ test('upgrade refuses rules of a newer version and an unreadable workflow, writi
   world.github.write(repo, FILES.rules, '{"formatVersion":9,"beforeExpiry":true,"weeklyAutoApply":false}\n');
   let result = await run(upgrade, { workerSource: NEW_WORKER });
   assert.equal(result.code, 1);
-  assert.match(result.io.lines.at(-1), /более новой версией\. Обновите программу: `brew upgrade codex-auto-resets`/);
+  assert.match(result.io.lines.at(-1), /более новой версией\. Обновите программу: `brew upgrade aures`/);
 
   world.github.write(repo, FILES.rules, '{"formatVersion":1,"beforeExpiry":true,"weeklyAutoApply":false}\n');
   world.github.write(repo, FILES.workflow, 'name: edited by hand\n');
@@ -95,7 +95,7 @@ test('upgrade asks for setup when there is no worker', async () => {
   const { run } = await cliWorld();
   const { code, io } = await run(upgrade);
   assert.equal(code, 1);
-  assert.equal(io.lines.at(-1), 'Воркер не установлен. Запустите `codex-auto-resets setup`.');
+  assert.equal(io.lines.at(-1), 'Воркер не установлен. Запустите `aures setup`.');
 });
 
 test('uninstall revokes the worker session, deletes the repository and the Keychain entry, and links the OAuth App', async () => {
@@ -168,7 +168,7 @@ test('uninstall without a worker repository clears the Keychain, and leaves a fo
     description: 'mine' }, files: new Map(), commits: [], secrets: new Map(), runs: [], workflowState: 'active' });
   result = await run(uninstall);
   assert.equal(result.code, 0);
-  assert.match(result.io.output(), /https:\/\/github\.com\/octo-fake\/codex-auto-resets-worker создан не codex-auto-resets, оставлен как есть/);
+  assert.match(result.io.output(), /https:\/\/github\.com\/octo-fake\/codex-auto-resets-worker создан не aures, оставлен как есть/);
   assert.ok(world.github.repo());
 });
 

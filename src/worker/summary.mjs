@@ -27,17 +27,17 @@ const VERDICTS = {
   applied: 'Reset applied.',
   pending: 'The result of the application is not known yet; the next run will settle it.',
   transient_error: 'Temporary error; the next run will check again.',
-  reauth_required: 'The worker lost its ChatGPT sign-in. Sign in again: `codex-auto-resets login`.',
-  broken_state: 'The worker files do not read. What to do: `codex-auto-resets status`.',
+  reauth_required: 'The worker lost its ChatGPT sign-in. Sign in again: `aures login`.',
+  broken_state: 'The worker files do not read. What to do: `aures status`.',
   revoked: 'The worker\'s ChatGPT sign-in is revoked.',
   revoke_failed: 'ChatGPT did not confirm the revocation of the sign-in.',
-  commit_failed: 'Could not save the data in the repository. If the next run reports a lost sign-in, sign in again: `codex-auto-resets login`.',
+  commit_failed: 'Could not save the data in the repository. If the next run reports a lost sign-in, sign in again: `aures login`.',
 };
 const onOff = value => value ? 'on' : 'off';
 
 // Markdown for $GITHUB_STEP_SUMMARY.
 export function stepSummary({ outcome, reason = null, summary = null, now }) {
-  const lines = ['### codex-auto-resets', '', `Run: ${iso(now)}`, '', VERDICTS[outcome] ?? outcome];
+  const lines = ['### aures', '', `Run: ${iso(now)}`, '', VERDICTS[outcome] ?? outcome];
   if (reason) lines.push('', `Reason: \`${reason}\``);
   if (summary) {
     const { beforeExpiry, weeklyAutoApply } = summary.rules;

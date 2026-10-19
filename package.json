@@ -1,10 +1,10 @@
 {
-  "name": "codex-auto-resets",
+  "name": "aures",
   "version": "0.2.2",
   "private": true,
   "type": "module",
   "bin": {
-    "codex-auto-resets": "src/cli/main.mjs"
+    "aures": "src/cli/main.mjs"
   },
   "engines": {
     "node": ">=26"

@@ -32,7 +32,7 @@ async function trialRun({ api, repo, io, now, sleep, timeZone }) {
   `Воркер установлен, но сбросы пока не прочитаны${busy ? ': ChatGPT временно недоступен' : ''}. Воркер повторит при следующем запуске.`);
 }
 
-// `codex-auto-resets setup`: from nothing to a working worker, or the missing parts of an
+// `aures setup`: from nothing to a working worker, or the missing parts of an
 // existing one. Files already in the repository are kept, so a repeated setup never loses
 // state or rules and never rewrites the cron. This Mac follows the weekly rule: the check
 // from it is set up or removed. Returns the process exit code.

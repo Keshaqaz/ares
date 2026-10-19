@@ -16,7 +16,7 @@ export function decide(weeklyQuota, state, now) {
   return { dispatch, nextState: dispatch ? { ...state, dispatched: { renewsAt: weeklyQuota.renewsAt, at: now } } : state };
 }
 
-// `codex-auto-resets watch`, run by the launchd agent every 2 minutes: one pass that reads the
+// `aures watch`, run by the launchd agent every 2 minutes: one pass that reads the
 // weekly quota with the computer session and, once the quota is exhausted, starts a worker run
 // as the cron does. The worker decides on its own session whether to apply a reset. The pass
 // never asks the user or logs in anywhere; every outcome is one log line and exit code 0.
