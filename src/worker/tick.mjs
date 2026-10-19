@@ -8,7 +8,7 @@ import { migrateState, STATE_MIGRATIONS } from './state-file.mjs';
 export const BEFORE_EXPIRY_MS = 8 * 3600_000;
 // A reset renews the weekly window and moves its renewsAt by days; two reads of one window
 // differ by seconds at most.
-const SAME_WINDOW_MS = 3600_000;
+export const SAME_WINDOW_MS = 3600_000;
 
 // Group of matching deadlines: resets whose deadline falls on one calendar minute.
 const minuteGroup = expiresAt => expiresAt === null ? null : Math.floor(expiresAt / 60_000);

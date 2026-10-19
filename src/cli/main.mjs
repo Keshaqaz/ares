@@ -9,12 +9,17 @@ import { rules } from './rules.mjs';
 import { login } from './login.mjs';
 import { upgrade } from './upgrade.mjs';
 import { uninstall } from './uninstall.mjs';
+import { watch } from './watch.mjs';
+import { WatchFiles } from './watch-files.mjs';
 import { GitHubTokenKeychain } from './keychain.mjs';
 import pkg from '../../package.json' with { type: 'json' };
 
 // The worker bundle that setup and upgrade put into the repository: `npm run build:worker`.
 const WORKER_BUNDLE = new URL('../../dist/worker.mjs', import.meta.url);
 const COMMANDS = { setup, status, 'apply-now': applyNow, rules, login, upgrade, uninstall };
+// The launchd agent runs `watch`; it is not in the usage. A locked Keychain may ask for the
+// password in a dialog nobody sees, so the agent waits for it briefly.
+const WATCH_KEYCHAIN_MS = 10_000;
 const USAGE = `Использование: codex-auto-resets <команда>
   setup      установить или продолжить установку
   status     сбросы, правила и состояние воркера
@@ -31,7 +36,7 @@ async function main() {
     console.log(pkg.version);
     return 0;
   }
-  const run = Object.hasOwn(COMMANDS, name) ? COMMANDS[name] : null;
+  const run = Object.hasOwn(COMMANDS, name) ? COMMANDS[name] : name === 'watch' ? watch : null;
   if (!run || rest.length) {
     console.error(USAGE);
     return 2;
@@ -39,6 +44,10 @@ async function main() {
   if (process.platform !== 'darwin') {
     console.error('codex-auto-resets работает только на macOS.');
     return 1;
+  }
+  if (run === watch) {
+    return watch({ fetch: globalThis.fetch, keychain: new GitHubTokenKeychain({ timeoutMs: WATCH_KEYCHAIN_MS }),
+      files: new WatchFiles(), log: line => console.log(`${new Date().toISOString()} ${line}`) });
   }
   let workerSource = null;
   if (name === 'setup' || name === 'upgrade') {
