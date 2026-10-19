@@ -59,20 +59,31 @@ Full guide, including installing from source: [docs/installation.en.md](docs/ins
 
 ```mermaid
 flowchart LR
-  subgraph M["your Mac"]
-    CLI["codex-auto-resets<br/>setup · status<br/>rules · apply-now"]
-    A["Mac check<br/>every 2 min"]
-  end
-  subgraph R["private repo codex-auto-resets-worker"]
-    W["worker<br/>GitHub Actions, hourly"]
-    S[("encrypted sign-in<br/>and history")]
-  end
-  C["ChatGPT"]
-  CLI -- "installs, sets rules,<br/>apply now" --> W
-  A -. "reads the weekly limit" .-> C
-  A -- "limit ran out:<br/>run now" --> W
-  W --- S
-  W -- "reads resets and limits,<br/>applies a reset" --> C
+  hour(["⏰ every hour"])
+  mac(["💻 your Mac sees<br/>the weekly limit run out"])
+  you(["⌨️ you press Enter<br/>on a reset"])
+  worker["<b>Worker</b><br/>GitHub Actions<br/>in your private repo"]
+  due{"a rule fires<br/>or you asked?"}
+  apply(["✅ reset applied<br/>in ChatGPT"])
+  wait(["💤 waits for<br/>the next run"])
+
+  hour --> worker
+  mac --> worker
+  you --> worker
+  worker --> due
+  due -- yes --> apply
+  due -- no --> wait
+
+  classDef trigger fill:#f6f8fa,stroke:#d0d7de,color:#1f2328
+  classDef main fill:#8A2BE2,stroke:#6a1fb0,color:#ffffff
+  classDef check fill:#fff8c5,stroke:#d4a72c,color:#1f2328
+  classDef ok fill:#1f883d,stroke:#1a7f37,color:#ffffff
+  classDef idle fill:#eaeef2,stroke:#d0d7de,color:#57606a
+  class hour,mac,you trigger
+  class worker main
+  class due check
+  class apply ok
+  class wait idle
 ```
 
 **The worker** runs on GitHub Actions about once an hour, checks the resets against the rules and applies one when it's due. The Mac isn't needed for that: it only installs and controls the worker.

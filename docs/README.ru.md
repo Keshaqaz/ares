@@ -60,20 +60,31 @@ codex-auto-resets setup
 
 ```mermaid
 flowchart LR
-  subgraph M["ваш Mac"]
-    CLI["codex-auto-resets<br/>setup · status<br/>rules · apply-now"]
-    A["проверка с Mac<br/>раз в 2 минуты"]
-  end
-  subgraph R["приватный репозиторий codex-auto-resets-worker"]
-    W["воркер<br/>GitHub Actions, раз в час"]
-    S[("зашифрованный вход<br/>и история")]
-  end
-  C["ChatGPT"]
-  CLI -- "установка, правила,<br/>«применить сейчас»" --> W
-  A -. "читает недельный лимит" .-> C
-  A -- "лимит кончился:<br/>запустить сейчас" --> W
-  W --- S
-  W -- "читает сбросы и лимиты,<br/>применяет сброс" --> C
+  hour(["⏰ каждый час"])
+  mac(["💻 Mac: недельный<br/>лимит кончился"])
+  you(["⌨️ вы нажали Enter<br/>на сбросе"])
+  worker["<b>Воркер</b><br/>GitHub Actions<br/>в вашем приватном<br/>репозитории"]
+  due{"сработало правило<br/>или вы попросили?"}
+  apply(["✅ сброс применён<br/>в ChatGPT"])
+  wait(["💤 ждёт следующего<br/>запуска"])
+
+  hour --> worker
+  mac --> worker
+  you --> worker
+  worker --> due
+  due -- да --> apply
+  due -- нет --> wait
+
+  classDef trigger fill:#f6f8fa,stroke:#d0d7de,color:#1f2328
+  classDef main fill:#8A2BE2,stroke:#6a1fb0,color:#ffffff
+  classDef check fill:#fff8c5,stroke:#d4a72c,color:#1f2328
+  classDef ok fill:#1f883d,stroke:#1a7f37,color:#ffffff
+  classDef idle fill:#eaeef2,stroke:#d0d7de,color:#57606a
+  class hour,mac,you trigger
+  class worker main
+  class due check
+  class apply ok
+  class wait idle
 ```
 
 **Воркер** запускается по расписанию GitHub Actions примерно раз в час, сверяет сбросы с правилами и применяет нужный. Компьютер для этого не нужен: Mac участвует только в установке и управлении.
