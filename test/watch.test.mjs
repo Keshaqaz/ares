@@ -6,6 +6,8 @@ import { join } from 'node:path';
 import { decide, watch } from '../src/cli/watch.mjs';
 import { WatchFiles } from '../src/cli/watch-files.mjs';
 import { setup } from '../src/cli/setup.mjs';
+import { status } from '../src/cli/status.mjs';
+import { formatTime } from '../src/cli/common.mjs';
 import { window } from './support/fake-world.mjs';
 import { cliWorld } from './support/cli-world.mjs';
 
@@ -45,14 +47,16 @@ function memoryFiles(session = null) {
 }
 
 // An installed worker whose runs stay queued, and this Mac with its own computer session.
-async function mac({ session = true } = {}) {
+// With weekly, setup turns the weekly rule on and logs this Mac in itself, and the worker's
+// runs execute.
+async function mac({ session = true, weekly = false } = {}) {
   const env = await cliWorld();
-  const { code, io } = await env.run(setup, { answers: [''] });
+  const { code, io } = await env.run(setup, { answers: weekly ? ['2', ''] : [''] });
   assert.equal(code, 0, io.output());
   const { world } = env;
-  world.github.runner = () => null;
+  if (!weekly) world.github.runner = () => null;
   const repo = world.github.repo();
-  const files = memoryFiles(session ? world.login() : null);
+  const files = weekly ? env.mac.files : memoryFiles(session ? world.login() : null);
   const lines = [], trial = repo.runs.length;
   const pass = () => watch({ fetch: world.fetch, keychain: env.keychain, files, log: line => lines.push(line), now: () => world.now });
   // The runs after setup's trial run.
@@ -86,6 +90,46 @@ test('watch starts one worker run per exhausted window and none while the quota 
   await pass();
   assert.equal(dispatches().length, 2);
   assert.deepEqual(lines, ['idle', 'dispatched', 'idle', 'dispatched']);
+  assert.deepEqual(world.violations, []);
+  assert.deepEqual(world.github.violations, []);
+});
+
+// ADR-0005, exhaustion condition: a day of the agent's passes every 2 minutes, with
+// /wham/usage answering 429 now and then, the weekly quota running out mid-day and the
+// worker run applying a reset as on GitHub.
+test('a day of passes: the reset lands within minutes of the weekly quota running out, 429s only delay it', async () => {
+  const env = await mac({ weekly: true });
+  const { world, lines, pass, dispatches } = env;
+  const refusedAt = world.now + 9 * HOUR + MINUTE, renewsAt = refusedAt + 2 * DAY;
+  let refusalLine = null, throttled = 0;
+  for (let n = 0; n < 720; n++) {
+    world.advance(2 * MINUTE);
+    if (refusalLine === null && world.now >= refusedAt) {
+      exhaust(world, renewsAt);
+      refusalLine = lines.length;
+    }
+    // Every 7th read is throttled, and so is the first one after the client was refused.
+    const throttle = n % 7 === 0 || lines.length === refusalLine;
+    world.chatgpt.fail = throttle ? { status: 429 } : null;
+    throttled += throttle;
+    assert.equal(await pass(), 0);
+  }
+  world.chatgpt.fail = null;
+
+  assert.equal(dispatches().length, 1, 'one worker run for the day');
+  const [run] = dispatches(), startedAt = Date.parse(run.created_at);
+  assert.equal(lines[refusalLine], 'transient_error: wham_429');
+  assert.equal(lines[refusalLine + 1], 'dispatched');
+  assert.ok(startedAt - refusedAt <= 4 * MINUTE, `dispatch ${(startedAt - refusedAt) / MINUTE} min after the refusal`);
+  assert.equal(run.conclusion, 'success');
+  assert.equal(world.chatgpt.redemptions.length, 1);
+  assert.equal(world.chatgpt.secondary.used_percent, 0, 'the reset renewed the weekly window');
+  assert.ok(lines.slice(refusalLine + 2).every(line => line === 'idle' || line === 'transient_error: wham_429'));
+  assert.equal(lines.filter(line => line === 'transient_error: wham_429').length, throttled);
+
+  const { code, io } = await env.run(status);
+  assert.equal(code, 0);
+  assert.ok(io.lines.includes(`Последнее применение: reset-b, ${formatTime(startedAt, 'UTC')} (кончился недельный лимит).`), io.output());
   assert.deepEqual(world.violations, []);
   assert.deepEqual(world.github.violations, []);
 });
