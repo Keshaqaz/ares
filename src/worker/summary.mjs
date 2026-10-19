@@ -23,30 +23,30 @@ export function openSummary({ state, rules }) {
 }
 
 const VERDICTS = {
-  idle: 'Применять нечего.',
-  applied: 'Сброс применён.',
-  pending: 'Результат применения пока неизвестен, следующий запуск уточнит его.',
-  transient_error: 'Временная ошибка, следующий запуск повторит проверку.',
-  reauth_required: 'Воркер потерял вход в ChatGPT. Войдите заново: `codex-auto-resets login`.',
-  broken_state: 'Файлы воркера не читаются. Что делать: `codex-auto-resets status`.',
-  revoked: 'Вход воркера в ChatGPT отозван.',
-  revoke_failed: 'ChatGPT не подтвердил отзыв входа.',
-  commit_failed: 'Не удалось сохранить данные в репозитории. Если следующий запуск сообщит о потере входа, войдите заново: `codex-auto-resets login`.',
+  idle: 'Nothing to apply.',
+  applied: 'Reset applied.',
+  pending: 'The result of the application is not known yet; the next run will settle it.',
+  transient_error: 'Temporary error; the next run will check again.',
+  reauth_required: 'The worker lost its ChatGPT sign-in. Sign in again: `codex-auto-resets login`.',
+  broken_state: 'The worker files do not read. What to do: `codex-auto-resets status`.',
+  revoked: 'The worker\'s ChatGPT sign-in is revoked.',
+  revoke_failed: 'ChatGPT did not confirm the revocation of the sign-in.',
+  commit_failed: 'Could not save the data in the repository. If the next run reports a lost sign-in, sign in again: `codex-auto-resets login`.',
 };
+const onOff = value => value ? 'on' : 'off';
 
 // Markdown for $GITHUB_STEP_SUMMARY.
 export function stepSummary({ outcome, reason = null, summary = null, now }) {
-  const lines = ['### codex-auto-resets', '', `Запуск: ${iso(now)}`, '', VERDICTS[outcome] ?? outcome];
-  if (reason) lines.push('', `Причина: \`${reason}\``);
+  const lines = ['### codex-auto-resets', '', `Run: ${iso(now)}`, '', VERDICTS[outcome] ?? outcome];
+  if (reason) lines.push('', `Reason: \`${reason}\``);
   if (summary) {
     const { beforeExpiry, weeklyAutoApply } = summary.rules;
-    lines.push('', `Правила: перед истечением — ${beforeExpiry ? 'включено' : 'выключено'}, ` +
-      `когда кончится недельный лимит — ${weeklyAutoApply ? 'включено' : 'выключено'}.`);
-    lines.push('', `Сбросов: ${summary.resets.length}`);
-    for (const reset of summary.resets) lines.push(`- \`${reset.creditId}\`: ${reset.expiresAt ?? 'без срока'}`);
-    if (summary.lastApplied) lines.push('', `Последнее применение: \`${summary.lastApplied.creditId}\` ${summary.lastApplied.at}`);
+    lines.push('', `Rules: before expiry — ${onOff(beforeExpiry)}, when the weekly limit runs out — ${onOff(weeklyAutoApply)}.`);
+    lines.push('', `Resets: ${summary.resets.length}`);
+    for (const reset of summary.resets) lines.push(`- \`${reset.creditId}\`: ${reset.expiresAt ?? 'no expiry'}`);
+    if (summary.lastApplied) lines.push('', `Last applied: \`${summary.lastApplied.creditId}\` ${summary.lastApplied.at}`);
     if (summary.login?.at === iso(now)) {
-      lines.push('', summary.login.result === 'accepted' ? 'Новый вход принят.' : 'Новый вход отклонён: это другой аккаунт ChatGPT.');
+      lines.push('', summary.login.result === 'accepted' ? 'New sign-in accepted.' : 'New sign-in rejected: this is another ChatGPT account.');
     }
   }
   return `${lines.join('\n')}\n`;

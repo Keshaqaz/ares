@@ -112,7 +112,7 @@ test('a transient failure without a refresh commits nothing and does not fail th
   world.chatgpt.fail = 'network';
   assert.deepEqual(await run(), { outcome: 'transient_error', exitCode: 0 });
   assert.deepEqual(repo.commits(), ['Set up worker']);
-  assert.match(await repo.readStepSummary(), /Временная ошибка/);
+  assert.match(await repo.readStepSummary(), /Temporary error/);
 });
 
 test('a lost worker session fails the run and asks for a new login', async () => {
@@ -147,7 +147,7 @@ test('a refreshed session that cannot be pushed fails the run and says so', asyn
   nearExpiry(world, initial.session);
   assert.deepEqual(await run(), { outcome: 'commit_failed', reason: 'push_failed', exitCode: 1 });
   assert.equal(world.requests.filter(r => r.host === 'chatgpt.com').length, 0);
-  assert.match(await repo.readStepSummary(), /Не удалось сохранить данные/);
+  assert.match(await repo.readStepSummary(), /Could not save the data/);
 });
 
 test('rules the CLI pushed during the run survive the worker commit', async () => {
@@ -198,7 +198,7 @@ test('a login secret replaces the lost session, and the summary tells which logi
   const summary = repo.show(FILES.summary);
   assert.deepEqual(JSON.parse(summary).login, { id: 'login-1', result: 'accepted', at: new Date(world.now).toISOString() });
   assert.ok(!summary.includes(session.refreshToken));
-  assert.match(await repo.readStepSummary(), /Новый вход принят/);
+  assert.match(await repo.readStepSummary(), /New sign-in accepted/);
 
   // A secret the CLI did not write is ignored, not a broken state.
   assert.equal((await run({ login: 'not json' })).outcome, 'idle');
@@ -212,7 +212,7 @@ test('a revoke run revokes the worker session in OpenAI and commits nothing', as
   assert.deepEqual(world.auth.revoked, [initial.session.refreshToken]);
   assert.deepEqual(repo.commits(), ['Set up worker']);
   assert.equal(world.requests.filter(r => r.host === 'chatgpt.com').length, 0, 'no tick');
-  assert.match(await repo.readStepSummary(), /Вход воркера в ChatGPT отозван/);
+  assert.match(await repo.readStepSummary(), /The worker's ChatGPT sign-in is revoked/);
   nearExpiry(world, initial.session);
   assert.deepEqual(await run(), { outcome: 'reauth_required', exitCode: 1 });
   assert.deepEqual(world.violations, []);

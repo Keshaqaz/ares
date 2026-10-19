@@ -26,7 +26,7 @@ on:
 permissions:
   contents: write
 # One run at a time: two runs could refresh the session twice. queue: max keeps every pending
-# run (the default replaces it), so a scheduled run never drops a queued «Применить сейчас».
+# run (the default replaces it), so a scheduled run never drops a queued apply-now run.
 concurrency:
   group: codex-auto-resets
   cancel-in-progress: false
