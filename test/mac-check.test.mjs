@@ -9,7 +9,7 @@ import { upgrade } from '../src/cli/upgrade.mjs';
 import { uninstall } from '../src/cli/uninstall.mjs';
 import { watch } from '../src/cli/watch.mjs';
 import { LaunchAgent, AGENT_LABEL } from '../src/cli/launch-agent.mjs';
-import { MAC_LOGIN } from '../src/cli/mac-check.mjs';
+import { macLogin } from '../src/cli/mac-check.mjs';
 import { FILES } from '../src/worker/layout.mjs';
 import { window } from './support/fake-world.mjs';
 import { cliWorld } from './support/cli-world.mjs';
@@ -42,7 +42,7 @@ test('turning the weekly rule on logs this Mac into ChatGPT and starts the agent
   const { world, repo, mac, keychain, run, session, loaded } = await installed();
   const { code, io } = await run(rules, { answers: ['2', ''] });
   assert.equal(code, 0, io.output());
-  assert.deepEqual(io.lines.slice(-4), ['Правила сохранены и заработают со следующего запуска воркера.', MAC_LOGIN,
+  assert.deepEqual(io.lines.slice(-4), ['Правила сохранены и заработают со следующего запуска воркера.', macLogin(),
     io.lines.at(-2), 'Внеочередная проверка с этого Mac включена.']);
   assert.match(io.lines.at(-2), /^Откройте https:\/\/auth\.openai\.com\/codex\/device и введите код FAKE-\d+$/);
   assert.equal((await session()).refreshToken, world.auth.current.refresh);
@@ -90,13 +90,13 @@ test('setup with the weekly rule chosen asks for the Mac code, and a repeated se
   const env = await cliWorld();
   const first = await env.run(setup, { answers: ['2', ''] });
   assert.equal(first.code, 0, first.io.output());
-  assert.equal(first.io.lines.filter(line => line === MAC_LOGIN).length, 1);
+  assert.equal(first.io.lines.filter(line => line === macLogin()).length, 1);
   assert.equal(env.mac.launchctl.loaded.has(AGENT_LABEL), true);
   assert.ok(await env.mac.files.readSession());
 
   const again = await env.run(setup, { answers: [] });
   assert.equal(again.code, 0, again.io.output());
-  assert.ok(!again.io.lines.includes(MAC_LOGIN), again.io.output());
+  assert.ok(!again.io.lines.includes(macLogin()), again.io.output());
   assert.ok(!again.io.output().includes('Внеочередная проверка'), 'a working agent is not announced again');
   assert.equal(env.mac.launchctl.loaded.has(AGENT_LABEL), true);
 });
@@ -109,7 +109,7 @@ test('setup after the Mac session is lost asks for the code again and clears ses
 
   const { code, io } = await run(setup, { answers: [] });
   assert.equal(code, 0, io.output());
-  assert.ok(io.lines.includes(MAC_LOGIN), io.output());
+  assert.ok(io.lines.includes(macLogin()), io.output());
   assert.notEqual((await session()).refreshToken, old.refreshToken);
   const state = await mac.files.readState();
   assert.equal(state.sessionLost, undefined);
@@ -187,22 +187,19 @@ test('status tells whether the check from this Mac works, and what to do when it
   const line = async () => {
     const { code, io } = await run(status);
     assert.equal(code, 0, io.output());
-    return { check: io.lines.find(l => l.startsWith('Внеочередная проверка с этого Mac:')),
-      warnings: io.lines.filter(l => l.startsWith('Внимание!') && l.includes('Mac')) };
+    return { rule: io.lines.find(l => l.includes('Когда кончится недельный лимит')), warnings: io.lines.filter(l => l.startsWith('! ')) };
   };
-  assert.deepEqual(await line(), { check: 'Внеочередная проверка с этого Mac: выключена.', warnings: [] });
+  assert.deepEqual(await line(), { rule: '  ☐ Когда кончится недельный лимит', warnings: [] });
 
   assert.equal((await run(rules, { answers: ['2', ''] })).code, 0);
-  assert.deepEqual(await line(), { check: 'Внеочередная проверка с этого Mac: работает.', warnings: [] });
-  await mac.files.writeState({ lastPass: { at: Date.parse('2026-10-20T12:04:00Z'), outcome: 'idle' } });
-  assert.deepEqual(await line(), { check: 'Внеочередная проверка с этого Mac: работает (последняя проверка 20 октября 2026 г. в 12:04 UTC).', warnings: [] });
+  assert.deepEqual(await line(), { rule: '  ☑ Когда кончится недельный лимит · проверка с Mac работает', warnings: [] });
 
   await mac.files.writeState({ sessionLost: true });
-  assert.deepEqual(await line(), { check: 'Внеочередная проверка с этого Mac: не работает.',
-    warnings: ['Внимание! Вход этого Mac в ChatGPT потерян. Войдите заново: `codex-auto-resets setup`.'] });
+  assert.deepEqual(await line(), { rule: '  ☑ Когда кончится недельный лимит · проверка с Mac не работает',
+    warnings: ['! Вход этого Mac в ChatGPT потерян. Войдите заново: `codex-auto-resets setup`.'] });
 
   await mac.files.writeState({});
   await mac.agent.remove();
-  assert.deepEqual(await line(), { check: 'Внеочередная проверка с этого Mac: не работает.',
-    warnings: ['Внимание! Внеочередная проверка с этого Mac не запущена. Запустите `codex-auto-resets setup`.'] });
+  assert.deepEqual(await line(), { rule: '  ☑ Когда кончится недельный лимит · проверка с Mac не работает',
+    warnings: ['! Внеочередная проверка с этого Mac не запущена. Запустите `codex-auto-resets setup`.'] });
 });

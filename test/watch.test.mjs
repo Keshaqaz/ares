@@ -7,7 +7,7 @@ import { decide, watch } from '../src/cli/watch.mjs';
 import { WatchFiles } from '../src/cli/watch-files.mjs';
 import { setup } from '../src/cli/setup.mjs';
 import { status } from '../src/cli/status.mjs';
-import { formatTime } from '../src/cli/common.mjs';
+import { shortTime } from '../src/cli/overview.mjs';
 import { window } from './support/fake-world.mjs';
 import { cliWorld } from './support/cli-world.mjs';
 
@@ -129,7 +129,7 @@ test('a day of passes: the reset lands within minutes of the weekly quota runnin
 
   const { code, io } = await env.run(status);
   assert.equal(code, 0);
-  assert.ok(io.lines.includes(`Последнее применение: reset-b, ${formatTime(startedAt, 'UTC')} (кончился недельный лимит).`), io.output());
+  assert.ok(io.lines.includes(`  применён reset-b ${shortTime(startedAt, 'UTC')} — кончился недельный лимит`), io.output());
   assert.deepEqual(world.violations, []);
   assert.deepEqual(world.github.violations, []);
 });

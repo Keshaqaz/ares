@@ -2,7 +2,7 @@
 
 **English** · [Русский](installation.md)
 
-The CLI speaks Russian; the messages quoted below are given in Russian with a translation.
+The CLI speaks English. For Russian press `l` on the screen or run `codex-auto-resets language ru`.
 
 ## What you need
 
@@ -32,7 +32,7 @@ The last line sets up the `codex-auto-resets` command this guide uses. Without i
 codex-auto-resets setup
 ```
 
-<img src="assets/setup.png" alt="codex-auto-resets setup: GitHub and ChatGPT sign-in, rules, the Mac check and a trial run">
+<img src="assets/setup-en.png" alt="codex-auto-resets setup: GitHub and ChatGPT sign-in, rules, the Mac check and a trial run">
 
 1. **GitHub sign-in.** Open the link, enter the code and allow access. The sign-in is kept in the Keychain, so you won't be asked again.
 2. **Repository.** A private repository `codex-auto-resets-worker` appears in your account. The worker lives there.
@@ -41,20 +41,16 @@ codex-auto-resets setup
 5. **ChatGPT sign-in for this Mac.** Only if the rule "When the weekly limit runs out" is on. Open the link and enter one more code, for the same ChatGPT account. The CLI installs a launchd agent that watches the weekly limit:
 
    ```
-   Вход в ChatGPT для этого Mac: он замечает конец недельного лимита (Codex не затронут).
-   Откройте https://auth.openai.com/codex/device и введите код ABCD-12345
-   Внеочередная проверка с этого Mac включена.
+   Sign in to ChatGPT for this Mac: it notices the end of the weekly limit (Codex is not affected).
+   Open https://auth.openai.com/codex/device and enter the code ABCD-12345
+   The check from this Mac is on.
    ```
-
-   ("ChatGPT sign-in for this Mac: it notices when the weekly limit runs out (Codex is untouched). Open … and enter the code …. The out-of-schedule check from this Mac is on.")
 
 6. **Check.** The CLI runs the worker once and shows the result:
 
    ```
-   Воркер работает. Сбросов: 2, ближайший истекает 22 октября 2026 г. в 15:00 UTC.
+   The worker works. Resets: 2, the nearest expires 22 October 2026 at 15:00 UTC.
    ```
-
-   ("The worker is running. Resets: 2, the next one expires on 22 October 2026 at 15:00 UTC.")
 
 If `setup` is interrupted, run it again: it picks up where it stopped and loses nothing.
 
@@ -65,7 +61,7 @@ If `setup` is interrupted, run it again: it picks up where it stopped and loses 
 | Before expiry (last 8 hours) | on | Applies a reset when less than 8 hours are left before it expires. |
 | When the weekly limit runs out | off | As soon as the worker sees the weekly limit is used up, applies the reset that expires first. While the Mac is awake, the Mac check notices the end of the limit, and the reset comes within minutes. |
 
-The rules cover all resets at once and work independently. Change them any time with `codex-auto-resets rules`; new rules take effect from the next worker run. Turning the weekly rule on in `rules` asks for a ChatGPT code for this Mac, as in step 5 of setup. Turning it off removes the Mac check and revokes the Mac's ChatGPT sign-in.
+The rules cover all resets at once and work independently. Change them any time on the `codex-auto-resets` screen or with `codex-auto-resets rules`; new rules take effect from the next worker run. Turning the weekly rule on asks for a ChatGPT code for this Mac, as in step 5 of setup. Turning it off removes the Mac check and revokes the Mac's ChatGPT sign-in.
 
 The worker runs about once an hour, but GitHub sometimes delays runs by several hours, so the rules don't fire at an exact minute.
 
@@ -100,33 +96,25 @@ A line ending in `(watch.json not saved)` means the pass could not write `watch.
 
 ## Day to day
 
-**Check that everything is fine:**
+Open the screen:
 
 ```sh
-codex-auto-resets status
+codex-auto-resets
 ```
 
-<img src="assets/status.png" alt="codex-auto-resets status and apply-now in the terminal">
+<img src="assets/status-en.png" alt="The codex-auto-resets screen: resets on top, rules below">
 
-Shows the resets, the rules, the Mac check, the last run and the last application. If something is wrong, a line starting with «Внимание!» ("Warning!") at the bottom says what to do.
+The resets and their deadlines are on top, the general rules below, and under them a line about the worker: when it last ran and what it last applied. "applies soon" next to a reset means it is in its last 8 hours and the before-expiry rule will apply it.
 
-The line about the Mac check comes in three forms:
+- `↑` `↓` — pick a reset or a rule.
+- `Enter` on a reset — apply it now. The screen asks to confirm; `y` is yes. The CLI waits for the worker and reports the result; this can take a few minutes. A reset is single-use, and applying it cannot be undone.
+- `Enter` on a rule — switch it on or off. Turning the weekly rule on shows a ChatGPT code for this Mac, as in step 5 of setup.
+- `l` — switch the language (EN · RU in the header); the choice is kept.
+- `r` — refresh, `q` — quit.
 
-```
-Внеочередная проверка с этого Mac: работает (последняя проверка 19 октября 2026 г. в 14:02 GMT+7).
-Внеочередная проверка с этого Mac: выключена.
-Внеочередная проверка с этого Mac: не работает.
-```
+If something is wrong, a line starting with `!` at the bottom says what to do. The weekly rule shows whether the Mac check works: "Mac check works" or "Mac check is not working". In the latter case the agent is not running or the Mac's ChatGPT sign-in is lost, and the `!` line says what to do.
 
-("The out-of-schedule check from this Mac: working (last check …) / off / not working.") "Off" means the weekly rule is off (or the rules do not read, which `status` reports above), as it should be. "Not working" means the rule is on, but the agent is not running or the Mac's ChatGPT sign-in is lost; a «Внимание!» line below then says what to do.
-
-**Apply a reset right now:**
-
-```sh
-codex-auto-resets apply-now
-```
-
-Pick a reset by its number and confirm with `y`. The CLI waits for the worker and reports the result; this can take a few minutes. A reset is single-use, and applying it cannot be undone.
+`codex-auto-resets status` prints the same once, without the controls. `apply-now` and `rules` do what `Enter` on the screen does, with questions in the terminal.
 
 ## When something breaks
 
@@ -134,16 +122,16 @@ When a worker run fails, GitHub emails you. Run `codex-auto-resets status`: it s
 
 | Message | What to do |
 | --- | --- |
-| Воркер потерял вход в ChatGPT (the worker lost its ChatGPT sign-in) | `codex-auto-resets login` and sign in again. Rules and history are kept. |
-| Воркер выключен в GitHub (the worker is disabled in GitHub) | Open the link in the message and click **Enable workflow**. |
-| Воркер не запускался уже N ч (the worker hasn't run for N hours) | Open the link in the message and check that GitHub Actions is working. Runs usually resume on their own. |
-| Это другой аккаунт ChatGPT (this is a different ChatGPT account) | Sign in to the account the worker was set up for. Switching accounts takes a reinstall: `uninstall`, then `setup`. |
-| Установка не завершена (setup is not finished) | `codex-auto-resets setup`. |
-| Воркер устарел (the worker is out of date) | `codex-auto-resets upgrade`. |
-| Вход этого Mac в ChatGPT потерян (this Mac's ChatGPT sign-in is lost) | `codex-auto-resets setup` and enter a ChatGPT code for this Mac again. |
-| Внеочередная проверка с этого Mac не запущена (the check from this Mac is not running) | `codex-auto-resets setup`: it installs the agent again. |
+| The worker lost its ChatGPT sign-in | `codex-auto-resets login` and sign in again. Rules and history are kept. |
+| The worker is disabled in GitHub | Open the link in the message and click **Enable workflow**. |
+| The worker has not run for N h | Open the link in the message and check that GitHub Actions is working. Runs usually resume on their own. |
+| This is another ChatGPT account | Sign in to the account the worker was set up for. Switching accounts takes a reinstall: `uninstall`, then `setup`. |
+| Setup is not finished | `codex-auto-resets setup`. |
+| The worker is out of date | `codex-auto-resets upgrade`. |
+| This Mac's ChatGPT sign-in is lost | `codex-auto-resets setup` and enter a ChatGPT code for this Mac again. |
+| The check from this Mac is not running | `codex-auto-resets setup`: it installs the agent again. |
 
-If `setup`, `rules` or `upgrade` prints «Внеочередная проверка с этого Mac не запустилась (launchctl …)» ("the check from this Mac did not start"), launchd did not take the agent. The rest of the command is done; run `codex-auto-resets setup` again.
+If `setup`, `rules` or `upgrade` prints "The check from this Mac did not start (launchctl …)", launchd did not take the agent. The rest of the command is done; run `codex-auto-resets setup` again.
 
 ## Upgrade
 

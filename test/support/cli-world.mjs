@@ -4,6 +4,7 @@ import { fakeWorld, credit } from './fake-world.mjs';
 import { withGitHub } from './fake-github.mjs';
 import { actionsRunner } from './actions-runner.mjs';
 import { fakeMac } from './fake-mac.mjs';
+import { setLanguage } from '../../src/cli/language.mjs';
 
 const HOUR = 3600_000, DAY = 24 * HOUR;
 export const WORKER_SOURCE = '// fake worker bundle\n';
@@ -37,8 +38,10 @@ export function fakeKeychain() {
 }
 
 // run(command, { answers, github, ...options }) runs one CLI command, e.g. setup, against
-// the world and this Mac and resolves to { code, io }.
-export async function cliWorld({ node = false, workerSource = WORKER_SOURCE } = {}) {
+// the world and this Mac and resolves to { code, io }. The tests read the Russian texts unless
+// they ask for another language.
+export async function cliWorld({ node = false, workerSource = WORKER_SOURCE, language = 'ru' } = {}) {
+  setLanguage(language);
   const world = fakeWorld();
   world.chatgpt.credits = [credit('reset-a', world.now + 5 * DAY), credit('reset-b', world.now + 2 * DAY + 3 * HOUR)];
   await withGitHub(world);

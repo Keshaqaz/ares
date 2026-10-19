@@ -30,7 +30,7 @@ async function installed(options) {
 }
 
 test('status shows the resets, the rules, the last run and the last application', async () => {
-  const { world, repo, run } = await installed();
+  const { world, run } = await installed();
   world.chatgpt.credits.push(credit('reset-due', world.now + 3 * HOUR));
   world.advance(HOUR);
   await world.github.schedule();
@@ -39,18 +39,33 @@ test('status shows the resets, the rules, the last run and the last application'
   const { code, io } = await run(status);
   assert.equal(code, 0);
   assert.deepEqual(io.lines, [
-    'Репозиторий воркера: https://github.com/octo-fake/codex-auto-resets-worker',
-    'Сбросы (2):',
-    '  reset-b — истекает 22 октября 2026 г. в 15:00 UTC',
-    '  reset-a — истекает 25 октября 2026 г. в 12:00 UTC',
-    'Правила:',
-    '  Перед истечением (в последние 8 часов) — включено',
-    '  Когда кончится недельный лимит — выключено',
-    'Внеочередная проверка с этого Mac: выключена.',
-    `Последний запуск: 20 октября 2026 г. в 13:00 UTC, успешно: ${repo.runs[0].html_url}`,
-    'Последнее применение: reset-due, 20 октября 2026 г. в 13:00 UTC (перед истечением).',
+    `codex-auto-resets${' '.repeat(43)}20 окт 13:30`,
+    '',
+    'СБРОСЫ · 2',
+    '─'.repeat(72),
+    `  reset-b   через 2 д 1 ч${' '.repeat(35)}22 окт 15:00`,
+    `  reset-a   через 4 д 22 ч${' '.repeat(34)}25 окт 12:00`,
+    '',
+    'ПРАВИЛА',
+    '─'.repeat(72),
+    '  ☑ Перед истечением (в последние 8 часов)',
+    '  ☐ Когда кончится недельный лимит',
+    '',
+    '● воркер работает · запуск 20 окт 13:00',
+    '  применён reset-due 20 окт 13:00 — перед истечением',
+    '  https://github.com/octo-fake/codex-auto-resets-worker',
   ]);
   assert.deepEqual(world.github.violations, []);
+});
+
+test('status marks a reset inside the before-expiry window', async () => {
+  const { world, run } = await installed();
+  world.chatgpt.credits.push(credit('reset-soon', world.now + 10 * HOUR));
+  world.advance(HOUR);
+  await world.github.schedule();
+  world.advance(2 * HOUR);
+  const { io } = await run(status);
+  assert.match(io.lines[4], /^ {2}reset-soon {3}скоро применится +20 окт 22:00$/);
 });
 
 test('status warns when the worker has not run for hours', async () => {
@@ -58,8 +73,9 @@ test('status warns when the worker has not run for hours', async () => {
   world.advance(5 * HOUR);
   const { code, io } = await run(status);
   assert.equal(code, 0);
-  assert.match(io.lines.at(-1), /^Внимание! Воркер не запускался уже 5 ч\. Проверьте: https:\/\/github\.com\/.*\/actions$/);
-  assert.match(io.output(), /Сбросы \(2\)/, 'the last published resets are still shown');
+  assert.match(io.output(), /● воркер молчит 5 ч · запуск/);
+  assert.match(io.lines.at(-1), /^! Воркер не запускался уже 5 ч\. Проверьте: https:\/\/github\.com\/.*\/actions$/);
+  assert.match(io.output(), /СБРОСЫ · 2/, 'the last published resets are still shown');
 });
 
 test('status warns that a disabled workflow does not run the worker', async () => {
@@ -68,17 +84,19 @@ test('status warns that a disabled workflow does not run the worker', async () =
   assert.equal(await world.github.schedule(), null);
   const { code, io } = await run(status);
   assert.equal(code, 0);
-  assert.match(io.lines.at(-1), /^Внимание! Воркер выключен в GitHub, сбросы не применяются.*Enable workflow: .*\/actions\/workflows\/codex-auto-resets\.yml$/);
+  assert.ok(io.lines.includes('● воркер выключен в GitHub'), io.output());
+  assert.match(io.lines.at(-1), /^! Сбросы не применяются\. Включите воркер кнопкой Enable workflow: .*\/actions\/workflows\/codex-auto-resets\.yml$/);
 });
 
 test('status explains a failed last run', async () => {
-  const { world, run } = await installed();
+  const { world, repo, run } = await installed();
   world.endSession('refresh_token_invalidated');
   world.advance(HOUR);
   await world.github.schedule();
   const { io } = await run(status);
-  assert.match(io.output(), /Последний запуск: .*, с ошибкой:/);
-  assert.equal(io.lines.at(-1), 'Внимание! Последний запуск — с ошибкой. Воркер потерял вход в ChatGPT. Войдите заново: `codex-auto-resets login`.');
+  assert.ok(io.lines.includes('● последний запуск с ошибкой · 20 окт 13:00'), io.output());
+  assert.equal(io.lines.at(-1), '! Воркер потерял вход в ChatGPT. Войдите заново: `codex-auto-resets login`. ' +
+    `Подробности: ${repo.runs[0].html_url}`);
 });
 
 test('control commands ask for setup when there is no worker', async () => {

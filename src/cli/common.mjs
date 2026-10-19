@@ -6,6 +6,7 @@ import { TransientFailure } from '../chatgpt/http.mjs';
 import { FILES } from '../worker/layout.mjs';
 import { RULES_FORMAT_VERSION } from '../worker/state-file.mjs';
 import { KeychainUnavailable } from './keychain.mjs';
+import { t } from './language.mjs';
 
 export const WORKER_REPOSITORY = 'codex-auto-resets-worker';
 // The mark that tells our repository from a foreign one with the same name. It is set in
@@ -21,29 +22,40 @@ const OUTCOMES = ['idle', 'applied', 'pending', 'transient_error', 'reauth_requi
 // A failure explained to the user in its message.
 export class CommandFailed extends Error {}
 
-export const UNFINISHED = 'Установка не завершена. Запустите `codex-auto-resets setup`.';
+export const unfinished = () => t('Setup is not finished. Run `codex-auto-resets setup`.', 'Установка не завершена. Запустите `codex-auto-resets setup`.');
 export const enableUrl = repo => `${repo.html_url}/actions/workflows/${WORKFLOW_FILE}`;
 
 // Answers that confirm a one-way action.
 export const YES = ['y', 'yes', 'д', 'да'];
-export const onOff = value => value ? 'включено' : 'выключено';
-export const CHATGPT_LOGIN = 'Вход в ChatGPT для воркера (Codex на этом компьютере не затронут).';
-export const showCode = io => ({ userCode, verificationUrl }) => io.print(`Откройте ${verificationUrl} и введите код ${userCode}`);
-export const formatTime = (ms, timeZone) => new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long', year: 'numeric',
+export const onOff = value => value ? t('on', 'включено') : t('off', 'выключено');
+export const chatgptLogin = () => t('Sign in to ChatGPT for the worker (Codex on this computer is not affected).',
+  'Вход в ChatGPT для воркера (Codex на этом компьютере не затронут).');
+export const showCode = io => ({ userCode, verificationUrl }) => io.print(t(`Open ${verificationUrl} and enter the code ${userCode}`,
+  `Откройте ${verificationUrl} и введите код ${userCode}`));
+export const formatTime = (ms, timeZone) => new Intl.DateTimeFormat(t('en-GB', 'ru-RU'), { day: 'numeric', month: 'long', year: 'numeric',
   hour: '2-digit', minute: '2-digit', timeZone, timeZoneName: 'short' }).format(ms);
 
-// The two general rules as the user reads them in rules, status and the Actions Summary.
-export const RULE_LABELS = { beforeExpiry: 'Перед истечением (в последние 8 часов)', weeklyAutoApply: 'Когда кончится недельный лимит' };
-export const REASONS = { before_expiry: 'перед истечением', weekly: 'кончился недельный лимит', apply_now: 'вручную' };
+// The two general rules as the user reads them in rules, status and the screen.
+export const ruleLabel = rule => ({
+  beforeExpiry: t('Before expiry (in the last 8 hours)', 'Перед истечением (в последние 8 часов)'),
+  weeklyAutoApply: t('When the weekly limit runs out', 'Когда кончится недельный лимит'),
+})[rule];
+// Why a reset was applied.
+export const reasonText = reason => ({
+  before_expiry: t('before expiry', 'перед истечением'),
+  weekly: t('the weekly limit ran out', 'кончился недельный лимит'),
+  apply_now: t('manually', 'вручную'),
+})[reason] ?? reason;
 // lastAttempt.result of an attempt that did not apply the reset.
-export const ATTEMPT_RESULTS = {
-  nothing_to_reset: 'сбрасывать нечего, сброс сохранён',
-  no_credit: 'ChatGPT не принял сброс',
-  missing: 'сброс уже недоступен',
-  unknown: 'неясно, применён он или истёк',
-};
+export const attemptResult = result => ({
+  nothing_to_reset: t('nothing to reset, the reset is kept', 'сбрасывать нечего, сброс сохранён'),
+  no_credit: t('ChatGPT did not accept the reset', 'ChatGPT не принял сброс'),
+  missing: t('the reset is no longer available', 'сброс уже недоступен'),
+  unknown: t('unclear whether it was applied or expired', 'неясно, применён он или истёк'),
+})[result] ?? result;
 
-export const deadline = (reset, timeZone) => reset.expiresAt ? `истекает ${formatTime(Date.parse(reset.expiresAt), timeZone)}` : 'без срока';
+export const deadline = (reset, timeZone) => reset.expiresAt ?
+  `${t('expires', 'истекает')} ${formatTime(Date.parse(reset.expiresAt), timeZone)}` : t('no expiry', 'без срока');
 export const byDeadline = resets => [...resets].sort((a, b) =>
   (a.expiresAt ? Date.parse(a.expiresAt) : Infinity) - (b.expiresAt ? Date.parse(b.expiresAt) : Infinity));
 
@@ -54,18 +66,19 @@ export async function connectGitHub({ fetch, keychain, io, now, sleep }) {
     const api = new GitHubApi({ fetch, token });
     try { return { api, login: await api.login() }; } catch (error) {
       if (error.reason !== 'unauthorized') throw error;
-      io.print('Вход в GitHub устарел, войдите снова.');
+      io.print(t('The GitHub sign-in has expired, sign in again.', 'Вход в GitHub устарел, войдите снова.'));
     }
   }
-  io.print('Вход в GitHub.');
+  io.print(t('Sign in to GitHub.', 'Вход в GitHub.'));
   token = await githubDeviceLogin({ fetch, now, sleep, onCode: showCode(io) });
   const api = new GitHubApi({ fetch, token });
   const login = await api.login();
   try { await keychain.write(token); } catch (error) {
     if (!(error instanceof KeychainUnavailable)) throw error;
-    io.print('Не удалось сохранить вход в Связку ключей: в следующий раз GitHub попросит войти снова.');
+    io.print(t('Could not save the sign-in to the Keychain: GitHub will ask you to sign in again next time.',
+      'Не удалось сохранить вход в Связку ключей: в следующий раз GitHub попросит войти снова.'));
   }
-  io.print(`Вы вошли в GitHub как ${login}.`);
+  io.print(t(`Signed in to GitHub as ${login}.`, `Вы вошли в GitHub как ${login}.`));
   return { api, login };
 }
 
@@ -75,39 +88,46 @@ export async function workerRepository({ api, login }) {
   const repo = await api.repository(`${login}/${WORKER_REPOSITORY}`);
   if (!repo) return null;
   if (repo.description !== WORKER_DESCRIPTION) {
-    throw new CommandFailed(`Репозиторий ${repo.html_url} создан не codex-auto-resets. ` +
-      'Переименуйте или удалите его и повторите `codex-auto-resets setup`.');
+    throw new CommandFailed(t(`The repository ${repo.html_url} was not created by codex-auto-resets. ` +
+      'Rename or delete it and run `codex-auto-resets setup` again.',
+    `Репозиторий ${repo.html_url} создан не codex-auto-resets. Переименуйте или удалите его и повторите \`codex-auto-resets setup\`.`));
   }
   // The repository holds the sealed session and the reset schedule.
-  if (!repo.private) throw new CommandFailed(`Репозиторий ${repo.html_url} открыт всем. Сделайте его приватным и повторите \`codex-auto-resets setup\`.`);
+  if (!repo.private) {
+    throw new CommandFailed(t(`The repository ${repo.html_url} is public. Make it private and run \`codex-auto-resets setup\` again.`,
+      `Репозиторий ${repo.html_url} открыт всем. Сделайте его приватным и повторите \`codex-auto-resets setup\`.`));
+  }
   return repo;
 }
 
 // The worker repository for a command that needs an installed worker.
 export async function installedWorker(options) {
   const repo = await workerRepository(options);
-  if (!repo) throw new CommandFailed('Воркер не установлен. Запустите `codex-auto-resets setup`.');
+  if (!repo) throw new CommandFailed(t('The worker is not installed. Run `codex-auto-resets setup`.', 'Воркер не установлен. Запустите `codex-auto-resets setup`.'));
   return repo;
 }
 
 // The workflow must be able to take a dispatch.
 export async function runnableWorkflow(api, repo) {
   const state = await api.workflowState(repo.full_name, WORKFLOW_FILE);
-  if (!state) throw new CommandFailed(UNFINISHED);
-  if (state !== 'active') throw new CommandFailed(`Воркер выключен в GitHub. Включите его кнопкой Enable workflow: ${enableUrl(repo)}`);
+  if (!state) throw new CommandFailed(unfinished());
+  if (state !== 'active') {
+    throw new CommandFailed(t(`The worker is disabled in GitHub. Turn it on with the Enable workflow button: ${enableUrl(repo)}`,
+      `Воркер выключен в GitHub. Включите его кнопкой Enable workflow: ${enableUrl(repo)}`));
+  }
 }
 
 export async function chooseRules(io, initial = { beforeExpiry: true, weeklyAutoApply: false }) {
   const rules = { beforeExpiry: initial.beforeExpiry, weeklyAutoApply: initial.weeklyAutoApply };
   for (;;) {
-    io.print('Когда применять сбросы:');
-    io.print(`  1. ${RULE_LABELS.beforeExpiry} — ${onOff(rules.beforeExpiry)}`);
-    io.print(`  2. ${RULE_LABELS.weeklyAutoApply} — ${onOff(rules.weeklyAutoApply)}`);
-    const answer = (await io.prompt('Enter — готово, 1 или 2 — переключить: ')).trim();
+    io.print(t('When to apply resets:', 'Когда применять сбросы:'));
+    io.print(`  1. ${ruleLabel('beforeExpiry')} — ${onOff(rules.beforeExpiry)}`);
+    io.print(`  2. ${ruleLabel('weeklyAutoApply')} — ${onOff(rules.weeklyAutoApply)}`);
+    const answer = (await io.prompt(t('Enter — done, 1 or 2 — switch: ', 'Enter — готово, 1 или 2 — переключить: '))).trim();
     if (!answer) return { formatVersion: RULES_FORMAT_VERSION, ...rules };
     if (answer === '1') rules.beforeExpiry = !rules.beforeExpiry;
     else if (answer === '2') rules.weeklyAutoApply = !rules.weeklyAutoApply;
-    else io.print('Введите 1, 2 или нажмите Enter.');
+    else io.print(t('Type 1 or 2, or press Enter.', 'Введите 1, 2 или нажмите Enter.'));
   }
 }
 
@@ -115,15 +135,18 @@ export async function chooseRules(io, initial = { beforeExpiry: true, weeklyAuto
 export async function readSummary(api, repo) {
   const file = await api.file(repo.full_name, FILES.summary);
   if (!file) return null;
-  try { return JSON.parse(file.text); } catch { throw new CommandFailed('Данные воркера не читаются. Повторите после его следующего запуска.'); }
+  try { return JSON.parse(file.text); } catch {
+    throw new CommandFailed(t('The worker data does not read. Try again after its next run.', 'Данные воркера не читаются. Повторите после его следующего запуска.'));
+  }
 }
 
 // The line that tells the user the worker works, from its summary.
 export function workingLine(summary, timeZone) {
   const resets = summary.resets ?? [];
   const deadlines = resets.map(r => r.expiresAt && Date.parse(r.expiresAt)).filter(Boolean).sort((a, b) => a - b);
-  if (!deadlines.length) return `Воркер работает. Сбросов: ${resets.length}.`;
-  return `Воркер работает. Сбросов: ${resets.length}, ближайший истекает ${formatTime(deadlines[0], timeZone)}.`;
+  if (!deadlines.length) return t(`The worker works. Resets: ${resets.length}.`, `Воркер работает. Сбросов: ${resets.length}.`);
+  return t(`The worker works. Resets: ${resets.length}, the nearest expires ${formatTime(deadlines[0], timeZone)}.`,
+    `Воркер работает. Сбросов: ${resets.length}, ближайший истекает ${formatTime(deadlines[0], timeZone)}.`);
 }
 
 // The last outcome the worker printed into its job log, e.g. «2026-…Z broken_state: key_invalid».
@@ -139,14 +162,20 @@ export function loggedOutcome(log) {
 // What the user does about a run that failed with this outcome.
 export function failedRunAdvice({ outcome, reason } = {}) {
   return {
-    reauth_required: 'Воркер потерял вход в ChatGPT. Войдите заново: `codex-auto-resets login`.',
+    reauth_required: t('The worker lost its ChatGPT sign-in. Sign in again: `codex-auto-resets login`.',
+      'Воркер потерял вход в ChatGPT. Войдите заново: `codex-auto-resets login`.'),
     broken_state: reason?.startsWith('rules_') ?
-      `Файл правил не читается (${reason}). Удалите ${FILES.rules} в репозитории и повторите \`codex-auto-resets setup\`.` :
+      t(`The rules file does not read (${reason}). Delete ${FILES.rules} in the repository and run \`codex-auto-resets setup\` again.`,
+        `Файл правил не читается (${reason}). Удалите ${FILES.rules} в репозитории и повторите \`codex-auto-resets setup\`.`) :
+      t(`The file with the ChatGPT sign-in does not read (${reason}). Delete ${FILES.state} in the repository and run ` +
+        '`codex-auto-resets setup` again: it will ask you to sign in to ChatGPT again.',
       `Файл со входом в ChatGPT не читается (${reason}). Удалите ${FILES.state} в репозитории и повторите \`codex-auto-resets setup\`: ` +
-      'он попросит войти в ChatGPT заново.',
-    commit_failed: 'Воркер не смог сохранить данные в репозитории. Повторите `codex-auto-resets setup`. ' +
-      'Если потом придёт письмо об ошибке воркера, войдите заново: `codex-auto-resets login`.',
-  }[outcome] ?? 'Воркер завершился с ошибкой.';
+        'он попросит войти в ChatGPT заново.'),
+    commit_failed: t('The worker could not save its data in the repository. Run `codex-auto-resets setup` again. ' +
+      'If an email about a worker failure follows, sign in again: `codex-auto-resets login`.',
+    'Воркер не смог сохранить данные в репозитории. Повторите `codex-auto-resets setup`. ' +
+      'Если потом придёт письмо об ошибке воркера, войдите заново: `codex-auto-resets login`.'),
+  }[outcome] ?? t('The worker ended with an error.', 'Воркер завершился с ошибкой.');
 }
 
 // Dispatches one worker run with these inputs and waits for it. Returns the completed run
@@ -157,7 +186,10 @@ export async function runWorkerNow({ api, repo, inputs, now, sleep }) {
   const deadline = now() + RUN_TIMEOUT_MS;
   // GitHub learns about a freshly pushed workflow with a delay.
   while (!await api.dispatch(name, WORKFLOW_FILE, { ref: repo.default_branch, inputs: { apply_now: '', ...inputs } })) {
-    if (now() >= deadline) throw new CommandFailed('GitHub ещё не готов запустить воркер. Повторите через несколько минут.');
+    if (now() >= deadline) {
+      throw new CommandFailed(t('GitHub is not ready to start the worker yet. Try again in a few minutes.',
+        'GitHub ещё не готов запустить воркер. Повторите через несколько минут.'));
+    }
     await sleep(POLL_MS);
   }
   let run = null;
@@ -165,8 +197,10 @@ export async function runWorkerNow({ api, repo, inputs, now, sleep }) {
     run = run ? await api.run(name, run.id) : (await api.dispatchRuns(name, WORKFLOW_FILE)).find(r => !known.has(r.id)) ?? null;
     if (run?.status === 'completed') break;
     if (now() >= deadline) {
-      throw new CommandFailed(run ? `Воркер работает дольше 10 минут. Проверьте позже: ${run.html_url}` :
-        `GitHub не запустил воркер за 10 минут. Проверьте: ${repo.html_url}/actions`);
+      throw new CommandFailed(run ?
+        t(`The worker has been running for over 10 minutes. Check later: ${run.html_url}`, `Воркер работает дольше 10 минут. Проверьте позже: ${run.html_url}`) :
+        t(`GitHub did not start the worker in 10 minutes. Check: ${repo.html_url}/actions`,
+          `GitHub не запустил воркер за 10 минут. Проверьте: ${repo.html_url}/actions`));
     }
     await sleep(POLL_MS);
   }
@@ -178,23 +212,26 @@ export async function runWorkerNow({ api, repo, inputs, now, sleep }) {
   return { run, logged };
 }
 
-// The message for a failure this module knows, or null. command names what to repeat.
-export function explain(error, command) {
+// The message for a failure this module knows, or null. command names what to repeat: '' is
+// the screen itself, null an action on the screen, which the user just repeats.
+export function explain(error, command = null) {
   if (error instanceof CommandFailed) return error.message;
-  const again = `Повторите \`codex-auto-resets ${command}\``;
+  const program = `\`codex-auto-resets${command ? ` ${command}` : ''}\``;
+  const again = command === null ? t('Try again', 'Повторите') : t(`Run ${program} again`, `Повторите ${program}`);
+  const kept = t('what is done is kept', 'сделанное сохранится');
   if (error instanceof GitHubFailure) {
     return {
-      unauthorized: `GitHub отклонил вход. ${again} и войдите заново.`,
-      network: `GitHub недоступен. ${again}: сделанное сохранится.`,
-      login_timeout: `Время на ввод кода GitHub вышло. ${again}.`,
-      login_denied: 'Вход в GitHub отклонён.',
-    }[error.reason] ?? `Ошибка GitHub (${error.reason}). ${again}: сделанное сохранится.`;
+      unauthorized: t(`GitHub rejected the sign-in. ${again} and sign in anew.`, `GitHub отклонил вход. ${again} и войдите заново.`),
+      network: t(`GitHub is unreachable. ${again}: ${kept}.`, `GitHub недоступен. ${again}: ${kept}.`),
+      login_timeout: t(`The time to enter the GitHub code ran out. ${again}.`, `Время на ввод кода GitHub вышло. ${again}.`),
+      login_denied: t('The GitHub sign-in was denied.', 'Вход в GitHub отклонён.'),
+    }[error.reason] ?? t(`GitHub error (${error.reason}). ${again}: ${kept}.`, `Ошибка GitHub (${error.reason}). ${again}: ${kept}.`);
   }
   if (error instanceof LoginFailed) {
-    return error.reason === 'timeout' ? `Время на ввод кода ChatGPT вышло. ${again}.` :
-      `Не удалось войти в ChatGPT (${error.reason}). ${again}.`;
+    return error.reason === 'timeout' ? t(`The time to enter the ChatGPT code ran out. ${again}.`, `Время на ввод кода ChatGPT вышло. ${again}.`) :
+      t(`Could not sign in to ChatGPT (${error.reason}). ${again}.`, `Не удалось войти в ChatGPT (${error.reason}). ${again}.`);
   }
-  if (error instanceof TransientFailure) return `ChatGPT недоступен. ${again}: сделанное сохранится.`;
+  if (error instanceof TransientFailure) return t(`ChatGPT is unreachable. ${again}: ${kept}.`, `ChatGPT недоступен. ${again}: ${kept}.`);
   return null;
 }
 

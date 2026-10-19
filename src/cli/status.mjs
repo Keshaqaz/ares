@@ -1,73 +1,15 @@
-import { FILES } from '../worker/layout.mjs';
-import { readRules, BrokenState } from '../worker/state-file.mjs';
-import { WORKFLOW_FILE, UNFINISHED, RULE_LABELS, REASONS, ATTEMPT_RESULTS, onOff, enableUrl, formatTime, deadline, byDeadline, connectGitHub, installedWorker,
-  readSummary, loggedOutcome, failedRunAdvice, command } from './common.mjs';
-import { macCheckStatus } from './mac-check.mjs';
+import { connectGitHub, installedWorker, command } from './common.mjs';
+import { readOverview, renderOverview, paint, WIDTH } from './overview.mjs';
 
-// The cron runs hourly and GitHub may delay it by an hour or two; the before-expiry rule
-// leaves 8 hours, so a longer silence is worth the user's attention.
-export const STALE_MS = 4 * 3600_000;
-
-// A run as the user reads it: when it started and how it ended.
-function runLine(run, timeZone) {
-  const verdict = run.status !== 'completed' ? 'идёт сейчас' : run.conclusion === 'success' ? 'успешно' : 'с ошибкой';
-  return `${formatTime(Date.parse(run.run_started_at ?? run.created_at), timeZone)}, ${verdict}: ${run.html_url}`;
-}
-
-// `codex-auto-resets status`: what the worker publishes openly (it cannot read the sealed
-// state), the rules, the worker's last run and the check from this Mac, with a warning when
-// the worker or the check is not running.
+// `codex-auto-resets status`: the overview of the screen, printed once: the resets, the
+// rules, the worker and the warnings when the worker or the check from this Mac is not running.
 export async function status({ fetch, keychain, io, mac, now = Date.now,
   sleep = ms => new Promise(resolve => setTimeout(resolve, ms)), timeZone }) {
   return command('status', io, async () => {
     const { api, login } = await connectGitHub({ fetch, keychain, io, now, sleep });
     const repo = await installedWorker({ api, login });
-    const name = repo.full_name;
-    const [summary, rulesFile, workflowState, lastRun] = await Promise.all([readSummary(api, repo), api.file(name, FILES.rules),
-      api.workflowState(name, WORKFLOW_FILE), api.latestRun(name, WORKFLOW_FILE)]);
-
-    io.print(`Репозиторий воркера: ${repo.html_url}`);
-    if (!summary) io.print('Сбросы: ещё не прочитаны.');
-    else if (!summary.resets.length) io.print('Сбросов нет.');
-    else {
-      io.print(`Сбросы (${summary.resets.length}):`);
-      for (const reset of byDeadline(summary.resets)) io.print(`  ${reset.creditId} — ${deadline(reset, timeZone)}`);
-    }
-    let rules = null;
-    try { rules = rulesFile && readRules(rulesFile.text); } catch (error) { if (!(error instanceof BrokenState)) throw error; }
-    if (rules) {
-      io.print('Правила:');
-      for (const rule of ['beforeExpiry', 'weeklyAutoApply']) io.print(`  ${RULE_LABELS[rule]} — ${onOff(rules[rule])}`);
-    } else io.print('Правила не читаются. Выберите их заново: `codex-auto-resets rules`.');
-    const check = await macCheckStatus({ weekly: rules?.weeklyAutoApply ?? null, mac, timeZone });
-    io.print(check.line);
-    if (lastRun) io.print(`Последний запуск: ${runLine(lastRun, timeZone)}`);
-    const applied = summary?.lastApplied;
-    io.print(applied ? `Последнее применение: ${applied.creditId}, ${formatTime(Date.parse(applied.at), timeZone)} ` +
-      `(${REASONS[applied.reason] ?? applied.reason}).` : 'Сбросы ещё не применялись.');
-    const attempt = summary?.lastAttempt;
-    if (attempt && attempt.result !== 'reset' && (!applied || attempt.at > applied.at)) {
-      io.print(`Последняя попытка: ${attempt.creditId}, ${formatTime(Date.parse(attempt.at), timeZone)} — ` +
-        `${ATTEMPT_RESULTS[attempt.result] ?? attempt.result}.`);
-    }
-
-    const warnings = [];
-    if (!workflowState) warnings.push(UNFINISHED);
-    else if (workflowState !== 'active') {
-      warnings.push(`Воркер выключен в GitHub, сбросы не применяются. Включите его кнопкой Enable workflow: ${enableUrl(repo)}`);
-    } else if (!lastRun) warnings.push('Воркер ещё ни разу не запускался.');
-    else {
-      const silent = now() - Date.parse(lastRun.run_started_at ?? lastRun.created_at);
-      if (silent > STALE_MS) {
-        warnings.push(`Воркер не запускался уже ${Math.floor(silent / 3600_000)} ч. Проверьте: ${repo.html_url}/actions`);
-      }
-    }
-    if (lastRun?.status === 'completed' && lastRun.conclusion !== 'success') {
-      const logged = loggedOutcome(await api.runLog(name, lastRun.id).catch(() => null));
-      warnings.push(`Последний запуск — с ошибкой. ${failedRunAdvice(logged ?? {})}`);
-    }
-    if (check.warning) warnings.push(check.warning);
-    for (const warning of warnings) io.print(`Внимание! ${warning}`);
+    const model = await readOverview({ api, repo, mac, now, timeZone });
+    for (const line of renderOverview(model, { now, timeZone, width: io.width ?? WIDTH })) io.print(paint(line, io.color).trimEnd());
     return 0;
   });
 }

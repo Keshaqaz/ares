@@ -2,12 +2,13 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { mkdir, readFile, writeFile, rename, rm } from 'node:fs/promises';
 
-// What the out-of-schedule check keeps on this Mac: the computer session and watch.json.
+// What the out-of-schedule check keeps on this Mac: the computer session and watch.json;
+// settings.json with the language of the CLI lives next to them.
 // `security -i` cuts its command line at 4096 bytes and runs the rest as another command,
 // and a session (three JWTs) is over 4 KB of JSON, so it lives in a 0600 file, not in the
 // Keychain (ADR-0005).
 export const SUPPORT_DIR = join(homedir(), 'Library', 'Application Support', 'codex-auto-resets');
-const SESSION = 'chatgpt-session.json', STATE = 'watch.json';
+const SESSION = 'chatgpt-session.json', STATE = 'watch.json', SETTINGS = 'settings.json';
 const SESSION_FIELDS = ['accessToken', 'refreshToken', 'accountId'];
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 
@@ -38,6 +39,9 @@ export class WatchFiles {
     return object(state) ? state : {};
   }
   async writeState(state) { await this.write(STATE, state); }
+  // The language the user picked, or null.
+  async readLanguage() { return (await this.read(SETTINGS))?.language ?? null; }
+  async writeLanguage(language) { await this.write(SETTINGS, { ...await this.read(SETTINGS), language }); }
   // The folder with everything in it, for uninstall.
   async removeAll() { await rm(this.dir, { recursive: true, force: true }); }
 }

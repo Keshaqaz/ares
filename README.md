@@ -14,7 +14,7 @@ Runs in your own private GitHub repo. Your Mac can be off.
 
 **English** · [Русский](docs/README.ru.md)
 
-<img src="docs/assets/status.png" alt="codex-auto-resets status and apply-now in the terminal">
+<img src="docs/assets/status-en.png" alt="The codex-auto-resets screen: resets on top, rules below">
 
 </div>
 
@@ -22,7 +22,7 @@ Runs in your own private GitHub repo. Your Mac can be off.
 
 - **No reset expires unused.** In the last 8 hours before a reset expires, the worker applies it.
 - **Weekly limit hit — reset within minutes.** An optional rule applies the reset that expires first. While your Mac is awake, it checks the weekly limit every 2 minutes and calls the worker as soon as it runs out, whichever client used it up: Codex, opencode, your phone.
-- **Apply now.** Pick a reset in the terminal and the worker applies it, regardless of the rules.
+- **One screen.** `codex-auto-resets` shows the resets on top and the rules below. Enter on a reset applies it now, regardless of the rules; Enter on a rule switches it.
 - **No servers, no subscriptions.** Only GitHub Actions in your account: up to ~750 of the 2,000 free minutes a month.
 - **Codex on your Mac is untouched.** The worker and the Mac check have ChatGPT sign-ins of their own; nothing is copied from Codex.
 
@@ -33,9 +33,11 @@ brew install keshaqaz/tap/codex-auto-resets
 codex-auto-resets setup
 ```
 
-`setup` signs you in to GitHub and ChatGPT with one-time codes, creates the private repo `codex-auto-resets-worker`, offers the rules and runs the worker once. The CLI speaks Russian:
+`setup` signs you in to GitHub and ChatGPT with one-time codes, creates the private repo `codex-auto-resets-worker`, offers the rules and runs the worker once:
 
-<img src="docs/assets/setup.png" alt="codex-auto-resets setup: GitHub and ChatGPT sign-in, rules, the Mac check and a trial run">
+<img src="docs/assets/setup-en.png" alt="codex-auto-resets setup: GitHub and ChatGPT sign-in, rules, the Mac check and a trial run">
+
+The CLI speaks English; for Russian press `l` on the screen or run `codex-auto-resets language ru`.
 
 Full guide, including installing from source: [docs/installation.en.md](docs/installation.en.md).
 
@@ -43,13 +45,15 @@ Full guide, including installing from source: [docs/installation.en.md](docs/ins
 
 | Command | What it does |
 | --- | --- |
+| *(no command)* | the screen: resets and rules; Enter applies a reset or switches a rule |
 | `setup` | install, or finish an interrupted install |
-| `status` | resets, rules, worker health and the Mac check |
+| `status` | the same overview printed once: resets, rules, worker health and the Mac check |
 | `apply-now` | apply a chosen reset now |
 | `rules` | choose when resets are applied |
 | `login` | sign the worker in to ChatGPT again |
 | `upgrade` | update the worker after a new version |
 | `uninstall` | remove the worker, the Mac check and the GitHub sign-in |
+| `language en` / `language ru` | the language of the CLI; `l` on the screen does the same |
 
 ## How it works
 
