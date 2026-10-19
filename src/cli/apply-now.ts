@@ -1,11 +1,16 @@
 import { CommandFailed, YES, resetName, attemptResult, deadline, byDeadline, connectGitHub, installedWorker, runnableWorkflow, readSummary,
-  failedRunAdvice, runWorkerNow, command } from './common.mjs';
-import { t } from './language.mjs';
+  failedRunAdvice, runWorkerNow, command } from './common.ts';
+import type { CommandOptions, Logged, Sleep } from './common.ts';
+import type { GitHubApi, Repository, WorkflowRun } from '../github/api.ts';
+import type { Summary } from '../worker/summary.ts';
+import { t } from './language.ts';
 
-const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+const same = (a: unknown, b: unknown): boolean => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 
 // What became of the chosen reset, told by the summary before and after the run.
-function verdict({ creditId, before, after, run, logged }) {
+interface Verdict { code: number; message: string }
+function verdict({ creditId, before, after, run, logged }:
+  { creditId: string; before: Summary | null; after: Summary | null; run: WorkflowRun; logged: Logged | null }): Verdict {
   const name = resetName(creditId);
   if (after?.lastApplied?.creditId === creditId && !same(after.lastApplied, before?.lastApplied)) {
     return { code: 0, message: t(`Reset ${name} applied.`, `Сброс ${name} применён.`) };
@@ -30,7 +35,16 @@ function verdict({ creditId, before, after, run, logged }) {
 
 // Applies the reset in a dispatched run regardless of the rules and tells what became of it.
 // before is the summary the user chose the reset from; wait is runWorkerNow's.
-export async function applyReset({ api, repo, creditId, before, now, sleep, wait }) {
+export interface ApplyResetOptions {
+  api: GitHubApi;
+  repo: Repository;
+  creditId: string;
+  before: Summary | null;
+  now: () => number;
+  sleep: Sleep;
+  wait: (text: string | null) => void;
+}
+export async function applyReset({ api, repo, creditId, before, now, sleep, wait }: ApplyResetOptions): Promise<Verdict> {
   const { run, logged } = await runWorkerNow({ api, repo, inputs: { apply_now: creditId }, now, sleep, wait });
   const after = await readSummary(api, repo);
   return verdict({ creditId, before, after, run, logged });
@@ -40,7 +54,7 @@ export async function applyReset({ api, repo, creditId, before, now, sleep, wait
 // worker last published; the worker applies it in a dispatched run regardless of the rules,
 // and the command waits for that run.
 export async function applyNow({ fetch, keychain, io, now = Date.now,
-  sleep = ms => new Promise(resolve => setTimeout(resolve, ms)), timeZone }) {
+  sleep = ms => new Promise(resolve => setTimeout(resolve, ms)), timeZone }: CommandOptions): Promise<number> {
   return command('apply-now', io, async () => {
     const { api, login } = await connectGitHub({ fetch, keychain, io, now, sleep });
     const repo = await installedWorker({ api, login });
@@ -55,7 +69,7 @@ export async function applyNow({ fetch, keychain, io, now = Date.now,
 
     io.print(t('Resets:', 'Сбросы:'));
     resets.forEach((reset, i) => io.print(`  ${i + 1}. ${resetName(reset.creditId)} — ${deadline(reset, timeZone)}`));
-    let chosen = null;
+    let chosen: Summary['resets'][number] | null = null;
     while (!chosen) {
       const answer = (await io.prompt(t('Reset number (Enter — cancel): ', 'Номер сброса (Enter — отмена): '))).trim();
       if (!answer) { io.print(t('Cancelled.', 'Отменено.')); return 0; }

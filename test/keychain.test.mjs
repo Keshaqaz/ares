@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
-import { GitHubTokenKeychain, KeychainUnavailable } from '../src/cli/keychain.mjs';
+import { GitHubTokenKeychain, KeychainUnavailable } from '../src/cli/keychain.ts';
 
 const TOKEN = 'gho_synthetic0000000000000000000000000000';
 

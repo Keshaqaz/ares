@@ -3,8 +3,8 @@
 import { fakeWorld, credit } from './fake-world.mjs';
 import { withGitHub } from './fake-github.ts';
 import { actionsRunner } from './actions-runner.mjs';
-import { fakeMac } from './fake-mac.mjs';
-import { setLanguage } from '../../src/cli/language.mjs';
+import { fakeMac } from './fake-mac.ts';
+import { setLanguage } from '../../src/cli/language.ts';
 
 const HOUR = 3600_000, DAY = 24 * HOUR;
 export const WORKER_SOURCE = '// fake worker bundle\n';

@@ -1,16 +1,19 @@
 import { GitHubApi, githubDeviceLogin, UNINSTALL_SCOPES } from '../github/api.ts';
 import { GITHUB_OAUTH_CLIENT_ID } from '../github/oauth-app.ts';
 import { FILES, STATE_KEY_SECRET, REVOKE_INPUT } from '../worker/layout.ts';
-import { KeychainUnavailable } from './keychain.mjs';
-import { CommandFailed, YES, WORKER_REPOSITORY, WORKER_DESCRIPTION, WORKFLOW_FILE, showCode, runWorkerNow, command } from './common.mjs';
-import { forgetMac } from './mac-check.mjs';
-import { t } from './language.mjs';
+import { KeychainUnavailable } from './keychain.ts';
+import { CommandFailed, YES, WORKER_REPOSITORY, WORKER_DESCRIPTION, WORKFLOW_FILE, showCode, runWorkerNow, command } from './common.ts';
+import { forgetMac } from './mac-check.ts';
+import type { CommandOptions, Io, Sleep } from './common.ts';
+import type { Repository } from '../github/api.ts';
+import { t } from './language.ts';
 
 const OAUTH_APP = `https://github.com/settings/connections/applications/${GITHUB_OAUTH_CLIENT_ID}`;
 
 // Has the worker revoke its session and tells the user how it went. Whatever happens, the
 // removal goes on.
-async function revokeWorkerSession({ api, repo, io, now, sleep }) {
+interface Revoking { api: GitHubApi; repo: Repository; io: Io; now: () => number; sleep: Sleep }
+async function revokeWorkerSession({ api, repo, io, now, sleep }: Revoking): Promise<void> {
   const reason = await revoke({ api, repo, io, now, sleep });
   if (reason === null) io.print(t('The worker\'s ChatGPT sign-in is revoked.', 'Вход воркера в ChatGPT отозван.'));
   else if (reason) {
@@ -20,7 +23,7 @@ async function revokeWorkerSession({ api, repo, io, now, sleep }) {
 }
 
 // Why the worker session was not revoked: null when it was, false when there is none.
-async function revoke({ api, repo, io, now, sleep }) {
+async function revoke({ api, repo, io, now, sleep }: Revoking): Promise<string | null | false> {
   const name = repo.full_name;
   const [state, workflow, hasKey] = await Promise.all([api.file(name, FILES.state), api.file(name, FILES.workflow),
     api.hasSecret(name, STATE_KEY_SECRET)]);
@@ -46,7 +49,8 @@ async function revoke({ api, repo, io, now, sleep }) {
 // user takes back the OAuth App's access, which only the user can do. A failed revocation
 // does not stop the removal: the session's tokens go with the repository and its key. The
 // check from this Mac goes too: its agent, its session (revoked where it can be) and files.
-export async function uninstall({ fetch, keychain, io, mac, now = Date.now, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)) }) {
+export async function uninstall({ fetch, keychain, io, mac, now = Date.now, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)) }:
+  CommandOptions): Promise<number> {
   return command('uninstall', io, async () => {
     // The token in the Keychain cannot delete repositories; this one is used once and not kept.
     io.print(t('To delete the repository GitHub asks for a separate permission: sign in once more.',

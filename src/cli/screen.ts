@@ -1,55 +1,89 @@
 import { emitKeypressEvents } from 'node:readline';
+import type { Key } from 'node:readline';
+import type { GitHubApi, Repository } from '../github/api.ts';
+import type { Fetch } from '../chatgpt/http.ts';
+import type { Rules } from '../worker/state-file.ts';
 import { FILES } from '../worker/layout.ts';
 import { readRules, BrokenState, RULES_FORMAT_VERSION } from '../worker/state-file.ts';
-import { CommandFailed, resetName, unfinished, connectGitHub, installedWorker, runnableWorkflow, readSummary, explain, command } from './common.mjs';
-import { applyReset } from './apply-now.mjs';
-import { saveRules } from './rules.mjs';
-import { readOverview, renderOverview, overviewItems, paint, S, WIDTH } from './overview.mjs';
-import { t, language, setLanguage } from './language.mjs';
+import { CommandFailed, resetName, unfinished, connectGitHub, installedWorker, runnableWorkflow, readSummary, explain, command } from './common.ts';
+import { applyReset } from './apply-now.ts';
+import { saveRules } from './rules.ts';
+import type { CommandOptions, Printer, Rule, Sleep } from './common.ts';
+import { readOverview, renderOverview, overviewItems, sameItem, paint, S, WIDTH } from './overview.ts';
+import type { Overview, Tone as OverviewTone } from './overview.ts';
+import type { Mac } from './mac-check.ts';
+import { t, language, setLanguage } from './language.ts';
 
 // `aures` without a command: the overview of `status` with a cursor. Enter on a
 // reset applies it now after a «y», Enter on a rule switches it; both do what `apply-now` and
 // `rules` do. l switches the language between English and Russian and keeps the choice.
 // Takes the whole terminal on its alternate screen; q gives the terminal back as it was.
 const SPINNER = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏';
-const hint = () => t('↑↓ select · Enter apply / switch · l language · r refresh · q quit',
+const hint = (): string => t('↑↓ select · Enter apply / switch · l language · r refresh · q quit',
   '↑↓ выбор · Enter применить / переключить · l язык · r обновить · q выход');
-const TONES = { ok: S.green, warn: S.yellow };
+type Tone = Exclude<OverviewTone, 'bad'>;
+const TONES: Record<Tone, string> = { ok: S.green, warn: S.yellow };
 const MARGIN = '  ';
 // The same keys on the Russian layout.
-const RUSSIAN = { н: 'y', й: 'q', к: 'r', о: 'j', л: 'k', д: 'l' };
+const RUSSIAN: Record<string, string> = { н: 'y', й: 'q', к: 'r', о: 'j', л: 'k', д: 'l' };
+
+// What an action says: a line of a note, or of its message, in its tone.
+export type Note = (text: string, tone?: Tone) => void;
+export interface ScreenOptions {
+  api: GitHubApi;
+  repo: Repository;
+  mac: Mac;
+  fetch: Fetch;
+  now: () => number;
+  sleep: Sleep;
+  timeZone: string | undefined;
+}
 
 // The screen without the terminal: keys in, frames out.
 export class Screen {
-  constructor({ api, repo, mac, fetch, now, sleep, timeZone }) {
-    Object.assign(this, { api, repo, mac, fetch, now, sleep, timeZone });
-    this.model = null;
-    this.cursor = 0;
-    this.confirm = null; // the reset waiting for «y»
-    this.busy = null; // what is being done
-    this.notes = []; // what the last action said
-    this.tick = 0;
-    this.changed = () => {};
+  api: GitHubApi;
+  repo: Repository;
+  mac: Mac;
+  fetch: Fetch;
+  now: () => number;
+  sleep: Sleep;
+  timeZone: string | undefined;
+  model: Overview | null = null;
+  cursor = 0;
+  confirm: string | null = null; // the reset waiting for «y»
+  busy: string | null = null; // what is being done
+  notes: { text: string; tone: Tone | undefined }[] = []; // what the last action said
+  tick = 0;
+  changed: () => void = () => {};
+  constructor({ api, repo, mac, fetch, now, sleep, timeZone }: ScreenOptions) {
+    this.api = api;
+    this.repo = repo;
+    this.mac = mac;
+    this.fetch = fetch;
+    this.now = now;
+    this.sleep = sleep;
+    this.timeZone = timeZone;
   }
 
   // Reads the overview again. The cursor stays on its item; when its reset is gone, on the
   // nearest reset, so that the next Enter never switches a rule by mistake.
-  async load() {
-    const was = this.model && overviewItems(this.model)[this.cursor];
+  async load(): Promise<void> {
+    const was = this.model ? overviewItems(this.model)[this.cursor] : undefined;
     this.model = await readOverview(this);
     const items = overviewItems(this.model), resets = items.filter(item => item.kind === 'reset').length;
-    const same = items.findIndex(item => item.kind === was?.kind && item.creditId === was.creditId && item.rule === was.rule);
+    const same = items.findIndex(item => sameItem(item, was));
     this.cursor = same >= 0 ? same : was?.kind === 'reset' && resets ? Math.min(this.cursor, resets - 1) :
       Math.min(this.cursor, Math.max(0, items.length - 1));
   }
 
   // Lines of the frame, painted when color.
-  frame(width = WIDTH, color = false) {
+  frame(width = WIDTH, color = false): string[] {
+    if (!this.model) return [];
     const lines = renderOverview(this.model, { now: this.now, timeZone: this.timeZone, width, cursor: this.cursor, toggle: true });
     lines.push([]);
-    for (const note of this.notes) lines.push([[note.text, TONES[note.tone] ?? '']]);
+    for (const note of this.notes) lines.push([[note.text, note.tone ? TONES[note.tone] : '']]);
     if (this.notes.length) lines.push([]);
-    if (this.busy) lines.push([[`${SPINNER[this.tick % SPINNER.length]} `, S.cyan], [this.busy, '']]);
+    if (this.busy) lines.push([[`${SPINNER.charAt(this.tick % SPINNER.length)} `, S.cyan], [this.busy, '']]);
     else if (this.confirm) {
       lines.push([[t(`Apply ${resetName(this.confirm)} now? A reset is single-use. `, `Применить ${resetName(this.confirm)} сейчас? Сброс одноразовый. `), S.bold],
         [t('y — yes, any other key — cancel', 'y — да, другая клавиша — отмена'), S.dim]]);
@@ -58,8 +92,9 @@ export class Screen {
   }
 
   // One key; resolves when what it started is done, to 'exit' when the screen closes.
-  async press(key) {
-    const name = RUSSIAN[key.sequence?.toLowerCase()] ?? key.name;
+  async press(key: Key): Promise<'exit' | undefined> {
+    const sequence = key.sequence?.toLowerCase();
+    const name = (sequence === undefined ? undefined : RUSSIAN[sequence]) ?? key.name;
     if (key.ctrl && name === 'c') return 'exit';
     if (this.busy) return;
     if (this.confirm) {
@@ -73,7 +108,7 @@ export class Screen {
       return;
     }
     this.notes = [];
-    const items = overviewItems(this.model), item = items[this.cursor];
+    const items = this.model ? overviewItems(this.model) : [], item = items[this.cursor];
     if (name === 'q' || name === 'escape') return 'exit';
     if (name === 'r') return this.act(t('Refreshing…', 'Обновляем…'), async () => {});
     if (name === 'l') return this.switchLanguage();
@@ -87,14 +122,14 @@ export class Screen {
   }
 
   // Runs an action, shows what it says and reads the overview again.
-  async act(label, action) {
+  async act(label: string, action: (note: Note) => Promise<void>): Promise<undefined> {
     this.busy = label;
     this.changed();
-    const note = (text, tone) => {
+    const note: Note = (text, tone) => {
       this.notes.push(...text.split('\n').map(line => ({ text: line, tone })));
       this.changed();
     };
-    const tell = error => {
+    const tell = (error: unknown) => {
       const message = explain(error);
       if (message === null) throw error;
       note(message, 'warn');
@@ -108,22 +143,22 @@ export class Screen {
     }
   }
 
-  async apply(creditId, note) {
+  async apply(creditId: string, note: Note): Promise<void> {
     const { api, repo, now, sleep } = this;
     await runnableWorkflow(api, repo);
     const before = await readSummary(api, repo);
     // The spinner line says what the run waits for; the reset stays named in it.
-    const wait = text => { if (text) { this.busy = `${resetName(creditId)}: ${text}`; this.changed(); } };
+    const wait = (text: string | null) => { if (text) { this.busy = `${resetName(creditId)}: ${text}`; this.changed(); } };
     const { code, message } = await applyReset({ api, repo, creditId, before, now, sleep, wait });
     note(message, code === 0 ? 'ok' : 'warn');
   }
 
   // Switches one rule in the rules file as it is now, not as the screen last read it.
-  async switchRule(rule, note) {
+  async switchRule(rule: Rule, note: Note): Promise<void> {
     const { api, repo, mac, fetch, now, sleep } = this;
     const file = await api.file(repo.full_name, FILES.rules);
     if (!file) throw new CommandFailed(unfinished());
-    let current;
+    let current: Rules;
     try { current = readRules(file.text); } catch (error) {
       if (!(error instanceof BrokenState)) throw error;
       throw new CommandFailed(t(`The rules do not read (${error.reason}). Choose them again: \`aures rules\`.`,
@@ -135,7 +170,7 @@ export class Screen {
   }
 
   // The other language at once; it is kept for the next start, if this Mac lets it be written.
-  async switchLanguage() {
+  async switchLanguage(): Promise<undefined> {
     setLanguage(language() === 'en' ? 'ru' : 'en');
     this.changed();
     await this.mac.files.writeLanguage(language()).catch(() => {});
@@ -143,8 +178,9 @@ export class Screen {
 }
 
 // The screen of an installed worker, read once.
+export type ScreenCommandOptions = Omit<CommandOptions, 'io'> & { io: Printer };
 export async function openScreen({ fetch, keychain, io, mac, now = Date.now,
-  sleep = ms => new Promise(resolve => setTimeout(resolve, ms)), timeZone }) {
+  sleep = ms => new Promise(resolve => setTimeout(resolve, ms)), timeZone }: ScreenCommandOptions): Promise<Screen> {
   const { api, login } = await connectGitHub({ fetch, keychain, io, now, sleep });
   const repo = await installedWorker({ api, login });
   const screen = new Screen({ api, repo, mac, fetch, now, sleep, timeZone });
@@ -153,22 +189,28 @@ export async function openScreen({ fetch, keychain, io, mac, now = Date.now,
 }
 
 // Rows of the terminal a painted line takes: a line longer than the terminal wraps.
-const rowsOf = (line, columns) => Math.max(1, Math.ceil([...line.replace(/\x1b\[[0-9;]*m/g, '')].length / columns));
+const rowsOf = (line: string, columns: number): number => Math.max(1, Math.ceil([...line.replace(/\x1b\[[0-9;]*m/g, '')].length / columns));
 
 // Shows the screen in the terminal until q, on the alternate screen with a margin around it.
 // A frame redraws only the lines that changed, each at its own row, and never takes more rows
 // than the terminal has: a taller one would scroll it on every turn of the spinner, and the
 // user's selection with it. Resolves to the exit code: 130 when Ctrl-C left an action
 // unfinished; what it was doing is then printed after the screen.
-export function runScreen(screen, { input, output }) {
-  let done = false, shown = [], bottom = 1; // the lines on the terminal with their rows, the row under them
+export interface Terminal {
+  input: NodeJS.ReadableStream & { isRaw?: boolean; setRawMode?(mode: boolean): unknown };
+  output: { columns?: number; rows?: number; write(text: string): unknown;
+    on?(event: 'resize', listener: () => void): unknown; off?(event: 'resize', listener: () => void): unknown };
+}
+type Shown = { line: string; row: number; rows: number };
+export function runScreen(screen: Screen, { input, output }: Terminal): Promise<number> {
+  let done = false, shown: Shown[] = [], bottom = 1; // the lines on the terminal with their rows, the row under them
   const draw = (full = false) => {
     if (done) return;
     const columns = output.columns || 80, width = Math.min(WIDTH, columns - 1 - MARGIN.length);
     const lines = ['', ...screen.frame(width, true).map(line => MARGIN + line)];
     // The top gives way: the action, its codes and the keys are at the bottom.
     let height = lines.reduce((rows, line) => rows + rowsOf(line, columns), 0);
-    while (height > (output.rows || 24) && lines.length > 1) height -= rowsOf(lines.shift(), columns);
+    while (height > (output.rows || 24) && lines.length > 1) height -= rowsOf(lines.shift() ?? '', columns);
     let row = 1, text = full ? '\x1b[2J' : '';
     const next = lines.map(line => {
       const at = { line, row, rows: rowsOf(line, columns) };
@@ -202,7 +244,7 @@ export function runScreen(screen, { input, output }) {
   screen.changed = () => draw();
   draw();
   return new Promise((resolve, reject) => {
-    const finish = error => {
+    const finish = (error?: unknown) => {
       if (done) return;
       const unfinished = screen.busy;
       done = true;
@@ -216,7 +258,7 @@ export function runScreen(screen, { input, output }) {
       if (error) reject(error);
       else resolve(unfinished ? 130 : 0);
     };
-    const onKey = (sequence, key = {}) => {
+    const onKey = (sequence: string | undefined, key: Key = {}) => {
       screen.press({ ...key, sequence, name: key.name ?? sequence }).then(result => { if (result === 'exit') finish(); }, finish);
     };
     input.on('keypress', onKey);
@@ -224,6 +266,6 @@ export function runScreen(screen, { input, output }) {
 }
 
 // `aures`: the interactive screen. terminal is { input, output } of a TTY.
-export async function screen({ terminal, io, ...options }) {
+export async function screen({ terminal, io, ...options }: ScreenCommandOptions & { terminal: Terminal }): Promise<number> {
   return command('', io, async () => runScreen(await openScreen({ io, ...options }), terminal));
 }

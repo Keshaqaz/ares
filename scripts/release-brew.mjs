@@ -33,7 +33,7 @@ export function formula({ version, sha256 }) {
     libexec.install Dir["*"]
     (bin/"aures").write <<~SH
       #!/bin/bash
-      exec "#{formula_opt_bin("node")}/node" "#{libexec}/src/cli/main.mjs" "$@"
+      exec "#{formula_opt_bin("node")}/node" "#{libexec}/src/cli/main.ts" "$@"
     SH
   end
 

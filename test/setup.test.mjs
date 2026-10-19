@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile, mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { setup } from '../src/cli/setup.mjs';
+import { setup } from '../src/cli/setup.ts';
 import { buildWorker } from '../scripts/build-worker.ts';
 import { FILES, STATE_KEY_SECRET } from '../src/worker/layout.ts';
 import { openState, readRules } from '../src/worker/state-file.ts';

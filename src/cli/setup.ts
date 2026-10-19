@@ -3,11 +3,13 @@ import { FILES, STATE_KEY_SECRET, LOGIN_SECRET } from '../worker/layout.ts';
 import { generateKey, sealState, readRules, BrokenState, STATE_FORMAT_VERSION } from '../worker/state-file.ts';
 import { workflowYaml } from '../worker/workflow.ts';
 import { CommandFailed, WORKER_REPOSITORY, WORKER_DESCRIPTION, chatgptLogin, showCode, workingLine, connectGitHub, workerRepository,
-  chooseRules, readSummary, failedRunAdvice, runWorkerNow, command } from './common.mjs';
-import { followWeeklyRule } from './mac-check.mjs';
-import { t } from './language.mjs';
+  chooseRules, readSummary, failedRunAdvice, runWorkerNow, command } from './common.ts';
+import { followWeeklyRule } from './mac-check.ts';
+import type { CommandOptions, GitHub, Io, Sleep } from './common.ts';
+import type { GitHubApi, Repository } from '../github/api.ts';
+import { t } from './language.ts';
 
-async function ensureRepository({ api, login, io }) {
+async function ensureRepository({ api, login, io }: GitHub & { io: Io }): Promise<Repository> {
   const repo = await workerRepository({ api, login });
   if (repo) {
     io.print(`${t('Worker repository', 'Репозиторий воркера')}: ${repo.html_url}`);
@@ -19,7 +21,8 @@ async function ensureRepository({ api, login, io }) {
 }
 
 // Dispatches a regular tick, waits for its run and reads what the worker published.
-async function trialRun({ api, repo, io, now, sleep, timeZone }) {
+async function trialRun({ api, repo, io, now, sleep, timeZone }:
+  { api: GitHubApi; repo: Repository; io: Io; now: () => number; sleep: Sleep; timeZone: string | undefined }): Promise<string> {
   io.print(t('Checking the worker…', 'Проверяем воркер…'));
   const { run, logged } = await runWorkerNow({ api, repo, inputs: {}, now, sleep, wait: io.wait });
   if (run.conclusion !== 'success') throw new CommandFailed(`${failedRunAdvice(logged ?? {})}\n${t('Details', 'Подробности')}: ${run.html_url}`);
@@ -36,8 +39,10 @@ async function trialRun({ api, repo, io, now, sleep, timeZone }) {
 // existing one. Files already in the repository are kept, so a repeated setup never loses
 // state or rules and never rewrites the cron. This Mac follows the weekly rule: the check
 // from it is set up or removed. Returns the process exit code.
+// workerSource is the worker bundle; random picks the cron minute.
+export interface SetupOptions extends CommandOptions { workerSource: string; random?: () => number }
 export async function setup({ fetch, keychain, io, workerSource, mac, now = Date.now,
-  sleep = ms => new Promise(resolve => setTimeout(resolve, ms)), random = Math.random, timeZone }) {
+  sleep = ms => new Promise(resolve => setTimeout(resolve, ms)), random = Math.random, timeZone }: SetupOptions): Promise<number> {
   return command('setup', io, async () => {
     const { api, login } = await connectGitHub({ fetch, keychain, io, now, sleep });
     const repo = await ensureRepository({ api, login, io });
@@ -59,7 +64,7 @@ export async function setup({ fetch, keychain, io, workerSource, mac, now = Date
       await api.putFile(name, FILES.state, sealState({ formatVersion: STATE_FORMAT_VERSION, session, pending: null, applied: [] }, key),
         { message: 'Save the worker session', sha: state?.sha });
     }
-    let weekly = null;
+    let weekly: boolean | null = null;
     if (!rules) {
       const chosen = await chooseRules(io);
       await api.putFile(name, FILES.rules, `${JSON.stringify(chosen, null, 2)}\n`, { message: 'Set the general rules' });

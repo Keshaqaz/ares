@@ -3,11 +3,11 @@ import assert from 'node:assert/strict';
 import { mkdtemp, writeFile, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { decide, watch } from '../src/cli/watch.mjs';
-import { WatchFiles } from '../src/cli/watch-files.mjs';
-import { setup } from '../src/cli/setup.mjs';
-import { status } from '../src/cli/status.mjs';
-import { shortTime } from '../src/cli/overview.mjs';
+import { decide, watch } from '../src/cli/watch.ts';
+import { WatchFiles } from '../src/cli/watch-files.ts';
+import { setup } from '../src/cli/setup.ts';
+import { status } from '../src/cli/status.ts';
+import { shortTime } from '../src/cli/overview.ts';
 import { window } from './support/fake-world.mjs';
 import { cliWorld } from './support/cli-world.mjs';
 
@@ -243,4 +243,34 @@ test('watch files keep the session private and read a broken file as empty', asy
   assert.deepEqual(await files.readState(), {});
   await writeFile(join(dir, 'chatgpt-session.json'), JSON.stringify({ accessToken: 'a' }));
   assert.equal(await files.readSession(), null);
+});
+
+test('watch files of another shape read as none: no session, an empty watch.json, no language', async () => {
+  const dir = join(await mkdtemp(join(tmpdir(), 'watch-files-')), 'aures');
+  const files = new WatchFiles({ dir });
+  await files.writeState({});
+  for (const text of ['[]', 'null', '"text"', '7']) {
+    await writeFile(join(dir, 'watch.json'), text);
+    await writeFile(join(dir, 'chatgpt-session.json'), text);
+    await writeFile(join(dir, 'settings.json'), text);
+    assert.deepEqual(await files.readState(), {}, text);
+    assert.equal(await files.readSession(), null, text);
+    assert.equal(await files.readLanguage(), null, text);
+  }
+  const session = { accessToken: 'a', idToken: 'i', refreshToken: 'r', accountId: 'acc' };
+  for (const broken of [{ ...session, refreshToken: '' }, { ...session, accountId: 7 }, { ...session, accessToken: null }]) {
+    await writeFile(join(dir, 'chatgpt-session.json'), JSON.stringify(broken));
+    assert.equal(await files.readSession(), null, JSON.stringify(broken));
+  }
+});
+
+test('a pass reads a watch.json with fields of another type as no window asked for', async () => {
+  const { world, files, lines, pass, dispatches } = await mac();
+  const renewsAt = world.now + 2 * DAY;
+  exhaust(world, renewsAt);
+  files.state = { dispatched: { renewsAt: String(renewsAt) }, sessionLost: 0 };
+  await pass();
+  assert.deepEqual(lines, ['dispatched']);
+  assert.equal(dispatches().length, 1);
+  assert.deepEqual(files.state.dispatched, { renewsAt, at: world.now });
 });

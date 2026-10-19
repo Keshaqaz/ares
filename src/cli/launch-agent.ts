@@ -16,34 +16,55 @@ const BOOTSTRAP_ATTEMPTS = 3, BOOTSTRAP_PAUSE_MS = 500;
 
 export class LaunchctlFailed extends Error {}
 
+// One launchctl command and its exit code; -1 when it cannot run.
+export type Launchctl = (args: string[]) => Promise<{ code: number }>;
+
 // What the agent runs. Homebrew keeps a version in its own Cellar folder; the opt link moves
 // to the new one on `brew upgrade`, so the agent goes through it. From sources: this node and
-// this main.mjs.
-export function agentProgram({ main, node }) {
-  const brew = main.match(/^(.+)\/Cellar\/aures\/[^/]+\/libexec\/src\/cli\/main\.mjs$/);
+// this main.ts.
+export function agentProgram({ main, node }: { main: string; node: string }): string[] {
+  const brew = main.match(/^(.+)\/Cellar\/aures\/[^/]+\/libexec\/src\/cli\/main\.ts$/);
   return brew ? [`${brew[1]}/opt/aures/bin/aures`, 'watch'] : [node, main, 'watch'];
 }
 
-const xml = text => text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
-const exists = path => stat(path).then(() => true, () => false);
+const xml = (text: string): string => text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+const exists = (path: string): Promise<boolean> => stat(path).then(() => true, () => false);
 
-// Exit code of one launchctl command; -1 when it cannot run.
-function runLaunchctl(args) {
-  return new Promise(resolve => execFile(LAUNCHCTL, args, { timeout: 30_000 },
-    error => resolve({ code: !error ? 0 : Number.isInteger(error.code) ? error.code : -1 })));
+const runLaunchctl: Launchctl = args => new Promise(resolve => execFile(LAUNCHCTL, args, { timeout: 30_000 },
+  error => resolve({ code: !error ? 0 : typeof error.code === 'number' && Number.isInteger(error.code) ? error.code : -1 })));
+
+export interface LaunchAgentOptions {
+  home?: string;
+  uid?: number;
+  launchctl?: Launchctl;
+  // The agent's ProgramArguments.
+  program?: string[];
+  sleep?: (ms: number) => Promise<unknown>;
 }
 
 export class LaunchAgent {
-  constructor({ home = homedir(), uid = process.getuid(), launchctl = runLaunchctl,
-    program = agentProgram({ main: fileURLToPath(new URL('./main.mjs', import.meta.url)), node: process.execPath }),
-    sleep = ms => new Promise(resolve => setTimeout(resolve, ms)) } = {}) {
-    Object.assign(this, { home, uid, launchctl, program, sleep });
+  home: string;
+  uid: number;
+  launchctl: Launchctl;
+  program: string[];
+  sleep: (ms: number) => Promise<unknown>;
+  plistPath: string;
+  logPath: string;
+  // getuid is missing only off POSIX, where aures does not run.
+  constructor({ home = homedir(), uid = process.getuid?.() ?? -1, launchctl = runLaunchctl,
+    program = agentProgram({ main: fileURLToPath(new URL('./main.ts', import.meta.url)), node: process.execPath }),
+    sleep = ms => new Promise(resolve => setTimeout(resolve, ms)) }: LaunchAgentOptions = {}) {
+    this.home = home;
+    this.uid = uid;
+    this.launchctl = launchctl;
+    this.program = program;
+    this.sleep = sleep;
     this.plistPath = join(home, 'Library', 'LaunchAgents', `${AGENT_LABEL}.plist`);
     this.logPath = join(home, 'Library', 'Logs', 'codex-auto-resets', 'watch.log');
   }
 
-  plist() {
-    const string = text => `<string>${xml(text)}</string>`;
+  plist(): string {
+    const string = (text: string): string => `<string>${xml(text)}</string>`;
     return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -72,7 +93,7 @@ ${this.program.map(arg => `    ${string(arg)}`).join('\n')}
   // Writes the plist and (re)loads the agent from it, so a new program path takes effect. A
   // loaded agent with the same plist is left alone: a bootout kills a running pass, and one
   // killed between a refresh and saving the session loses it.
-  async install() {
+  async install(): Promise<void> {
     const plist = this.plist();
     if (await readFile(this.plistPath, 'utf8').catch(() => null) === plist && await this.loaded()) return;
     await mkdir(dirname(this.plistPath), { recursive: true });
@@ -81,7 +102,7 @@ ${this.program.map(arg => `    ${string(arg)}`).join('\n')}
     await writeFile(aside, plist, { mode: 0o644 });
     await rename(aside, this.plistPath);
     await this.launchctl(['bootout', this.target]);
-    let code;
+    let code = -1;
     for (let attempt = 1; attempt <= BOOTSTRAP_ATTEMPTS; attempt++) {
       if (attempt > 1) await this.sleep(BOOTSTRAP_PAUSE_MS);
       ({ code } = await this.launchctl(['bootstrap', `gui/${this.uid}`, this.plistPath]));
@@ -91,14 +112,14 @@ ${this.program.map(arg => `    ${string(arg)}`).join('\n')}
   }
 
   // Unloads the agent and deletes its plist. True when either was there.
-  async remove() {
+  async remove(): Promise<boolean> {
     const unloaded = (await this.launchctl(['bootout', this.target])).code === 0;
     const had = await exists(this.plistPath);
     await rm(this.plistPath, { force: true });
     return unloaded || had;
   }
 
-  async loaded() { return (await this.launchctl(['print', this.target])).code === 0; }
-  async removeLogFolder() { await rm(dirname(this.logPath), { recursive: true, force: true }); }
-  get target() { return `gui/${this.uid}/${AGENT_LABEL}`; }
+  async loaded(): Promise<boolean> { return (await this.launchctl(['print', this.target])).code === 0; }
+  async removeLogFolder(): Promise<void> { await rm(dirname(this.logPath), { recursive: true, force: true }); }
+  get target(): string { return `gui/${this.uid}/${AGENT_LABEL}`; }
 }

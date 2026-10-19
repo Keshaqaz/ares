@@ -2,18 +2,18 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { stat, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
-import { setup } from '../src/cli/setup.mjs';
-import { rules } from '../src/cli/rules.mjs';
-import { status } from '../src/cli/status.mjs';
-import { upgrade } from '../src/cli/upgrade.mjs';
-import { uninstall } from '../src/cli/uninstall.mjs';
-import { watch } from '../src/cli/watch.mjs';
-import { LaunchAgent, AGENT_LABEL } from '../src/cli/launch-agent.mjs';
-import { macLogin } from '../src/cli/mac-check.mjs';
+import { setup } from '../src/cli/setup.ts';
+import { rules } from '../src/cli/rules.ts';
+import { status } from '../src/cli/status.ts';
+import { upgrade } from '../src/cli/upgrade.ts';
+import { uninstall } from '../src/cli/uninstall.ts';
+import { watch } from '../src/cli/watch.ts';
+import { LaunchAgent, AGENT_LABEL } from '../src/cli/launch-agent.ts';
+import { macLogin } from '../src/cli/mac-check.ts';
 import { FILES } from '../src/worker/layout.ts';
 import { window } from './support/fake-world.mjs';
 import { cliWorld } from './support/cli-world.mjs';
-import { UID } from './support/fake-mac.mjs';
+import { UID } from './support/fake-mac.ts';
 
 const MINUTE = 60_000, HOUR = 60 * MINUTE, DAY = 24 * HOUR;
 const exists = path => stat(path).then(() => true, () => false);
@@ -137,11 +137,11 @@ test('an agent launchctl does not load is reported, and the command still succee
 test('upgrade reloads the agent from a plist with this version\'s program while the rule is on', async () => {
   const { mac, run } = await watching();
   // A checkout moved, or Homebrew moved its prefix: the agent must run the program as it is now.
-  const moved = new LaunchAgent({ home: mac.home, uid: UID, program: ['/node', '/new/src/cli/main.mjs', 'watch'],
+  const moved = new LaunchAgent({ home: mac.home, uid: UID, program: ['/node', '/new/src/cli/main.ts', 'watch'],
     launchctl: mac.launchctl.run });
   const { code, io } = await run(upgrade, { mac: { ...mac, agent: moved } });
   assert.equal(code, 0, io.output());
-  assert.match(mac.launchctl.loaded.get(AGENT_LABEL), /<string>\/new\/src\/cli\/main\.mjs<\/string>/);
+  assert.match(mac.launchctl.loaded.get(AGENT_LABEL), /<string>\/new\/src\/cli\/main\.ts<\/string>/);
 });
 
 test('upgrade with the rule off sets up nothing on this Mac', async () => {

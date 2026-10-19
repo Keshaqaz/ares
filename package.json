@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "bin": {
-    "aures": "src/cli/main.mjs"
+    "aures": "src/cli/main.ts"
   },
   "engines": {
     "node": ">=26"

@@ -7,11 +7,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { archiveName, formula, packRelease, releaseUrl } from '../scripts/release-brew.mjs';
-import { agentProgram } from '../src/cli/launch-agent.mjs';
+import { agentProgram } from '../src/cli/launch-agent.ts';
 import pkg from '../package.json' with { type: 'json' };
 
 const run = promisify(execFile);
-const MAIN = new URL('../src/cli/main.mjs', import.meta.url).pathname;
+const MAIN = new URL('../src/cli/main.ts', import.meta.url).pathname;
 
 test('--version prints the package version on any platform', async () => {
   const { stdout } = await run(process.execPath, [MAIN, '--version']);
@@ -27,7 +27,7 @@ test('the formula installs the release archive behind a node wrapper and tests -
   assert.match(text, new RegExp(`^  sha256 "${sha256}"$`, 'm'));
   assert.match(text, /^  license "MIT"$/m);
   assert.match(text, /^  depends_on "node"$/m);
-  assert.match(text, /formula_opt_bin\("node"\)}\/node" "#\{libexec}\/src\/cli\/main\.mjs" "\$@"/);
+  assert.match(text, /formula_opt_bin\("node"\)}\/node" "#\{libexec}\/src\/cli\/main\.ts" "\$@"/);
   assert.match(text, /assert_equal version\.to_s, shell_output\("#\{bin}\/aures --version"\)\.strip/);
   assert.throws(() => formula({ version: '1.2', sha256 }), RangeError);
   assert.throws(() => formula({ version: '1.2.3', sha256: 'abc' }), RangeError);
@@ -54,9 +54,9 @@ test('the release archive carries the CLI, the worker bundle and its dependencie
   assert.deepEqual((await readdir(root)).sort(), ['LICENSE', 'README.md', 'dist', 'node_modules', 'package.json', 'src']);
   assert.deepEqual(await readdir(join(root, 'dist')), ['worker.mjs']);
   assert.deepEqual((await readdir(join(root, 'node_modules'))).sort(), ['libsodium', 'libsodium-wrappers']);
-  assert.ok((await stat(join(root, 'src/cli/main.mjs'))).isFile());
+  assert.ok((await stat(join(root, 'src/cli/main.ts'))).isFile());
 
   // Outside the checkout there is no node_modules up the tree: the archive brings its own.
-  const { stdout } = await run(process.execPath, [join(root, 'src/cli/main.mjs'), '--version'], { cwd: dir });
+  const { stdout } = await run(process.execPath, [join(root, 'src/cli/main.ts'), '--version'], { cwd: dir });
   assert.equal(stdout, `${pkg.version}\n`);
 });

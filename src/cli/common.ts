@@ -1,78 +1,115 @@
 // What every command shares: the GitHub login, the worker repository, a worker run started
 // from the CLI and the words the user sees when something fails.
 import { GitHubApi, GitHubFailure, githubDeviceLogin } from '../github/api.ts';
+import type { GitHubFailureReason, Repository, WorkflowRun } from '../github/api.ts';
 import { LoginFailed } from '../chatgpt/session.ts';
+import type { DeviceCode } from '../chatgpt/session.ts';
 import { TransientFailure } from '../chatgpt/http.ts';
+import type { Fetch } from '../chatgpt/http.ts';
 import { FILES } from '../worker/layout.ts';
 import { RULES_FORMAT_VERSION } from '../worker/state-file.ts';
-import { KeychainUnavailable } from './keychain.mjs';
-import { t } from './language.mjs';
+import type { Rules, ApplyReason, AttemptResult } from '../worker/state-file.ts';
+import type { Summary } from '../worker/summary.ts';
+import type { RunOutcome } from '../worker/run.ts';
+import { KeychainUnavailable } from './keychain.ts';
+import type { Keychain } from './keychain.ts';
+import type { Mac } from './mac-check.ts';
+import { t } from './language.ts';
 
 export const WORKER_REPOSITORY = 'codex-auto-resets-worker';
 // The mark that tells our repository from a foreign one with the same name. It is set in
 // the same call that creates the repository, so an interrupted setup always leaves it.
 export const WORKER_DESCRIPTION = 'Worker of codex-auto-resets: applies issued ChatGPT resets by the general rules. Managed by the codex-auto-resets CLI.';
-export const WORKFLOW_FILE = FILES.workflow.split('/').at(-1);
+export const WORKFLOW_FILE = FILES.workflow.split('/').at(-1) ?? FILES.workflow;
 const RUN_TIMEOUT_MS = 10 * 60_000, POLL_MS = 5_000;
 // Job logs appear a few seconds after the run completes.
 const LOG_ATTEMPTS = 4;
-const OUTCOMES = ['idle', 'applied', 'pending', 'transient_error', 'reauth_required', 'broken_state', 'commit_failed',
+const OUTCOMES: RunOutcome[] = ['idle', 'applied', 'pending', 'transient_error', 'reauth_required', 'broken_state', 'commit_failed',
   'revoked', 'revoke_failed'];
+
+export type Sleep = (ms: number) => Promise<unknown>;
+// Where a command tells the user what goes on.
+export interface Printer { print(line: string): void }
+// The user at the terminal: wait(text) shows what a command waits for, wait(null) ends it.
+export interface Io extends Printer {
+  prompt(question: string): Promise<string>;
+  wait(text: string | null): void;
+  color?: boolean;
+  width?: number;
+}
+// What main hands every command; now, sleep and timeZone are the real ones unless a test sets them.
+export interface CommandOptions {
+  fetch: Fetch;
+  keychain: Keychain;
+  io: Io;
+  mac: Mac;
+  now?: () => number;
+  sleep?: Sleep;
+  timeZone?: string;
+}
+// The GitHub sign-in a command works with.
+export interface GitHub { api: GitHubApi; login: string }
+// The outcome the worker printed into its job log, with its reason.
+export interface Logged { outcome: RunOutcome; reason: string | null }
+// One of the general rules.
+export type Rule = Exclude<keyof Rules, 'formatVersion'>;
 
 // A failure explained to the user in its message.
 export class CommandFailed extends Error {}
 
-export const unfinished = () => t('Setup is not finished. Run `aures setup`.', 'Установка не завершена. Запустите `aures setup`.');
-export const enableUrl = repo => `${repo.html_url}/actions/workflows/${WORKFLOW_FILE}`;
+export const unfinished = (): string => t('Setup is not finished. Run `aures setup`.', 'Установка не завершена. Запустите `aures setup`.');
+export const enableUrl = (repo: Repository): string => `${repo.html_url}/actions/workflows/${WORKFLOW_FILE}`;
 
 // Answers that confirm a one-way action.
 export const YES = ['y', 'yes', 'д', 'да'];
-export const onOff = value => value ? t('on', 'включено') : t('off', 'выключено');
-export const chatgptLogin = () => t('Sign in to ChatGPT for the worker (Codex on this computer is not affected).',
+export const onOff = (value: boolean): string => value ? t('on', 'включено') : t('off', 'выключено');
+export const chatgptLogin = (): string => t('Sign in to ChatGPT for the worker (Codex on this computer is not affected).',
   'Вход в ChatGPT для воркера (Codex на этом компьютере не затронут).');
-export const showCode = io => ({ userCode, verificationUrl }) => io.print(t(`Open ${verificationUrl} and enter the code ${userCode}`,
+export const showCode = (io: Printer) => ({ userCode, verificationUrl }: DeviceCode): void => io.print(t(`Open ${verificationUrl} and enter the code ${userCode}`,
   `Откройте ${verificationUrl} и введите код ${userCode}`));
-export const formatTime = (ms, timeZone) => new Intl.DateTimeFormat(t('en-GB', 'ru-RU'), { day: 'numeric', month: 'long', year: 'numeric',
+export const formatTime = (ms: number, timeZone?: string): string => new Intl.DateTimeFormat(t('en-GB', 'ru-RU'), { day: 'numeric', month: 'long', year: 'numeric',
   hour: '2-digit', minute: '2-digit', timeZone, timeZoneName: 'short' }).format(ms);
 
 // The two general rules as the user reads them in rules, status and the screen.
-export const ruleLabel = rule => ({
+export const ruleLabel = (rule: Rule): string => ({
   beforeExpiry: t('Before expiry (in the last 8 hours)', 'Перед истечением (в последние 8 часов)'),
   weeklyAutoApply: t('When the weekly limit runs out', 'Когда кончится недельный лимит'),
 })[rule];
 // Why a reset was applied.
-export const reasonText = reason => ({
+export const reasonText = (reason: ApplyReason): string => ({
   before_expiry: t('before expiry', 'перед истечением'),
   weekly: t('the weekly limit ran out', 'кончился недельный лимит'),
   apply_now: t('manually', 'вручную'),
 })[reason] ?? reason;
 // lastAttempt.result of an attempt that did not apply the reset.
-export const attemptResult = result => ({
+export const attemptResult = (result: AttemptResult): string => ({
   nothing_to_reset: t('nothing to reset, the reset is kept', 'сбрасывать нечего, сброс сохранён'),
   no_credit: t('ChatGPT did not accept the reset', 'ChatGPT не принял сброс'),
   missing: t('the reset is no longer available', 'сброс уже недоступен'),
   unknown: t('unclear whether it was applied or expired', 'неясно, применён он или истёк'),
-})[result] ?? result;
+} as Partial<Record<AttemptResult, string>>)[result] ?? result;
 
 // How the CLI names a reset: RES and the last 4 characters of its hex ID, the random part.
 // «RateLimitResetCredit_0eb466b3212c819193799a1741f067f8» is «RES67F8». An ID of another form is
 // shown whole; the worker and its summary keep the whole ID.
-export const resetName = creditId => {
+export const resetName = (creditId: string): string => {
   const hex = /_([0-9a-f]{8,})$/.exec(creditId)?.[1];
   return hex ? `RES${hex.slice(-4).toUpperCase()}` : creditId;
 };
-export const deadline = (reset, timeZone) => reset.expiresAt ?
+type Expiring = { expiresAt: string | null };
+export const deadline = (reset: Expiring, timeZone?: string): string => reset.expiresAt ?
   `${t('expires', 'истекает')} ${formatTime(Date.parse(reset.expiresAt), timeZone)}` : t('no expiry', 'без срока');
-export const byDeadline = resets => [...resets].sort((a, b) =>
+export const byDeadline = <T extends Expiring>(resets: T[]): T[] => [...resets].sort((a, b) =>
   (a.expiresAt ? Date.parse(a.expiresAt) : Infinity) - (b.expiresAt ? Date.parse(b.expiresAt) : Infinity));
 
-export async function connectGitHub({ fetch, keychain, io, now, sleep }) {
-  let token = null;
+export async function connectGitHub({ fetch, keychain, io, now, sleep }:
+  { fetch: Fetch; keychain: Keychain; io: Printer; now: () => number; sleep: Sleep }): Promise<GitHub> {
+  let token: string | null = null;
   try { token = await keychain.read(); } catch (error) { if (!(error instanceof KeychainUnavailable)) throw error; }
   if (token) {
     const api = new GitHubApi({ fetch, token });
     try { return { api, login: await api.login() }; } catch (error) {
-      if (error.reason !== 'unauthorized') throw error;
+      if (!(error instanceof GitHubFailure && error.reason === 'unauthorized')) throw error;
       io.print(t('The GitHub sign-in has expired, sign in again.', 'Вход в GitHub устарел, войдите снова.'));
     }
   }
@@ -91,7 +128,7 @@ export async function connectGitHub({ fetch, keychain, io, now, sleep }) {
 
 // The worker repository as setup left it; null when there is none. A repository of that
 // name without our mark, or a public one, is never touched.
-export async function workerRepository({ api, login }) {
+export async function workerRepository({ api, login }: GitHub): Promise<Repository | null> {
   const repo = await api.repository(`${login}/${WORKER_REPOSITORY}`);
   if (!repo) return null;
   if (repo.description !== WORKER_DESCRIPTION) {
@@ -108,14 +145,14 @@ export async function workerRepository({ api, login }) {
 }
 
 // The worker repository for a command that needs an installed worker.
-export async function installedWorker(options) {
+export async function installedWorker(options: GitHub): Promise<Repository> {
   const repo = await workerRepository(options);
   if (!repo) throw new CommandFailed(t('The worker is not installed. Run `aures setup`.', 'Воркер не установлен. Запустите `aures setup`.'));
   return repo;
 }
 
 // The workflow must be able to take a dispatch.
-export async function runnableWorkflow(api, repo) {
+export async function runnableWorkflow(api: GitHubApi, repo: Repository): Promise<void> {
   const state = await api.workflowState(repo.full_name, WORKFLOW_FILE);
   if (!state) throw new CommandFailed(unfinished());
   if (state !== 'active') {
@@ -124,7 +161,7 @@ export async function runnableWorkflow(api, repo) {
   }
 }
 
-export async function chooseRules(io, initial = { beforeExpiry: true, weeklyAutoApply: false }) {
+export async function chooseRules(io: Io, initial: Pick<Rules, Rule> = { beforeExpiry: true, weeklyAutoApply: false }): Promise<Rules> {
   const rules = { beforeExpiry: initial.beforeExpiry, weeklyAutoApply: initial.weeklyAutoApply };
   for (;;) {
     io.print(t('When to apply resets:', 'Когда применять сбросы:'));
@@ -139,36 +176,39 @@ export async function chooseRules(io, initial = { beforeExpiry: true, weeklyAuto
 }
 
 // What the worker publishes openly (summary.json), or null before its first read.
-export async function readSummary(api, repo) {
+export async function readSummary(api: GitHubApi, repo: Repository): Promise<Summary | null> {
   const file = await api.file(repo.full_name, FILES.summary);
   if (!file) return null;
-  try { return JSON.parse(file.text); } catch {
+  // Our own worker writes it, so it is taken as it is.
+  try { return JSON.parse(file.text) as Summary; } catch {
     throw new CommandFailed(t('The worker data does not read. Try again after its next run.', 'Данные воркера не читаются. Повторите после его следующего запуска.'));
   }
 }
 
 // The line that tells the user the worker works, from its summary.
-export function workingLine(summary, timeZone) {
+export function workingLine(summary: Summary, timeZone?: string): string {
   const resets = summary.resets ?? [];
-  const deadlines = resets.map(r => r.expiresAt && Date.parse(r.expiresAt)).filter(Boolean).sort((a, b) => a - b);
-  if (!deadlines.length) return t(`The worker works. Resets: ${resets.length}.`, `Воркер работает. Сбросов: ${resets.length}.`);
-  return t(`The worker works. Resets: ${resets.length}, the nearest expires ${formatTime(deadlines[0], timeZone)}.`,
-    `Воркер работает. Сбросов: ${resets.length}, ближайший истекает ${formatTime(deadlines[0], timeZone)}.`);
+  const deadlines = resets.map(r => r.expiresAt && Date.parse(r.expiresAt)).filter((ms): ms is number => Boolean(ms)).sort((a, b) => a - b);
+  const nearest = deadlines[0];
+  if (nearest === undefined) return t(`The worker works. Resets: ${resets.length}.`, `Воркер работает. Сбросов: ${resets.length}.`);
+  return t(`The worker works. Resets: ${resets.length}, the nearest expires ${formatTime(nearest, timeZone)}.`,
+    `Воркер работает. Сбросов: ${resets.length}, ближайший истекает ${formatTime(nearest, timeZone)}.`);
 }
 
 // The last outcome the worker printed into its job log, e.g. «2026-…Z broken_state: key_invalid».
-export function loggedOutcome(log) {
-  let found = null;
+export function loggedOutcome(log: string | null): Logged | null {
+  let found: Logged | null = null;
   for (const line of (log ?? '').split('\n')) {
     const match = line.match(/^(?:\S+Z )?([a-z_]+)(?:: ([a-z0-9_]+))?\s*$/);
-    if (match && OUTCOMES.includes(match[1])) found = { outcome: match[1], reason: match[2] ?? null };
+    const outcome = OUTCOMES.find(known => known === match?.[1]);
+    if (match && outcome) found = { outcome, reason: match[2] ?? null };
   }
   return found;
 }
 
 // What the user does about a run that failed with this outcome.
-export function failedRunAdvice({ outcome, reason } = {}) {
-  return {
+export function failedRunAdvice({ outcome, reason }: Partial<Logged> = {}): string {
+  const advice: Partial<Record<RunOutcome, string>> = {
     reauth_required: t('The worker lost its ChatGPT sign-in. Sign in again: `aures login`.',
       'Воркер потерял вход в ChatGPT. Войдите заново: `aures login`.'),
     broken_state: reason?.startsWith('rules_') ?
@@ -182,27 +222,38 @@ export function failedRunAdvice({ outcome, reason } = {}) {
       'If an email about a worker failure follows, sign in again: `aures login`.',
     'Воркер не смог сохранить данные в репозитории. Повторите `aures setup`. ' +
       'Если потом придёт письмо об ошибке воркера, войдите заново: `aures login`.'),
-  }[outcome] ?? t('The worker ended with an error.', 'Воркер завершился с ошибкой.');
+  };
+  return (outcome && advice[outcome]) ?? t('The worker ended with an error.', 'Воркер завершился с ошибкой.');
 }
 
 // What a wait for a dispatched run is at: the run not seen yet, queued for a runner, running,
 // or GitHub not answering the last poll.
-const waitText = stage => ({
+type Stage = 'starting' | 'queued' | 'running' | 'unreachable';
+const waitText = (stage: Stage): string => ({
   starting: t('Starting the worker on GitHub…', 'Запускаем воркер на GitHub…'),
   queued: t('GitHub queued the worker, waiting (up to 10 minutes)…', 'GitHub поставил воркер в очередь, ждём (до 10 минут)…'),
   running: t('The worker is running…', 'Воркер работает…'),
   unreachable: t('GitHub does not answer, still waiting…', 'GitHub не отвечает, продолжаем ждать…'),
 })[stage];
 // A poll that failed this way is worth repeating: the run is already dispatched and goes on.
-const passing = error => error instanceof GitHubFailure && (error.reason === 'network' || /_5\d\d$/.test(error.reason));
+const passing = (error: unknown): boolean => error instanceof GitHubFailure && (error.reason === 'network' || /_5\d\d$/.test(error.reason));
 
 // Dispatches one worker run with these inputs and waits for it. Returns the completed run
 // and the outcome from its log (null when the log does not show one). wait(text) tells what
 // the wait is at whenever that changes, and wait(null) when it is over.
-export async function runWorkerNow({ api, repo, inputs, now, sleep, wait = () => {} }) {
+export interface WorkerRunOptions {
+  api: GitHubApi;
+  repo: Repository;
+  inputs: Record<string, string>;
+  now: () => number;
+  sleep: Sleep;
+  wait?: (text: string | null) => void;
+}
+export async function runWorkerNow({ api, repo, inputs, now, sleep, wait = () => {} }: WorkerRunOptions):
+  Promise<{ run: WorkflowRun; logged: Logged | null }> {
   const name = repo.full_name;
-  let shown = null;
-  const show = stage => { if (stage !== shown) wait(waitText(shown = stage)); };
+  let shown: Stage | null = null;
+  const show = (stage: Stage) => { if (stage !== shown) wait(waitText(shown = stage)); };
   try {
     const known = new Set((await api.dispatchRuns(name, WORKFLOW_FILE)).map(run => run.id));
     const deadline = now() + RUN_TIMEOUT_MS;
@@ -215,7 +266,7 @@ export async function runWorkerNow({ api, repo, inputs, now, sleep, wait = () =>
       }
       await sleep(POLL_MS);
     }
-    let run = null;
+    let run: WorkflowRun | null = null;
     for (;;) {
       try {
         run = run ? await api.run(name, run.id) : (await api.dispatchRuns(name, WORKFLOW_FILE)).find(r => !known.has(r.id)) ?? null;
@@ -236,7 +287,7 @@ export async function runWorkerNow({ api, repo, inputs, now, sleep, wait = () =>
       }
       await sleep(POLL_MS);
     }
-    let logged = null;
+    let logged: Logged | null = null;
     for (let attempt = 1; !logged && attempt <= LOG_ATTEMPTS; attempt++) {
       if (attempt > 1) await sleep(POLL_MS);
       logged = loggedOutcome(await api.runLog(name, run.id).catch(() => null));
@@ -247,18 +298,18 @@ export async function runWorkerNow({ api, repo, inputs, now, sleep, wait = () =>
 
 // The message for a failure this module knows, or null. command names what to repeat: '' is
 // the screen itself, null an action on the screen, which the user just repeats.
-export function explain(error, command = null) {
+export function explain(error: unknown, command: string | null = null): string | null {
   if (error instanceof CommandFailed) return error.message;
   const program = `\`aures${command ? ` ${command}` : ''}\``;
   const again = command === null ? t('Try again', 'Повторите') : t(`Run ${program} again`, `Повторите ${program}`);
   const kept = t('what is done is kept', 'сделанное сохранится');
   if (error instanceof GitHubFailure) {
-    return {
+    return ({
       unauthorized: t(`GitHub rejected the sign-in. ${again} and sign in anew.`, `GitHub отклонил вход. ${again} и войдите заново.`),
       network: t(`GitHub is unreachable. ${again}: ${kept}.`, `GitHub недоступен. ${again}: ${kept}.`),
       login_timeout: t(`The time to enter the GitHub code ran out. ${again}.`, `Время на ввод кода GitHub вышло. ${again}.`),
       login_denied: t('The GitHub sign-in was denied.', 'Вход в GitHub отклонён.'),
-    }[error.reason] ?? t(`GitHub error (${error.reason}). ${again}: ${kept}.`, `Ошибка GitHub (${error.reason}). ${again}: ${kept}.`);
+    } as Partial<Record<GitHubFailureReason, string>>)[error.reason] ?? t(`GitHub error (${error.reason}). ${again}: ${kept}.`, `Ошибка GitHub (${error.reason}). ${again}: ${kept}.`);
   }
   if (error instanceof LoginFailed) {
     return error.reason === 'timeout' ? t(`The time to enter the ChatGPT code ran out. ${again}.`, `Время на ввод кода ChatGPT вышло. ${again}.`) :
@@ -269,7 +320,7 @@ export function explain(error, command = null) {
 }
 
 // Runs a command body and turns known failures into their message and exit code 1.
-export async function command(name, io, body) {
+export async function command(name: string, io: Printer, body: () => Promise<number>): Promise<number> {
   try {
     return await body();
   } catch (error) {

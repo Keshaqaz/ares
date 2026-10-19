@@ -3,26 +3,35 @@
 import { mkdtemp, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { LaunchAgent } from '../../src/cli/launch-agent.mjs';
-import { WatchFiles } from '../../src/cli/watch-files.mjs';
+import { LaunchAgent } from '../../src/cli/launch-agent.ts';
+import type { Launchctl } from '../../src/cli/launch-agent.ts';
+import { WatchFiles } from '../../src/cli/watch-files.ts';
+import type { Mac } from '../../src/cli/mac-check.ts';
 
 export const UID = 501;
 export const PROGRAM = ['/opt/homebrew/opt/aures/bin/aures', 'watch'];
 
 // launchctl for one user's GUI domain: bootstrap loads the plist as it is on disk now, as
 // launchd does; exit codes as launchctl gives them.
-export function fakeLaunchctl() {
-  const launchctl = {
-    loaded: new Map(), // label → plist text it was loaded from
+export interface FakeLaunchctl {
+  loaded: Map<string, string>; // label → plist text it was loaded from
+  calls: string[][];
+  fail: { verb: string; code: number } | null; // that verb fails
+  run: Launchctl;
+}
+export function fakeLaunchctl(): FakeLaunchctl {
+  const launchctl: FakeLaunchctl = {
+    loaded: new Map(),
     calls: [],
-    fail: null, // { verb, code }: that verb fails
+    fail: null,
     run: async args => {
       launchctl.calls.push(args);
       const [verb, target, path] = args;
-      if (launchctl.fail?.verb === verb) return { code: launchctl.fail.code };
-      if (target.split('/')[1] !== String(UID)) return { code: 125 };
+      const { fail } = launchctl;
+      if (fail && fail.verb === verb) return { code: fail.code };
+      if (target?.split('/')[1] !== String(UID)) return { code: 125 };
       if (verb === 'bootstrap') {
-        const plist = await readFile(path, 'utf8').catch(() => null);
+        const plist = path === undefined ? null : await readFile(path, 'utf8').catch(() => null);
         const label = plist?.match(/<key>Label<\/key>\s*<string>([^<]+)<\/string>/)?.[1];
         if (!label) return { code: 5 };
         // An agent already loaded: «Bootstrap failed: 5: Input/output error».
@@ -30,7 +39,7 @@ export function fakeLaunchctl() {
         launchctl.loaded.set(label, plist);
         return { code: 0 };
       }
-      const label = target.split('/')[2];
+      const label = target.split('/')[2] ?? '';
       if (verb === 'bootout') return { code: launchctl.loaded.delete(label) ? 0 : 3 };
       if (verb === 'print') return { code: launchctl.loaded.has(label) ? 0 : 113 };
       return { code: 64 };
@@ -39,7 +48,8 @@ export function fakeLaunchctl() {
   return launchctl;
 }
 
-export async function fakeMac() {
+export interface FakeMac extends Mac { home: string; launchctl: FakeLaunchctl }
+export async function fakeMac(): Promise<FakeMac> {
   const home = await mkdtemp(join(tmpdir(), 'fake-mac-'));
   const launchctl = fakeLaunchctl();
   const agent = new LaunchAgent({ home, uid: UID, program: PROGRAM, launchctl: launchctl.run, sleep: async () => {} });

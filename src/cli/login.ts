@@ -2,10 +2,11 @@ import { randomUUID } from 'node:crypto';
 import { deviceLogin } from '../chatgpt/session.ts';
 import { FILES, STATE_KEY_SECRET, LOGIN_SECRET } from '../worker/layout.ts';
 import { CommandFailed, unfinished, chatgptLogin, showCode, workingLine, connectGitHub, installedWorker, runnableWorkflow, readSummary, failedRunAdvice,
-  runWorkerNow, command } from './common.mjs';
-import { t } from './language.mjs';
+  runWorkerNow, command } from './common.ts';
+import type { CommandOptions } from './common.ts';
+import { t } from './language.ts';
 
-const otherAccount = () => t('This is another ChatGPT account, the sign-in is rejected. Sign in to the one the worker was set up for. ' +
+const otherAccount = (): string => t('This is another ChatGPT account, the sign-in is rejected. Sign in to the one the worker was set up for. ' +
   'To change the account, reinstall the worker: `aures uninstall`, then `aures setup`.',
 'Это другой аккаунт ChatGPT, вход отклонён. Войдите в тот, для которого установлен воркер. ' +
   'Чтобы сменить аккаунт, переустановите воркер: `aures uninstall`, затем `aures setup`.');
@@ -15,7 +16,7 @@ const otherAccount = () => t('This is another ChatGPT account, the sign-in is re
 // worker takes it in place of the old one, keeping rules and history, and rejects another
 // ChatGPT account. The verdict comes back in the open summary.
 export async function login({ fetch, keychain, io, now = Date.now,
-  sleep = ms => new Promise(resolve => setTimeout(resolve, ms)), timeZone }) {
+  sleep = ms => new Promise(resolve => setTimeout(resolve, ms)), timeZone }: CommandOptions): Promise<number> {
   return command('login', io, async () => {
     const { api, login: owner } = await connectGitHub({ fetch, keychain, io, now, sleep });
     const repo = await installedWorker({ api, login: owner });
@@ -45,7 +46,7 @@ export async function login({ fetch, keychain, io, now = Date.now,
     const summary = await readSummary(api, repo);
     const verdict = summary?.login?.id === id ? summary.login.result : null;
     if (verdict === 'rejected') throw new CommandFailed(otherAccount());
-    if (verdict !== 'accepted' || run.conclusion !== 'success') {
+    if (verdict !== 'accepted' || !summary || run.conclusion !== 'success') {
       throw new CommandFailed(`${run.conclusion === 'success' ? t('The worker did not take the new sign-in.', 'Воркер не принял новый вход.') :
         failedRunAdvice(logged ?? {})}\n${t('Details', 'Подробности')}: ${run.html_url}`);
     }
