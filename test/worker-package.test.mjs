@@ -5,10 +5,10 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { buildWorker } from '../scripts/build-worker.mjs';
-import { workflowYaml } from '../src/worker/workflow.mjs';
-import { FILES, STATE_KEY_SECRET } from '../src/worker/layout.mjs';
-import { generateKey } from '../src/worker/state-file.mjs';
+import { buildWorker } from '../scripts/build-worker.ts';
+import { workflowYaml } from '../src/worker/workflow.ts';
+import { FILES, STATE_KEY_SECRET } from '../src/worker/layout.ts';
+import { generateKey } from '../src/worker/state-file.ts';
 import { fakeWorld } from './support/fake-world.mjs';
 import { workerRepo } from './support/worker-repo.mjs';
 

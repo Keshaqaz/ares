@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { writeFile } from 'node:fs/promises';
+import { writeFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { runWorker } from '../src/worker/run.mjs';
-import { FILES } from '../src/worker/layout.mjs';
-import { sealState, openState, generateKey, BrokenState } from '../src/worker/state-file.mjs';
+import { runWorker } from '../src/worker/run.ts';
+import { FILES } from '../src/worker/layout.ts';
+import { sealState, openState, generateKey, BrokenState } from '../src/worker/state-file.ts';
 import { fakeWorld, credit } from './support/fake-world.mjs';
 import { workerRepo } from './support/worker-repo.mjs';
 
@@ -126,14 +126,36 @@ test('a lost worker session fails the run and asks for a new login', async () =>
 for (const [label, breakRepo, reason] of [
   ['a wrong key', async () => ({ key: generateKey() }), 'state_undecryptable'],
   ['a missing key', async () => ({ key: undefined }), 'key_invalid'],
-  ['a garbled state file', async dir => { await writeFile(join(dir, FILES.state), 'not json'); return {}; }, 'state_unreadable'],
-  ['rules of an unknown format', async dir => {
+  ['a key of the wrong length', async () => ({ key: Buffer.alloc(16).toString('base64') }), 'key_invalid'],
+  ['a missing state file', async ({ dir }) => { await rm(join(dir, FILES.state)); return {}; }, 'state_missing'],
+  ['a garbled state file', async ({ dir }) => { await writeFile(join(dir, FILES.state), 'not json'); return {}; }, 'state_unreadable'],
+  ['a state envelope of another version', async ({ dir, key }) => {
+    await writeFile(join(dir, FILES.state), JSON.stringify({ ...JSON.parse(sealState({}, key)), formatVersion: 2 })); return {};
+  }, 'state_unreadable'],
+  ['a state envelope of another cipher', async ({ dir, key }) => {
+    await writeFile(join(dir, FILES.state), JSON.stringify({ ...JSON.parse(sealState({}, key)), cipher: 'aes-128-gcm' })); return {};
+  }, 'state_unreadable'],
+  ['a state envelope without its nonce', async ({ dir, key }) => {
+    await writeFile(join(dir, FILES.state), JSON.stringify({ ...JSON.parse(sealState({}, key)), iv: 7 })); return {};
+  }, 'state_undecryptable'],
+  ['a state without a session', async ({ dir, key }) => {
+    await writeFile(join(dir, FILES.state), sealState({ formatVersion: 1, pending: null, applied: [] }, key)); return {};
+  }, 'state_without_session'],
+  ['a missing rules file', async ({ dir }) => { await rm(join(dir, FILES.rules)); return {}; }, 'rules_missing'],
+  ['a garbled rules file', async ({ dir }) => { await writeFile(join(dir, FILES.rules), 'not json'); return {}; }, 'rules_unreadable'],
+  ['rules without a rule', async ({ dir }) => {
+    await writeFile(join(dir, FILES.rules), JSON.stringify({ formatVersion: 1, beforeExpiry: true })); return {};
+  }, 'rules_unreadable'],
+  ['rules of format zero', async ({ dir }) => {
+    await writeFile(join(dir, FILES.rules), JSON.stringify({ ...RULES, formatVersion: 0 })); return {};
+  }, 'rules_format_unknown'],
+  ['rules of an unknown format', async ({ dir }) => {
     await writeFile(join(dir, FILES.rules), JSON.stringify({ ...RULES, formatVersion: 2 })); return {};
   }, 'rules_format_unknown'],
 ]) {
   test(`${label} fails the run as a broken state without touching the network`, async () => {
     const { world, repo, run } = await workerWorld();
-    const options = await breakRepo(repo.dir);
+    const options = await breakRepo(repo);
     assert.deepEqual(await run(options), { outcome: 'broken_state', reason, exitCode: 1 });
     assert.deepEqual(world.requests, []);
     assert.deepEqual(repo.commits(), ['Set up worker']);
@@ -203,7 +225,12 @@ test('a login secret replaces the lost session, and the summary tells which logi
   // A secret the CLI did not write is ignored, not a broken state.
   assert.equal((await run({ login: 'not json' })).outcome, 'idle');
   assert.equal((await run({ login: JSON.stringify({ id: 'login-2' }) })).outcome, 'idle');
+  for (const broken of [{ id: '', session }, { id: 'login-3', session: { ...session, accountId: 1 } },
+    { id: 'login-4', session: { ...session, refreshToken: undefined } }, { id: 'login-5', session: { ...session, accessToken: null } }]) {
+    assert.equal((await run({ login: JSON.stringify(broken) })).outcome, 'idle');
+  }
   assert.deepEqual(repo.state().session, session);
+  assert.equal(JSON.parse(repo.show(FILES.summary)).login.id, 'login-1');
 });
 
 test('a revoke run revokes the worker session in OpenAI and commits nothing', async () => {

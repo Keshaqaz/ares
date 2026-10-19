@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { tick } from '../src/worker/tick.mjs';
+import { tick } from '../src/worker/tick.ts';
 import { fakeWorld, credit, window, REUSE_GRACE_MS } from './support/fake-world.mjs';
 
 const HOUR = 3600_000, DAY = 24 * HOUR;
@@ -236,4 +236,5 @@ test('tick brings a state of an older formatVersion to the current one before it
 test('tick refuses a state newer than its formats', async () => {
   const { state, run } = setup();
   await assert.rejects(run({ ...state, formatVersion: 2 }), { reason: 'state_format_unknown' });
+  await assert.rejects(run({ ...state, session: null }), { reason: 'state_without_session' });
 });

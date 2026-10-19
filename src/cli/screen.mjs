@@ -1,6 +1,6 @@
 import { emitKeypressEvents } from 'node:readline';
-import { FILES } from '../worker/layout.mjs';
-import { readRules, BrokenState, RULES_FORMAT_VERSION } from '../worker/state-file.mjs';
+import { FILES } from '../worker/layout.ts';
+import { readRules, BrokenState, RULES_FORMAT_VERSION } from '../worker/state-file.ts';
 import { CommandFailed, resetName, unfinished, connectGitHub, installedWorker, runnableWorkflow, readSummary, explain, command } from './common.mjs';
 import { applyReset } from './apply-now.mjs';
 import { saveRules } from './rules.mjs';

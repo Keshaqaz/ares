@@ -8,10 +8,10 @@ import { status } from '../src/cli/status.mjs';
 import { applyNow } from '../src/cli/apply-now.mjs';
 import { rules } from '../src/cli/rules.mjs';
 import { login } from '../src/cli/login.mjs';
-import { buildWorker } from '../scripts/build-worker.mjs';
-import { FILES, STATE_KEY_SECRET, LOGIN_SECRET } from '../src/worker/layout.mjs';
-import { openState, readRules } from '../src/worker/state-file.mjs';
-import { workflowYaml } from '../src/worker/workflow.mjs';
+import { buildWorker } from '../scripts/build-worker.ts';
+import { FILES, STATE_KEY_SECRET, LOGIN_SECRET } from '../src/worker/layout.ts';
+import { openState, readRules } from '../src/worker/state-file.ts';
+import { workflowYaml } from '../src/worker/workflow.ts';
 import { credit, window } from './support/fake-world.mjs';
 import { cliWorld } from './support/cli-world.mjs';
 

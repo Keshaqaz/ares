@@ -3,8 +3,8 @@
 import { GitHubApi, GitHubFailure, githubDeviceLogin } from '../github/api.ts';
 import { LoginFailed } from '../chatgpt/session.ts';
 import { TransientFailure } from '../chatgpt/http.ts';
-import { FILES } from '../worker/layout.mjs';
-import { RULES_FORMAT_VERSION } from '../worker/state-file.mjs';
+import { FILES } from '../worker/layout.ts';
+import { RULES_FORMAT_VERSION } from '../worker/state-file.ts';
 import { KeychainUnavailable } from './keychain.mjs';
 import { t } from './language.mjs';
 

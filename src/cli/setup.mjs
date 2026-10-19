@@ -1,7 +1,7 @@
 import { deviceLogin } from '../chatgpt/session.ts';
-import { FILES, STATE_KEY_SECRET, LOGIN_SECRET } from '../worker/layout.mjs';
-import { generateKey, sealState, readRules, BrokenState, STATE_FORMAT_VERSION } from '../worker/state-file.mjs';
-import { workflowYaml } from '../worker/workflow.mjs';
+import { FILES, STATE_KEY_SECRET, LOGIN_SECRET } from '../worker/layout.ts';
+import { generateKey, sealState, readRules, BrokenState, STATE_FORMAT_VERSION } from '../worker/state-file.ts';
+import { workflowYaml } from '../worker/workflow.ts';
 import { CommandFailed, WORKER_REPOSITORY, WORKER_DESCRIPTION, chatgptLogin, showCode, workingLine, connectGitHub, workerRepository,
   chooseRules, readSummary, failedRunAdvice, runWorkerNow, command } from './common.mjs';
 import { followWeeklyRule } from './mac-check.mjs';

@@ -7,11 +7,11 @@ import { setup } from '../src/cli/setup.mjs';
 import { upgrade } from '../src/cli/upgrade.mjs';
 import { uninstall } from '../src/cli/uninstall.mjs';
 import { KeychainUnavailable } from '../src/cli/keychain.mjs';
-import { buildWorker } from '../scripts/build-worker.mjs';
+import { buildWorker } from '../scripts/build-worker.ts';
 import { GITHUB_OAUTH_CLIENT_ID } from '../src/github/oauth-app.ts';
-import { FILES, STATE_KEY_SECRET, REVOKE_INPUT } from '../src/worker/layout.mjs';
-import { openState } from '../src/worker/state-file.mjs';
-import { workflowYaml } from '../src/worker/workflow.mjs';
+import { FILES, STATE_KEY_SECRET, REVOKE_INPUT } from '../src/worker/layout.ts';
+import { openState } from '../src/worker/state-file.ts';
+import { workflowYaml } from '../src/worker/workflow.ts';
 import { cliWorld } from './support/cli-world.mjs';
 
 const OAUTH_APP_LINK = `https://github.com/settings/connections/applications/${GITHUB_OAUTH_CLIENT_ID}`;

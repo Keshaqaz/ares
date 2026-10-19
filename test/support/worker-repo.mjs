@@ -4,8 +4,8 @@ import { mkdtemp, writeFile, readFile } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { FILES } from '../../src/worker/layout.mjs';
-import { sealState, openState, generateKey } from '../../src/worker/state-file.mjs';
+import { FILES } from '../../src/worker/layout.ts';
+import { sealState, openState, generateKey } from '../../src/worker/state-file.ts';
 
 const git = (cwd, ...args) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: 'pipe' }).trim();
 const AUTHOR = ['-c', 'user.name=cli', '-c', 'user.email=cli@example.invalid'];

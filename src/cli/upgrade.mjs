@@ -1,7 +1,7 @@
 import pkg from '../../package.json' with { type: 'json' };
-import { FILES } from '../worker/layout.mjs';
-import { readRules, BrokenState, RULES_MIGRATIONS } from '../worker/state-file.mjs';
-import { workflowYaml, workflowMinute } from '../worker/workflow.mjs';
+import { FILES } from '../worker/layout.ts';
+import { readRules, BrokenState, RULES_MIGRATIONS } from '../worker/state-file.ts';
+import { workflowYaml, workflowMinute } from '../worker/workflow.ts';
 import { CommandFailed, unfinished, connectGitHub, installedWorker, command } from './common.mjs';
 import { t } from './language.mjs';
 import { reloadAgent } from './mac-check.mjs';

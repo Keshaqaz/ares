@@ -2,7 +2,10 @@ import { randomUUID } from 'node:crypto';
 import { usage, issuedResets, consume } from '../chatgpt/client.ts';
 import { needsRefresh, refresh } from '../chatgpt/session.ts';
 import { SessionLost, TransientFailure } from '../chatgpt/http.ts';
-import { migrateState, STATE_MIGRATIONS } from './state-file.mjs';
+import type { Fetch } from '../chatgpt/http.ts';
+import type { IssuedReset, ConsumeResult } from '../chatgpt/client.ts';
+import { migrateState, STATE_MIGRATIONS } from './state-file.ts';
+import type { State, Rules, Login, Migration, Observed, Pending, Applied, ApplyReason, LastAttempt, AttemptResult } from './state-file.ts';
 
 // The before-expiry rule makes its first attempt on the first tick inside this window.
 export const BEFORE_EXPIRY_MS = 8 * 3600_000;
@@ -11,24 +14,40 @@ export const BEFORE_EXPIRY_MS = 8 * 3600_000;
 export const SAME_WINDOW_MS = 3600_000;
 
 // Group of matching deadlines: resets whose deadline falls on one calendar minute.
-const minuteGroup = expiresAt => expiresAt === null ? null : Math.floor(expiresAt / 60_000);
-const byDeadline = (a, b) => (a.expiresAt ?? Infinity) - (b.expiresAt ?? Infinity) || a.id.localeCompare(b.id);
+const minuteGroup = (expiresAt: number | null): number | null => expiresAt === null ? null : Math.floor(expiresAt / 60_000);
+const byDeadline = (a: IssuedReset, b: IssuedReset): number => (a.expiresAt ?? Infinity) - (b.expiresAt ?? Infinity) || a.id.localeCompare(b.id);
 
 // The reset the general rules apply on this tick, if any: one per group of matching
 // deadlines. An application made while the weekly quota was exhausted records the window
 // it recovered, so a later read of the same exhaustion does not spend a second reset.
-function chooseByRules({ weeklyQuota, resets }, applied, rules, now) {
-  const spent = new Set(applied.map(a => minuteGroup(a.expiresAt)).filter(g => g !== null));
+interface Choice { reset: IssuedReset; reason: ApplyReason }
+function chooseByRules({ weeklyQuota, resets }: Observed, applied: Applied[], rules: Rules, now: number): Choice | null {
+  const spent = new Set<number | null>(applied.map(a => minuteGroup(a.expiresAt)).filter(g => g !== null));
   const candidates = resets.filter(r => (r.expiresAt === null || r.expiresAt > now) && !spent.has(minuteGroup(r.expiresAt)))
     .sort(byDeadline);
   const exhausted = weeklyQuota?.exhausted &&
     !applied.some(a => a.recovers !== null && Math.abs(a.recovers - weeklyQuota.renewsAt) < SAME_WINDOW_MS);
-  if (rules.weeklyAutoApply && exhausted && candidates.length) return { reset: candidates[0], reason: 'weekly' };
+  if (rules.weeklyAutoApply && exhausted && candidates[0]) return { reset: candidates[0], reason: 'weekly' };
   if (rules.beforeExpiry) {
     const due = candidates.find(r => r.expiresAt !== null && r.expiresAt - now <= BEFORE_EXPIRY_MS);
     if (due) return { reset: due, reason: 'before_expiry' };
   }
   return null;
+}
+
+export type TickOutcome = 'idle' | 'applied' | 'pending' | 'transient_error' | 'reauth_required';
+// The state as a tick works on it: pending and applied always present.
+export type Ticked = State & { pending: Pending | null; applied: Applied[] };
+export interface TickResult { state: Ticked; outcome: TickOutcome }
+export interface TickOptions {
+  state: State;
+  rules: Rules;
+  now: number;
+  fetch: Fetch;
+  applyNow?: string | null;
+  login?: Login | null;
+  persist?: (state: Ticked) => Promise<unknown>;
+  migrations?: Migration[];
 }
 
 // One worker run: refresh the worker session if it is about to expire, read quotas and
@@ -40,10 +59,10 @@ function chooseByRules({ weeklyQuota, resets }, applied, rules, now) {
 // already rotated the refresh token, a login must not be lost) and before a consume POST
 // (its redeem_request_id must survive a lost reply), so the caller commits those states first.
 // A state of an older formatVersion is migrated first, and the returned state is in the
-// current one; migrations are the format steps (state-file.mjs).
+// current one; migrations are the format steps (state-file.ts).
 export async function tick({ state, rules, now, fetch, applyNow = null, login = null, persist = async () => {},
-  migrations = STATE_MIGRATIONS }) {
-  let next = { pending: null, applied: [], ...migrateState(state, migrations) };
+  migrations = STATE_MIGRATIONS }: TickOptions): Promise<TickResult> {
+  let next: Ticked = { pending: null, applied: [], ...migrateState(state, migrations) };
   try {
     // The login secret outlives its use; its tokens are rotated away after the first tick.
     if (login && login.id !== next.login?.id) {
@@ -57,30 +76,32 @@ export async function tick({ state, rules, now, fetch, applyNow = null, login = 
       await persist(next);
     }
     const [quotas, resets] = await Promise.all([usage(fetch, next.session), issuedResets(fetch, next.session)]);
-    next = { ...next, observed: { at: now, ...quotas, resets } };
+    const observed = { at: now, ...quotas, resets };
+    next = { ...next, observed };
     // An unknown result is settled before anything new: a reset gone from the list was
     // applied, one still listed is retried with the same redeem_request_id. Past its
     // deadline a reset leaves the list anyway, so its disappearance proves nothing.
     const { pending } = next;
     if (pending) {
-      if (resets.some(r => r.id === pending.creditId)) return await attempt(fetch, next, now);
+      if (resets.some(r => r.id === pending.creditId)) return await attempt(fetch, { ...next, pending }, now);
       if (pending.expiresAt !== null && pending.expiresAt <= now) {
         return { state: { ...next, pending: null, lastAttempt: lastAttempt(pending, now, 'unknown') }, outcome: 'idle' };
       }
       return { state: recordApplied({ ...next, pending: null }, pending, now), outcome: 'applied' };
     }
-    let choice = null;
+    let choice: Choice | null = null;
     if (applyNow) {
       const reset = resets.find(r => r.id === applyNow);
       if (reset) choice = { reset, reason: 'apply_now' };
       else next = { ...next, lastAttempt: lastAttempt({ creditId: applyNow, reason: 'apply_now' }, now, 'missing') };
     }
-    choice ??= chooseByRules(next.observed, next.applied, rules, now);
+    choice ??= chooseByRules(observed, next.applied, rules, now);
     if (!choice) return { state: next, outcome: 'idle' };
-    next = { ...next, pending: { creditId: choice.reset.id, expiresAt: choice.reset.expiresAt, reason: choice.reason,
+    const chosen = { ...next, pending: { creditId: choice.reset.id, expiresAt: choice.reset.expiresAt, reason: choice.reason,
       redeemRequestId: randomUUID(), at: now, recovers: quotas.weeklyQuota?.exhausted ? quotas.weeklyQuota.renewsAt : null } };
+    next = chosen;
     await persist(next);
-    return await attempt(fetch, next, now);
+    return await attempt(fetch, chosen, now);
   } catch (error) {
     if (error instanceof SessionLost) return { state: next, outcome: 'reauth_required' };
     if (error instanceof TransientFailure) return { state: next, outcome: 'transient_error' };
@@ -89,9 +110,9 @@ export async function tick({ state, rules, now, fetch, applyNow = null, login = 
 }
 
 // POST consume for state.pending. An unknown result keeps it for the next tick.
-async function attempt(fetch, state, now) {
+async function attempt(fetch: Fetch, state: Ticked & { pending: Pending }, now: number): Promise<TickResult> {
   const { pending } = state;
-  let result;
+  let result: ConsumeResult;
   try {
     result = await consume(fetch, state.session, pending);
   } catch (error) {
@@ -104,13 +125,15 @@ async function attempt(fetch, state, now) {
   return { state: recordApplied(done, pending, now), outcome: 'applied' };
 }
 
-const lastAttempt = ({ creditId, reason }, at, result) => ({ creditId, reason, at, result });
+const lastAttempt = ({ creditId, reason }: { creditId: string; reason: ApplyReason }, at: number,
+  result: AttemptResult): LastAttempt => ({ creditId, reason, at, result });
 
 // Keeps the latest application and those that still matter for a rule: a deadline whose
 // group could still be applied, or a weekly window not yet renewed. recovers is the
 // renewsAt of the exhausted weekly window the application restored.
-function recordApplied(state, pending, now) {
+function recordApplied(state: Ticked, pending: Pending, now: number): Ticked {
   const { creditId, expiresAt, reason, recovers } = pending;
   const list = [...state.applied, { creditId, expiresAt, reason, at: now, recovers }];
-  return { ...state, applied: list.filter((a, i) => i === list.length - 1 || a.expiresAt > now || a.recovers > now) };
+  return { ...state, applied: list.filter((a, i) => i === list.length - 1 ||
+    a.expiresAt !== null && a.expiresAt > now || a.recovers !== null && a.recovers > now) };
 }

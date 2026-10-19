@@ -1,9 +1,9 @@
-import { FILES, STATE_KEY_SECRET, LOGIN_SECRET, REVOKE_INPUT } from './layout.mjs';
+import { FILES, STATE_KEY_SECRET, LOGIN_SECRET, REVOKE_INPUT } from './layout.ts';
 
 // The worker repository's only workflow. The cron is static (ADR-0004): setup picks the
 // minute so that installations do not all start together, and upgrade keeps it.
 
-export function workflowYaml({ minute }) {
+export function workflowYaml({ minute }: { minute: number }): string {
   // Minute 0 is GitHub's busiest moment for schedules.
   if (!Number.isInteger(minute) || minute < 1 || minute > 59) throw new RangeError('minute must be 1..59');
   return `name: codex-auto-resets
@@ -48,7 +48,7 @@ jobs:
 }
 
 // The minute of the workflow's cron, or null when the file is not ours.
-export function workflowMinute(text) {
+export function workflowMinute(text: string): number | null {
   const minute = Number(text.match(/^\s+- cron: '(\d{1,2}) \* \* \* \*'$/m)?.[1]);
   return Number.isInteger(minute) && minute >= 1 && minute <= 59 ? minute : null;
 }

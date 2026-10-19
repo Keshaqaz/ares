@@ -10,7 +10,7 @@ import { uninstall } from '../src/cli/uninstall.mjs';
 import { watch } from '../src/cli/watch.mjs';
 import { LaunchAgent, AGENT_LABEL } from '../src/cli/launch-agent.mjs';
 import { macLogin } from '../src/cli/mac-check.mjs';
-import { FILES } from '../src/worker/layout.mjs';
+import { FILES } from '../src/worker/layout.ts';
 import { window } from './support/fake-world.mjs';
 import { cliWorld } from './support/cli-world.mjs';
 import { UID } from './support/fake-mac.mjs';

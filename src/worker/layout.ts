@@ -3,7 +3,7 @@
 export const FILES = {
   workflow: '.github/workflows/codex-auto-resets.yml', worker: 'worker.mjs',
   rules: 'rules.json', state: 'state.json.enc', summary: 'summary.json',
-};
+} as const;
 // The Actions secret with the state key.
 export const STATE_KEY_SECRET = 'STATE_KEY';
 // The Actions secret through which `login` hands a new worker session to the worker: the CLI

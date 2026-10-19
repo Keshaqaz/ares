@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { deviceLogin } from '../chatgpt/session.ts';
-import { FILES, STATE_KEY_SECRET, LOGIN_SECRET } from '../worker/layout.mjs';
+import { FILES, STATE_KEY_SECRET, LOGIN_SECRET } from '../worker/layout.ts';
 import { CommandFailed, unfinished, chatgptLogin, showCode, workingLine, connectGitHub, installedWorker, runnableWorkflow, readSummary, failedRunAdvice,
   runWorkerNow, command } from './common.mjs';
 import { t } from './language.mjs';

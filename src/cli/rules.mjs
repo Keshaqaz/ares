@@ -1,5 +1,5 @@
-import { FILES } from '../worker/layout.mjs';
-import { readRules, BrokenState } from '../worker/state-file.mjs';
+import { FILES } from '../worker/layout.ts';
+import { readRules, BrokenState } from '../worker/state-file.ts';
 import { CommandFailed, unfinished, connectGitHub, installedWorker, chooseRules, command } from './common.mjs';
 import { t } from './language.mjs';
 import { followWeeklyRule } from './mac-check.mjs';

@@ -1,11 +1,26 @@
+import type { State, Rules, ApplyReason, AttemptResult, LoginVerdict } from './state-file.ts';
+import type { RunOutcome, RunResult } from './run.ts';
+
 // What the worker publishes openly for `status`: never the session, the account id or
 // the pending redeem_request_id. Every field is copied explicitly, nothing is spread.
 export const SUMMARY_FORMAT_VERSION = 1;
-const iso = ms => ms == null ? null : new Date(ms).toISOString();
+function iso(ms: number): string;
+function iso(ms: number | null): string | null;
+function iso(ms: number | null): string | null { return ms == null ? null : new Date(ms).toISOString(); }
+
+// Times are ISO strings; expiresAt is null for a reset without a deadline.
+export interface Summary {
+  formatVersion: number;
+  resets: { creditId: string; expiresAt: string | null }[];
+  rules: { beforeExpiry: boolean; weeklyAutoApply: boolean };
+  lastApplied: { creditId: string; reason: ApplyReason; at: string } | null;
+  lastAttempt: { creditId: string; reason: ApplyReason; result: AttemptResult; at: string } | null;
+  login: { id: string; result: LoginVerdict['result']; at: string } | null;
+}
 
 // summary.json. It has no tick time, so a tick that changes nothing commits nothing;
 // the time of every tick is in its run and its Actions Summary.
-export function openSummary({ state, rules }) {
+export function openSummary({ state, rules }: { state: State; rules: Rules }): Summary {
   const applied = state.applied?.at(-1);
   const attempt = state.lastAttempt;
   // The tick reads the list before it applies a reset, so the list still has the one applied.
@@ -22,7 +37,7 @@ export function openSummary({ state, rules }) {
   };
 }
 
-const VERDICTS = {
+const VERDICTS: Record<RunOutcome, string> = {
   idle: 'Nothing to apply.',
   applied: 'Reset applied.',
   pending: 'The result of the application is not known yet; the next run will settle it.',
@@ -33,10 +48,11 @@ const VERDICTS = {
   revoke_failed: 'ChatGPT did not confirm the revocation of the sign-in.',
   commit_failed: 'Could not save the data in the repository. If the next run reports a lost sign-in, sign in again: `aures login`.',
 };
-const onOff = value => value ? 'on' : 'off';
+const onOff = (value: boolean): string => value ? 'on' : 'off';
 
 // Markdown for $GITHUB_STEP_SUMMARY.
-export function stepSummary({ outcome, reason = null, summary = null, now }) {
+export interface StepSummaryFields { outcome: RunOutcome; reason?: RunResult['reason'] | null; summary?: Summary | null; now: number }
+export function stepSummary({ outcome, reason = null, summary = null, now }: StepSummaryFields): string {
   const lines = ['### aures', '', `Run: ${iso(now)}`, '', VERDICTS[outcome] ?? outcome];
   if (reason) lines.push('', `Reason: \`${reason}\``);
   if (summary) {

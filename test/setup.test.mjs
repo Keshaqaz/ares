@@ -4,9 +4,9 @@ import { readFile, mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setup } from '../src/cli/setup.mjs';
-import { buildWorker } from '../scripts/build-worker.mjs';
-import { FILES, STATE_KEY_SECRET } from '../src/worker/layout.mjs';
-import { openState, readRules } from '../src/worker/state-file.mjs';
+import { buildWorker } from '../scripts/build-worker.ts';
+import { FILES, STATE_KEY_SECRET } from '../src/worker/layout.ts';
+import { openState, readRules } from '../src/worker/state-file.ts';
 import { credit } from './support/fake-world.mjs';
 import { cliWorld, WORKER_SOURCE } from './support/cli-world.mjs';
 

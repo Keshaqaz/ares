@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { usage, issuedResets, consume } from '../src/chatgpt/client.ts';
 import { refresh } from '../src/chatgpt/session.ts';
 import { TransientFailure } from '../src/chatgpt/http.ts';
-import { tick } from '../src/worker/tick.mjs';
+import { tick } from '../src/worker/tick.ts';
 import { fakeWorld, credit } from './support/fake-world.mjs';
 
 const RULES = { formatVersion: 1, beforeExpiry: true, weeklyAutoApply: true };

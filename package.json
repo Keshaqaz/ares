@@ -12,7 +12,7 @@
   "scripts": {
     "test": "node --test test/*.test.mjs",
     "typecheck": "tsc --noEmit",
-    "build:worker": "node scripts/build-worker.mjs",
+    "build:worker": "node scripts/build-worker.ts",
     "prepack": "npm run typecheck && npm run build:worker",
     "release:brew": "node scripts/release-brew.mjs"
   },

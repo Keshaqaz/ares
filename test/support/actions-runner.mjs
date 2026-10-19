@@ -9,8 +9,8 @@ import { execFileSync, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
-import { runWorker } from '../../src/worker/run.mjs';
-import { FILES, STATE_KEY_SECRET, LOGIN_SECRET, REVOKE_INPUT } from '../../src/worker/layout.mjs';
+import { runWorker } from '../../src/worker/run.ts';
+import { FILES, STATE_KEY_SECRET, LOGIN_SECRET, REVOKE_INPUT } from '../../src/worker/layout.ts';
 
 const git = (cwd, ...args) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: 'pipe' });
 const AUTHOR = ['-c', 'user.name=fake-github', '-c', 'user.email=fake-github@example.invalid'];

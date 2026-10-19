@@ -1,6 +1,6 @@
-import { FILES } from '../worker/layout.mjs';
-import { readRules, BrokenState } from '../worker/state-file.mjs';
-import { BEFORE_EXPIRY_MS } from '../worker/tick.mjs';
+import { FILES } from '../worker/layout.ts';
+import { readRules, BrokenState } from '../worker/state-file.ts';
+import { BEFORE_EXPIRY_MS } from '../worker/tick.ts';
 import { WORKFLOW_FILE, resetName, unfinished, ruleLabel, reasonText, attemptResult, enableUrl, byDeadline, readSummary, loggedOutcome,
   failedRunAdvice } from './common.mjs';
 import { macCheckStatus, checkAdvice } from './mac-check.mjs';

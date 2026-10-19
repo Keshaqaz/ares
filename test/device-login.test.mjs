@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { deviceLogin, LoginFailed } from '../src/chatgpt/session.ts';
-import { tick } from '../src/worker/tick.mjs';
+import { tick } from '../src/worker/tick.ts';
 import { fakeWorld } from './support/fake-world.mjs';
 
 // The user enters the code after a few polls; sleeping moves the fake world's clock.

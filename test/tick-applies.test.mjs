@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { tick } from '../src/worker/tick.mjs';
+import { tick } from '../src/worker/tick.ts';
 import { fakeWorld, credit, window } from './support/fake-world.mjs';
 
 const MINUTE = 60_000, HOUR = 3600_000, DAY = 24 * HOUR;

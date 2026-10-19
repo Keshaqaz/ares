@@ -2,7 +2,7 @@ import { usage } from '../chatgpt/client.ts';
 import { needsRefresh, refresh } from '../chatgpt/session.ts';
 import { SessionLost, TransientFailure } from '../chatgpt/http.ts';
 import { GitHubApi, GitHubFailure } from '../github/api.ts';
-import { SAME_WINDOW_MS } from '../worker/tick.mjs';
+import { SAME_WINDOW_MS } from '../worker/tick.ts';
 import { KeychainUnavailable } from './keychain.mjs';
 import { CommandFailed, WORKFLOW_FILE, workerRepository } from './common.mjs';
 
