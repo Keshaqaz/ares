@@ -11,15 +11,18 @@
   },
   "scripts": {
     "test": "node --test test/*.test.mjs",
+    "typecheck": "tsc --noEmit",
     "build:worker": "node scripts/build-worker.mjs",
-    "prepack": "npm run build:worker",
+    "prepack": "npm run typecheck && npm run build:worker",
     "release:brew": "node scripts/release-brew.mjs"
   },
   "dependencies": {
     "libsodium-wrappers": "0.7.15"
   },
   "devDependencies": {
-    "esbuild": "0.25.10"
+    "@types/node": "26.6.5",
+    "esbuild": "0.25.10",
+    "typescript": "7.0.2"
   },
   "files": [
     "src",
