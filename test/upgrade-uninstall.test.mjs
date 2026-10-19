@@ -49,7 +49,7 @@ test('upgrade replaces the worker and the workflow, keeps the cron minute and mi
   assert.equal(world.github.text(repo, FILES.state), state, 'the worker migrates its state itself');
   // The new worker reads older rules, so it goes first; the workflow goes last, as in setup.
   assert.deepEqual(repo.commits.slice(-3).map(c => c.paths[0]), [FILES.worker, FILES.rules, FILES.workflow]);
-  assert.match(io.lines.at(-1), /^Воркер обновлён до версии \d+\.\d+\.\d+: код воркера, правила, workflow\. Изменения вступят в силу со следующего запуска воркера\.$/);
+  assert.match(io.lines.at(-1), /^Воркер обновлён до версии \d+\.\d+\.\d+\. Изменения заработают со следующего запуска\.$/);
   assert.deepEqual(world.github.violations, []);
 });
 
@@ -58,7 +58,7 @@ test('upgrade on the current version writes nothing', async () => {
   const commits = repo.commits.length;
   const { code, io } = await run(upgrade);
   assert.equal(code, 0);
-  assert.match(io.lines.at(-1), /^Воркер уже актуален \(версия \d+\.\d+\.\d+\)\.$/);
+  assert.match(io.lines.at(-1), /^Воркер уже последней версии \(\d+\.\d+\.\d+\)\.$/);
   assert.equal(repo.commits.length, commits);
 });
 
@@ -72,7 +72,7 @@ test('end to end: the upgraded workflow and built worker revoke the session on p
   const { code, io } = await run(uninstall, { answers: ['y'] });
   assert.equal(code, 0, io.output());
   // The child worker's revoke does not reach this world; its log line does.
-  assert.ok(io.lines.includes('Сессия воркера в OpenAI отозвана.'), io.output());
+  assert.ok(io.lines.includes('Вход воркера в ChatGPT отозван.'), io.output());
 });
 
 test('upgrade refuses rules of a newer version and an unreadable workflow, writing nothing', async () => {
@@ -81,13 +81,13 @@ test('upgrade refuses rules of a newer version and an unreadable workflow, writi
   world.github.write(repo, FILES.rules, '{"formatVersion":9,"beforeExpiry":true,"weeklyAutoApply":false}\n');
   let result = await run(upgrade, { workerSource: NEW_WORKER });
   assert.equal(result.code, 1);
-  assert.match(result.io.lines.at(-1), /новее этой версии codex-auto-resets\. Обновите программу: `brew upgrade codex-auto-resets`/);
+  assert.match(result.io.lines.at(-1), /более новой версией\. Обновите программу: `brew upgrade codex-auto-resets`/);
 
   world.github.write(repo, FILES.rules, '{"formatVersion":1,"beforeExpiry":true,"weeklyAutoApply":false}\n');
   world.github.write(repo, FILES.workflow, 'name: edited by hand\n');
   result = await run(upgrade, { workerSource: NEW_WORKER });
   assert.equal(result.code, 1);
-  assert.match(result.io.lines.at(-1), /не найдено расписание/);
+  assert.match(result.io.lines.at(-1), /изменён вручную/);
   assert.equal(repo.commits.length, commits + 3, 'only the test\'s own writes');
 });
 
@@ -95,7 +95,7 @@ test('upgrade asks for setup when there is no worker', async () => {
   const { run } = await cliWorld();
   const { code, io } = await run(upgrade);
   assert.equal(code, 1);
-  assert.equal(io.lines.at(-1), 'Воркер не установлен. Установите его: `codex-auto-resets setup`.');
+  assert.equal(io.lines.at(-1), 'Воркер не установлен. Запустите `codex-auto-resets setup`.');
 });
 
 test('uninstall revokes the worker session, deletes the repository and the Keychain entry, and links the OAuth App', async () => {
@@ -103,16 +103,16 @@ test('uninstall revokes the worker session, deletes the repository and the Keych
   const session = state().session;
   const { code, io } = await run(uninstall, { answers: ['y'] });
   assert.equal(code, 0, io.output());
-  assert.match(io.output(), /удалить репозиторий[\s\S]*https:\/\/github\.com\/login\/device/);
+  assert.match(io.output(), /удаления репозитория[\s\S]*https:\/\/github\.com\/login\/device/);
   assert.deepEqual(repo.runs[0].inputs, { apply_now: '', [REVOKE_INPUT]: 'true' });
   assert.deepEqual(world.auth.revoked, [session.refreshToken]);
   assert.equal(world.github.repo(), undefined);
   assert.equal(keychain.entries.size, 0);
   assert.deepEqual(io.lines.slice(-4), [
-    'Сессия воркера в OpenAI отозвана.',
+    'Вход воркера в ChatGPT отозван.',
     'Репозиторий воркера удалён.',
-    'Токен GitHub удалён из Keychain.',
-    `Чтобы закрыть доступ codex-auto-resets к GitHub, нажмите Revoke на странице ${OAUTH_APP_LINK}`,
+    'Вход в GitHub удалён из Связки ключей.',
+    `Последний шаг: закройте доступ к GitHub кнопкой Revoke на странице ${OAUTH_APP_LINK}`,
   ]);
   assert.deepEqual(world.github.violations, []);
 });
@@ -122,15 +122,15 @@ test('uninstall goes on when the revocation fails and says so', async () => {
   world.auth.revokeFail = { status: 503 };
   const { code, io } = await run(uninstall, { answers: ['y'] });
   assert.equal(code, 0, io.output());
-  assert.ok(io.lines.includes('Сессия воркера в OpenAI не отозвана: OpenAI не подтвердил отзыв (revoke_503). ' +
-    'Её токены удаляются вместе с репозиторием.'), io.output());
+  assert.ok(io.lines.includes('Вход воркера в ChatGPT не отозван: ChatGPT не подтвердил отзыв (revoke_503). ' +
+    'Он удалится вместе с репозиторием.'), io.output());
   assert.equal(world.github.repo(), undefined);
 });
 
 test('uninstall does not wait for a worker that cannot revoke: an older workflow or a disabled one', async () => {
   for (const [label, prepare, reason] of [
-    ['older', (world, repo) => world.github.write(repo, FILES.workflow, olderWorkflow(30)), 'воркер в репозитории старой версии и не умеет её отзывать'],
-    ['disabled', (world, repo) => { repo.workflowState = 'disabled_manually'; }, 'workflow воркера отключён в GitHub'],
+    ['older', (world, repo) => world.github.write(repo, FILES.workflow, olderWorkflow(30)), 'воркер устарел'],
+    ['disabled', (world, repo) => { repo.workflowState = 'disabled_manually'; }, 'воркер выключен в GitHub'],
   ]) {
     const { world, repo, run } = await installed();
     prepare(world, repo);
@@ -138,7 +138,7 @@ test('uninstall does not wait for a worker that cannot revoke: an older workflow
     const { code, io } = await run(uninstall, { answers: ['y'] });
     assert.equal(code, 0, `${label}: ${io.output()}`);
     assert.equal(repo.runs.length, runs, label);
-    assert.ok(io.lines.includes(`Сессия воркера в OpenAI не отозвана: ${reason}. Её токены удаляются вместе с репозиторием.`), io.output());
+    assert.ok(io.lines.includes(`Вход воркера в ChatGPT не отозван: ${reason}. Он удалится вместе с репозиторием.`), io.output());
     assert.equal(world.github.repo(), undefined, label);
   }
 });
@@ -160,15 +160,15 @@ test('uninstall without a worker repository clears the Keychain, and leaves a fo
   keychain.entries.set('github', 'gho_left_behind');
   let result = await run(uninstall);
   assert.equal(result.code, 0, result.io.output());
-  assert.deepEqual(result.io.lines.slice(-3), ['Репозитория воркера нет.', 'Токен GitHub удалён из Keychain.',
-    `Чтобы закрыть доступ codex-auto-resets к GitHub, нажмите Revoke на странице ${OAUTH_APP_LINK}`]);
+  assert.deepEqual(result.io.lines.slice(-3), ['Репозитория воркера нет.', 'Вход в GitHub удалён из Связки ключей.',
+    `Последний шаг: закройте доступ к GitHub кнопкой Revoke на странице ${OAUTH_APP_LINK}`]);
   assert.equal(keychain.entries.size, 0);
 
   world.github.repos.set('octo-fake/codex-auto-resets-worker', { meta: { name: 'codex-auto-resets-worker', private: true,
     description: 'mine' }, files: new Map(), commits: [], secrets: new Map(), runs: [], workflowState: 'active' });
   result = await run(uninstall);
   assert.equal(result.code, 0);
-  assert.match(result.io.output(), /https:\/\/github\.com\/octo-fake\/codex-auto-resets-worker создан не codex-auto-resets и не удалён/);
+  assert.match(result.io.output(), /https:\/\/github\.com\/octo-fake\/codex-auto-resets-worker создан не codex-auto-resets, оставлен как есть/);
   assert.ok(world.github.repo());
 });
 
@@ -178,5 +178,5 @@ test('uninstall tells how to remove the Keychain entry by hand when Keychain is 
   const { code, io } = await run(uninstall, { answers: ['y'] });
   assert.equal(code, 0);
   assert.equal(world.github.repo(), undefined);
-  assert.equal(io.lines.at(-2), 'Keychain недоступен: удалите вручную запись codex-auto-resets в приложении «Связка ключей».');
+  assert.equal(io.lines.at(-2), 'Связка ключей недоступна: удалите в ней запись codex-auto-resets вручную.');
 });

@@ -38,9 +38,9 @@ test('setup goes from nothing to a working worker in a private repository', asyn
   assert.equal(keychain.entries.size, 1);
   assert.match(io.output(), /https:\/\/github\.com\/login\/device/);
   assert.match(io.output(), /https:\/\/auth\.openai\.com\/codex\/device/);
-  assert.match(io.output(), /Перед истечением.*включено/);
-  assert.match(io.output(), /при исчерпании недельной квоты.*выключено/);
-  assert.match(io.lines.at(-1), /^Работает\. Сбросов: 2, ближайший истекает 22 октября 2026 г\. в 15:00 UTC\.$/);
+  assert.match(io.output(), /Перед истечением \(в последние 8 часов\) — включено/);
+  assert.match(io.output(), /Когда кончится недельный лимит — выключено/);
+  assert.match(io.lines.at(-1), /^Воркер работает\. Сбросов: 2, ближайший истекает 22 октября 2026 г\. в 15:00 UTC\.$/);
   assert.deepEqual(world.violations, []);
   assert.deepEqual(world.github.violations, []);
 });
@@ -96,7 +96,7 @@ test('a repeated setup finds the repository and keeps the state, rules and cron 
   const state = openState(world.github.text(repo, FILES.state), key);
   assert.equal(state.session.refreshToken, world.auth.current.refresh);
   assert.equal(repo.runs.length, 2);
-  assert.match(io.lines.at(-1), /^Работает\. Сбросов: 2/);
+  assert.match(io.lines.at(-1), /^Воркер работает\. Сбросов: 2/);
   assert.equal(keychain.entries.size, 1);
 });
 
@@ -120,7 +120,7 @@ for (const [label, path, logins] of [
     dropFirstWrite(world, path);
     const first = await run();
     assert.equal(first.code, 1);
-    assert.match(first.io.lines.at(-1), /GitHub недоступен\. Запустите setup снова/);
+    assert.match(first.io.lines.at(-1), /GitHub недоступен\. Повторите `codex-auto-resets setup`: сделанное сохранится/);
     const repo = world.github.repo();
     assert.equal(repo.runs.length, 0);
     assert.equal(repo.files.has(FILES.workflow), false, 'no schedule over a half-filled repository');
@@ -132,7 +132,7 @@ for (const [label, path, logins] of [
     assert.equal(world.requests.filter(r => r.path.endsWith('/deviceauth/usercode')).length, logins, 'ChatGPT logins');
     const state = openState(world.github.text(repo, FILES.state), world.github.secret(repo, STATE_KEY_SECRET));
     assert.equal(state.session.refreshToken, world.auth.current.refresh);
-    assert.match(second.io.lines.at(-1), /^Работает\./);
+    assert.match(second.io.lines.at(-1), /^Воркер работает\./);
   });
 }
 
@@ -156,8 +156,8 @@ test('a failed trial run names the cause and the fix', async () => {
   assert.equal(code, 1);
   const [failed] = world.github.repo().runs;
   assert.equal(failed.conclusion, 'failure');
-  assert.equal(io.lines.at(-2), 'ChatGPT отклонил сессию воркера. Войдите заново: `codex-auto-resets login`.');
-  assert.equal(io.lines.at(-1), `Запуск: ${failed.html_url}`);
+  assert.equal(io.lines.at(-2), 'Воркер потерял вход в ChatGPT. Войдите заново: `codex-auto-resets login`.');
+  assert.equal(io.lines.at(-1), `Подробности: ${failed.html_url}`);
 });
 
 test('a trial run that cannot open the state tells to delete it and run setup again', async () => {
@@ -168,12 +168,12 @@ test('a trial run that cannot open the state tells to delete it and run setup ag
   world.github.setSecret(repo, STATE_KEY_SECRET, Buffer.alloc(32, 7).toString('base64'));
   const { code, io } = await run({ answers: [] });
   assert.equal(code, 1);
-  assert.match(io.lines.at(-2), new RegExp(`state_undecryptable.*Удалите ${FILES.state.replace('.', '\\.')}.*setup снова`));
+  assert.match(io.lines.at(-2), new RegExp(`state_undecryptable.*Удалите ${FILES.state.replace('.', '\\.')}.*codex-auto-resets setup`));
   // The advice works: setup refills the deleted state.
   repo.files.delete(FILES.state);
   const again = await run({ answers: [] });
   assert.equal(again.code, 0);
-  assert.match(again.io.lines.at(-1), /^Работает\./);
+  assert.match(again.io.lines.at(-1), /^Воркер работает\./);
 });
 
 test('a trial run still queued after 10 minutes is left for the user to check', async () => {
@@ -182,7 +182,7 @@ test('a trial run still queued after 10 minutes is left for the user to check', 
   const start = world.now;
   const { code, io } = await run();
   assert.equal(code, 1);
-  assert.match(io.lines.at(-1), /не завершился за 10 минут.*actions\/runs\/\d+/);
+  assert.match(io.lines.at(-1), /дольше 10 минут.*actions\/runs\/\d+/);
   assert.ok(world.now - start >= 10 * 60_000 && world.now - start < 12 * 60_000);
 });
 
@@ -203,7 +203,7 @@ test('a trial tick that hits a transient ChatGPT failure still leaves an install
   };
   const { code, io } = await run();
   assert.equal(code, 0);
-  assert.match(io.lines.at(-1), /временная ошибка ChatGPT/);
+  assert.match(io.lines.at(-1), /ChatGPT временно недоступен/);
 });
 
 test('setup never takes over a foreign repository of the same name or a public one', async () => {
@@ -214,12 +214,12 @@ test('setup never takes over a foreign repository of the same name or a public o
   repo.meta.private = false;
   let result = await run({ answers: [] });
   assert.equal(result.code, 1);
-  assert.match(result.io.lines.at(-1), /публичный\. Сделайте его приватным/);
+  assert.match(result.io.lines.at(-1), /открыт всем\. Сделайте его приватным/);
 
   repo.meta = { ...repo.meta, private: true, description: 'My own project' };
   result = await run({ answers: [] });
   assert.equal(result.code, 1);
-  assert.match(result.io.lines.at(-1), /его создал не codex-auto-resets/);
+  assert.match(result.io.lines.at(-1), /создан не codex-auto-resets/);
   assert.equal(repo.files.size, files);
   assert.equal(repo.runs.length, 1);
 });
@@ -231,7 +231,7 @@ test('a revoked token in the Keychain is replaced through a new GitHub login', a
   world.github.tokens.delete(old);
   const { code, io } = await run({ answers: [] });
   assert.equal(code, 0);
-  assert.match(io.output(), /больше не действует[\s\S]*github\.com\/login\/device/);
+  assert.match(io.output(), /Вход в GitHub устарел[\s\S]*github\.com\/login\/device/);
   assert.notEqual(keychain.entries.get('github'), old);
   assert.ok(world.github.tokens.has(keychain.entries.get('github')));
 });
@@ -250,6 +250,6 @@ test('the GitHub login waits as GitHub asks and stops when the user denies acces
   slow.world.github.fail = (method, path) => { if (path === '/login/oauth/access_token') polls++; return null; };
   const result = await slow.run({ github: false, answers: [] });
   assert.equal(result.code, 1);
-  assert.match(result.io.lines.at(-1), /Код GitHub не был введён вовремя/);
+  assert.match(result.io.lines.at(-1), /Время на ввод кода GitHub вышло/);
   assert.ok(polls > 80 && polls < 92, `${polls} polls in 15 minutes at 10 s`);
 });

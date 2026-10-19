@@ -13,12 +13,12 @@ on:
   workflow_dispatch:
     inputs:
       apply_now:
-        description: 'Issued reset to apply now (creditId); empty for a regular tick'
+        description: 'Reset ID to apply now; leave empty for a regular check'
         required: false
         default: ''
         type: string
       ${REVOKE_INPUT}:
-        description: 'Revoke the worker session in OpenAI instead of a tick, before uninstall'
+        description: 'Revoke the worker ChatGPT sign-in instead of a check (used by uninstall)'
         required: false
         default: false
         type: boolean

@@ -1,7 +1,6 @@
-import { CommandFailed, ATTEMPT_RESULTS, deadline, byDeadline, connectGitHub, installedWorker, runnableWorkflow, readSummary,
+import { CommandFailed, YES, ATTEMPT_RESULTS, deadline, byDeadline, connectGitHub, installedWorker, runnableWorkflow, readSummary,
   failedRunAdvice, runWorkerNow, command } from './common.mjs';
 
-const YES = ['y', 'yes', 'д', 'да'];
 const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 
 // What became of the chosen reset, told by the summary before and after the run.
@@ -13,13 +12,13 @@ function verdict({ creditId, before, after, run, logged }) {
   if (attempt?.creditId === creditId && attempt.reason === 'apply_now' && !same(attempt, before?.lastAttempt)) {
     return { code: 1, message: `Сброс ${creditId} не применён: ${ATTEMPT_RESULTS[attempt.result] ?? attempt.result}.` };
   }
-  if (run.conclusion !== 'success') return { code: 1, message: `${failedRunAdvice(logged ?? {})}\nЗапуск: ${run.html_url}` };
+  if (run.conclusion !== 'success') return { code: 1, message: `${failedRunAdvice(logged ?? {})}\nПодробности: ${run.html_url}` };
   if (logged?.outcome === 'pending') {
-    return { code: 1, message: 'Результат применения неизвестен: воркер сверит его со списком сбросов на следующем запуске. ' +
+    return { code: 1, message: 'Результат пока неизвестен: воркер уточнит его при следующем запуске. ' +
       'Проверьте позже: `codex-auto-resets status`.' };
   }
   if (logged?.outcome === 'transient_error') return { code: 1, message: 'ChatGPT временно недоступен, сброс не применён. Повторите позже.' };
-  return { code: 1, message: `Сброс ${creditId} не применён: воркер сначала сверял прежнюю попытку. Повторите позже.\nЗапуск: ${run.html_url}` };
+  return { code: 1, message: `Сброс ${creditId} не применён: воркер был занят прошлой попыткой. Повторите позже.\nПодробности: ${run.html_url}` };
 }
 
 // `codex-auto-resets apply-now`: «Применить сейчас». The user picks one of the resets the
@@ -32,11 +31,11 @@ export async function applyNow({ fetch, keychain, io, now = Date.now,
     const repo = await installedWorker({ api, login });
     await runnableWorkflow(api, repo);
     const before = await readSummary(api, repo);
-    if (!before) throw new CommandFailed('Воркер ещё не прочитал выданные сбросы. Проверьте позже: `codex-auto-resets status`.');
+    if (!before) throw new CommandFailed('Сбросы ещё не прочитаны. Повторите после следующего запуска воркера.');
     const resets = byDeadline(before.resets);
-    if (!resets.length) throw new CommandFailed('Выданных сбросов нет: применять нечего.');
+    if (!resets.length) throw new CommandFailed('Сбросов нет.');
 
-    io.print('Выданные сбросы:');
+    io.print('Сбросы:');
     resets.forEach((reset, i) => io.print(`  ${i + 1}. ${reset.creditId} — ${deadline(reset, timeZone)}`));
     let chosen = null;
     while (!chosen) {
@@ -49,7 +48,7 @@ export async function applyNow({ fetch, keychain, io, now = Date.now,
     const confirmed = (await io.prompt(`Применить ${creditId} сейчас? Сброс одноразовый. [y/N] `)).trim().toLowerCase();
     if (!YES.includes(confirmed)) { io.print('Отменено.'); return 0; }
 
-    io.print('Запуск воркера…');
+    io.print('Применяем…');
     const { run, logged } = await runWorkerNow({ api, repo, inputs: { apply_now: creditId }, now, sleep });
     const after = await readSummary(api, repo);
     const { code, message } = verdict({ creditId, before, after, run, logged });

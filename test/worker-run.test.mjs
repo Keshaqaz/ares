@@ -147,7 +147,7 @@ test('a refreshed session that cannot be pushed fails the run and says so', asyn
   nearExpiry(world, initial.session);
   assert.deepEqual(await run(), { outcome: 'commit_failed', reason: 'push_failed', exitCode: 1 });
   assert.equal(world.requests.filter(r => r.host === 'chatgpt.com').length, 0);
-  assert.match(await repo.readStepSummary(), /не удалось сохранить/);
+  assert.match(await repo.readStepSummary(), /Не удалось сохранить данные/);
 });
 
 test('rules the CLI pushed during the run survive the worker commit', async () => {
@@ -212,7 +212,7 @@ test('a revoke run revokes the worker session in OpenAI and commits nothing', as
   assert.deepEqual(world.auth.revoked, [initial.session.refreshToken]);
   assert.deepEqual(repo.commits(), ['Set up worker']);
   assert.equal(world.requests.filter(r => r.host === 'chatgpt.com').length, 0, 'no tick');
-  assert.match(await repo.readStepSummary(), /Сессия воркера отозвана/);
+  assert.match(await repo.readStepSummary(), /Вход воркера в ChatGPT отозван/);
   nearExpiry(world, initial.session);
   assert.deepEqual(await run(), { outcome: 'reauth_required', exitCode: 1 });
   assert.deepEqual(world.violations, []);

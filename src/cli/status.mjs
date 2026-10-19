@@ -1,6 +1,6 @@
 import { FILES } from '../worker/layout.mjs';
 import { readRules, BrokenState } from '../worker/state-file.mjs';
-import { WORKFLOW_FILE, REASONS, ATTEMPT_RESULTS, onOff, formatTime, deadline, byDeadline, connectGitHub, installedWorker,
+import { WORKFLOW_FILE, UNFINISHED, RULE_LABELS, REASONS, ATTEMPT_RESULTS, onOff, enableUrl, formatTime, deadline, byDeadline, connectGitHub, installedWorker,
   readSummary, loggedOutcome, failedRunAdvice, command } from './common.mjs';
 
 // The cron runs hourly and GitHub may delay it by an hour or two; the before-expiry rule
@@ -25,17 +25,19 @@ export async function status({ fetch, keychain, io, now = Date.now,
       api.workflowState(name, WORKFLOW_FILE), api.latestRun(name, WORKFLOW_FILE)]);
 
     io.print(`Репозиторий воркера: ${repo.html_url}`);
-    if (!summary) io.print('Выданные сбросы: воркер их ещё не прочитал.');
-    else if (!summary.resets.length) io.print('Выданных сбросов нет.');
+    if (!summary) io.print('Сбросы: ещё не прочитаны.');
+    else if (!summary.resets.length) io.print('Сбросов нет.');
     else {
-      io.print(`Выданные сбросы (${summary.resets.length}):`);
+      io.print(`Сбросы (${summary.resets.length}):`);
       for (const reset of byDeadline(summary.resets)) io.print(`  ${reset.creditId} — ${deadline(reset, timeZone)}`);
     }
     let rules = null;
     try { rules = rulesFile && readRules(rulesFile.text); } catch (error) { if (!(error instanceof BrokenState)) throw error; }
-    io.print(rules ? `Правила: перед истечением — ${onOff(rules.beforeExpiry)}; автоприменение при исчерпании недельной квоты — ` +
-      `${onOff(rules.weeklyAutoApply)}.` : `Правила: файл ${FILES.rules} не читается.`);
-    if (lastRun) io.print(`Последний запуск воркера: ${runLine(lastRun, timeZone)}`);
+    if (rules) {
+      io.print('Правила:');
+      for (const rule of ['beforeExpiry', 'weeklyAutoApply']) io.print(`  ${RULE_LABELS[rule]} — ${onOff(rules[rule])}`);
+    } else io.print('Правила не читаются. Выберите их заново: `codex-auto-resets rules`.');
+    if (lastRun) io.print(`Последний запуск: ${runLine(lastRun, timeZone)}`);
     const applied = summary?.lastApplied;
     io.print(applied ? `Последнее применение: ${applied.creditId}, ${formatTime(Date.parse(applied.at), timeZone)} ` +
       `(${REASONS[applied.reason] ?? applied.reason}).` : 'Сбросы ещё не применялись.');
@@ -46,23 +48,21 @@ export async function status({ fetch, keychain, io, now = Date.now,
     }
 
     const warnings = [];
-    if (!workflowState) warnings.push('В репозитории нет workflow воркера: установка не завершена. Запустите `codex-auto-resets setup`.');
+    if (!workflowState) warnings.push(UNFINISHED);
     else if (workflowState !== 'active') {
-      warnings.push(`Workflow воркера отключён в GitHub: воркер не запускается и сбросы не применяются. Включите его кнопкой ` +
-        `Enable workflow: ${repo.html_url}/actions/workflows/${WORKFLOW_FILE}`);
+      warnings.push(`Воркер выключен в GitHub, сбросы не применяются. Включите его кнопкой Enable workflow: ${enableUrl(repo)}`);
     } else if (!lastRun) warnings.push('Воркер ещё ни разу не запускался.');
     else {
       const silent = now() - Date.parse(lastRun.run_started_at ?? lastRun.created_at);
       if (silent > STALE_MS) {
-        warnings.push(`Воркер не запускался ${Math.floor(silent / 3600_000)} ч, хотя должен раз в час. ` +
-          `Проверьте Actions: ${repo.html_url}/actions`);
+        warnings.push(`Воркер не запускался уже ${Math.floor(silent / 3600_000)} ч. Проверьте: ${repo.html_url}/actions`);
       }
     }
     if (lastRun?.status === 'completed' && lastRun.conclusion !== 'success') {
       const logged = loggedOutcome(await api.runLog(name, lastRun.id).catch(() => null));
-      warnings.push(`Последний запуск завершился ошибкой. ${failedRunAdvice(logged ?? {})}`);
+      warnings.push(`Последний запуск — с ошибкой. ${failedRunAdvice(logged ?? {})}`);
     }
-    for (const warning of warnings) io.print(`Внимание: ${warning}`);
+    for (const warning of warnings) io.print(`Внимание! ${warning}`);
     return 0;
   });
 }

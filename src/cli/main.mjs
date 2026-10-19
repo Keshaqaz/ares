@@ -16,13 +16,13 @@ import pkg from '../../package.json' with { type: 'json' };
 const WORKER_BUNDLE = new URL('../../dist/worker.mjs', import.meta.url);
 const COMMANDS = { setup, status, 'apply-now': applyNow, rules, login, upgrade, uninstall };
 const USAGE = `Использование: codex-auto-resets <команда>
-  setup      установить воркер или дозаполнить установку
-  status     сбросы, правила и последний запуск воркера
-  apply-now  применить выбранный сброс сейчас
-  rules      включить или выключить общие правила
-  login      заново войти в ChatGPT, если сессия воркера потеряна
-  upgrade    обновить воркер в репозитории после brew upgrade
-  uninstall  удалить репозиторий воркера и токен GitHub из Keychain
+  setup      установить или продолжить установку
+  status     сбросы, правила и состояние воркера
+  apply-now  применить сброс сейчас
+  rules      когда применять сбросы
+  login      заново войти в ChatGPT
+  upgrade    обновить воркер после brew upgrade
+  uninstall  удалить воркер и вход в GitHub
   --version  версия программы`;
 
 async function main() {
@@ -37,7 +37,7 @@ async function main() {
     return 2;
   }
   if (process.platform !== 'darwin') {
-    console.error('CLI работает только на macOS: токен GitHub хранится в Keychain.');
+    console.error('codex-auto-resets работает только на macOS.');
     return 1;
   }
   let workerSource = null;

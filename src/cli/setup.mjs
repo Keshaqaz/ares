@@ -2,13 +2,13 @@ import { deviceLogin } from '../chatgpt/session.mjs';
 import { FILES, STATE_KEY_SECRET, LOGIN_SECRET } from '../worker/layout.mjs';
 import { generateKey, sealState, STATE_FORMAT_VERSION } from '../worker/state-file.mjs';
 import { workflowYaml } from '../worker/workflow.mjs';
-import { CommandFailed, WORKER_REPOSITORY, WORKER_DESCRIPTION, showCode, workingLine, connectGitHub, workerRepository,
+import { CommandFailed, WORKER_REPOSITORY, WORKER_DESCRIPTION, CHATGPT_LOGIN, showCode, workingLine, connectGitHub, workerRepository,
   chooseRules, readSummary, failedRunAdvice, runWorkerNow, command } from './common.mjs';
 
 async function ensureRepository({ api, login, io }) {
   const repo = await workerRepository({ api, login });
   if (repo) {
-    io.print(`Найден репозиторий воркера: ${repo.html_url}`);
+    io.print(`Репозиторий воркера: ${repo.html_url}`);
     return repo;
   }
   const created = await api.createRepository({ name: WORKER_REPOSITORY, description: WORKER_DESCRIPTION });
@@ -18,14 +18,14 @@ async function ensureRepository({ api, login, io }) {
 
 // Dispatches a regular tick, waits for its run and reads what the worker published.
 async function trialRun({ api, repo, io, now, sleep, timeZone }) {
-  io.print('Пробный запуск воркера…');
+  io.print('Проверяем воркер…');
   const { run, logged } = await runWorkerNow({ api, repo, inputs: {}, now, sleep });
-  if (run.conclusion !== 'success') throw new CommandFailed(`${failedRunAdvice(logged ?? {})}\nЗапуск: ${run.html_url}`);
+  if (run.conclusion !== 'success') throw new CommandFailed(`${failedRunAdvice(logged ?? {})}\nПодробности: ${run.html_url}`);
   const summary = logged?.outcome === 'transient_error' ? null : await readSummary(api, repo);
   if (summary) return workingLine(summary, timeZone);
   // Before its first successful read the worker publishes nothing.
-  return 'Воркер установлен, но пробная проверка ещё не прочитала сбросы' +
-    `${logged?.outcome === 'transient_error' ? ': временная ошибка ChatGPT' : ''}. Следующий запуск через час повторит её.`;
+  return 'Воркер установлен, но сбросы пока не прочитаны' +
+    `${logged?.outcome === 'transient_error' ? ': ChatGPT временно недоступен' : ''}. Воркер повторит при следующем запуске.`;
 }
 
 // `codex-auto-resets setup`: from nothing to a working worker, or the missing parts of an
@@ -42,9 +42,9 @@ export async function setup({ fetch, keychain, io, workerSource, now = Date.now,
       api.hasSecret(name, STATE_KEY_SECRET)]);
 
     // The key cannot be read back, so a state without its key is useless and is replaced.
-    if (state && hasKey) io.print('Сессия воркера уже сохранена, вход в ChatGPT не нужен.');
+    if (state && hasKey) io.print('Вход в ChatGPT уже есть.');
     else {
-      io.print('Вход в ChatGPT для сессии воркера (она отдельна от Codex на этом компьютере).');
+      io.print(CHATGPT_LOGIN);
       const session = await deviceLogin({ fetch, now, sleep, onCode: showCode(io) });
       const key = generateKey();
       // A login left over from an interrupted `login` must not replace this new session.
