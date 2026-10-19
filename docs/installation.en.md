@@ -153,7 +153,15 @@ Installed from source, the agent runs the `node` and the `src/cli/main.mjs` you 
 
 Installed with Homebrew, the agent runs the program through the link `$(brew --prefix)/opt/aures`, so after `brew upgrade` it runs the new version right away.
 
-Before 0.3.0 the program was called `codex-auto-resets`. `brew upgrade` reinstalls it under the new name by itself; then run `aures upgrade`. It updates the worker and moves the Mac check agent to the `aures` command. The `codex-auto-resets-worker` repository, the GitHub sign-in and the files on the Mac keep their old names, so there is nothing to reinstall.
+Before 0.3.0 the program was called `codex-auto-resets`. To move to the new name, upgrade once by the full name, then run `aures upgrade`:
+
+```sh
+brew update
+brew upgrade keshaqaz/tap/aures
+aures upgrade
+```
+
+Homebrew moves the installation to the new name by itself. The shorter forms do not work here: Homebrew 7 skips a plain `brew upgrade` and refuses `brew upgrade codex-auto-resets` until the new name is trusted. `aures upgrade` updates the worker and moves the Mac check agent to the `aures` command. The `codex-auto-resets-worker` repository, the GitHub sign-in and the files on the Mac keep their old names, so there is nothing to reinstall.
 
 ## Uninstall
 

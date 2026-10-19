@@ -31,7 +31,7 @@ brew install keshaqaz/tap/aures
    ```
 
    Имя файла в выпуске должно остаться `aures-<версия>.tgz`: на него указывает `url` формулы.
-4. Скопируйте `dist/aures.rb` в `Formula/aures.rb` репозитория `Keshaqaz/homebrew-tap`, закоммитьте и запушьте. До 0.3.0 формула называлась `codex-auto-resets`: `formula_renames.json` в tap переводит старые установки на `aures`, его не удаляйте.
+4. Скопируйте `dist/aures.rb` в `Formula/aures.rb` репозитория `Keshaqaz/homebrew-tap`, закоммитьте и запушьте. До 0.3.0 формула называлась `codex-auto-resets`: `formula_renames.json` в tap переводит старые установки на `aures` при `brew upgrade keshaqaz/tap/aures`, его не удаляйте.
 5. Проверьте установку из tap:
 
    ```sh
