@@ -120,6 +120,7 @@ npm test                      # offline, no credentials or network
 npm run test:contract         # pinned App Server + synthetic backend
 node src/cli.mjs --mode mock  # synthetic CLI
 node scripts/release-package.mjs --verify
+npm run release:brew          # brew archive + formula, see docs/releasing.md
 ```
 
 ## License

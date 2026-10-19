@@ -14,12 +14,21 @@
     "test:contract": "node test/support/contract.mjs",
     "start": "node src/cli.mjs",
     "build:worker": "node scripts/build-worker.mjs",
-    "install:macos": "node src/installer/install-cli.mjs"
+    "install:macos": "node src/installer/install-cli.mjs",
+    "prepack": "npm run build:worker",
+    "release:brew": "node scripts/release-brew.mjs"
   },
   "dependencies": {
     "libsodium-wrappers": "0.7.15"
   },
   "devDependencies": {
     "esbuild": "0.25.10"
-  }
+  },
+  "files": [
+    "src",
+    "dist/worker.mjs"
+  ],
+  "bundleDependencies": [
+    "libsodium-wrappers"
+  ]
 }

@@ -1,0 +1,52 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtemp, readdir, readFile, rm, stat } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createHash } from 'node:crypto';
+import { archiveName, formula, packRelease, releaseUrl } from '../scripts/release-brew.mjs';
+import pkg from '../package.json' with { type: 'json' };
+
+const run = promisify(execFile);
+const MAIN = new URL('../src/cli/main.mjs', import.meta.url).pathname;
+
+test('--version prints the package version on any platform', async () => {
+  const { stdout } = await run(process.execPath, [MAIN, '--version']);
+  assert.equal(stdout, `${pkg.version}\n`);
+});
+
+test('the formula installs the release archive behind a node wrapper and tests --version', () => {
+  const sha256 = 'a'.repeat(64);
+  const text = formula({ version: '1.2.3', sha256 });
+  assert.equal(releaseUrl('1.2.3'), 'https://github.com/Keshaqaz/ares/releases/download/v1.2.3/codex-auto-resets-1.2.3.tgz');
+  assert.match(text, /^class CodexAutoResets < Formula$/m);
+  assert.match(text, new RegExp(`^  url "${releaseUrl('1.2.3')}"$`, 'm'));
+  assert.match(text, new RegExp(`^  sha256 "${sha256}"$`, 'm'));
+  assert.match(text, /^  license "MIT"$/m);
+  assert.match(text, /^  depends_on "node"$/m);
+  assert.match(text, /formula_opt_bin\("node"\)}\/node" "#\{libexec}\/src\/cli\/main\.mjs" "\$@"/);
+  assert.match(text, /assert_equal version\.to_s, shell_output\("#\{bin}\/codex-auto-resets --version"\)\.strip/);
+  assert.throws(() => formula({ version: '1.2', sha256 }), RangeError);
+  assert.throws(() => formula({ version: '1.2.3', sha256: 'abc' }), RangeError);
+});
+
+test('the release archive carries the CLI, the worker bundle and its dependencies, and runs on its own', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'brew-release-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const { file, sha256 } = await packRelease(dir);
+  assert.equal(file, join(dir, archiveName(pkg.version)));
+  assert.equal(sha256, createHash('sha256').update(await readFile(file)).digest('hex'));
+
+  await run('tar', ['-xzf', file, '-C', dir]);
+  const root = join(dir, 'package');
+  assert.deepEqual((await readdir(root)).sort(), ['LICENSE', 'README.md', 'dist', 'node_modules', 'package.json', 'src']);
+  assert.deepEqual(await readdir(join(root, 'dist')), ['worker.mjs']);
+  assert.deepEqual((await readdir(join(root, 'node_modules'))).sort(), ['libsodium', 'libsodium-wrappers']);
+  assert.ok((await stat(join(root, 'src/cli/main.mjs'))).isFile());
+
+  // Outside the checkout there is no node_modules up the tree: the archive brings its own.
+  const { stdout } = await run(process.execPath, [join(root, 'src/cli/main.mjs'), '--version'], { cwd: dir });
+  assert.equal(stdout, `${pkg.version}\n`);
+});

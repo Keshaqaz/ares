@@ -10,6 +10,7 @@ import { login } from './login.mjs';
 import { upgrade } from './upgrade.mjs';
 import { uninstall } from './uninstall.mjs';
 import { GitHubTokenKeychain } from './keychain.mjs';
+import pkg from '../../package.json' with { type: 'json' };
 
 // The worker bundle that setup and upgrade put into the repository: `npm run build:worker`.
 const WORKER_BUNDLE = new URL('../../dist/worker.mjs', import.meta.url);
@@ -21,10 +22,15 @@ const USAGE = `Использование: codex-auto-resets <команда>
   rules      включить или выключить общие правила
   login      заново войти в ChatGPT, если сессия воркера потеряна
   upgrade    обновить воркер в репозитории после brew upgrade
-  uninstall  удалить репозиторий воркера и токен GitHub из Keychain`;
+  uninstall  удалить репозиторий воркера и токен GitHub из Keychain
+  --version  версия программы`;
 
 async function main() {
   const [name, ...rest] = process.argv.slice(2);
+  if (name === '--version' && !rest.length) {
+    console.log(pkg.version);
+    return 0;
+  }
   const run = Object.hasOwn(COMMANDS, name) ? COMMANDS[name] : null;
   if (!run || rest.length) {
     console.error(USAGE);
