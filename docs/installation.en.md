@@ -69,8 +69,8 @@ The worker runs about once an hour, but GitHub sometimes delays runs by several 
 
 While the rule "When the weekly limit runs out" is on, a launchd agent runs `aures watch` every 2 minutes. It is a short pass with no windows and no questions:
 
-1. It reads the weekly limit with the Mac's own ChatGPT sign-in. This spends neither the limit nor tokens.
-2. If the limit has run out, it starts the worker through GitHub, once per weekly window, with the same GitHub sign-in from the Keychain that the commands use.
+1. It reads the weekly limit with the Mac's own ChatGPT sign-in. This spends neither the limit nor tokens. While less than 80% is used, the limit is read every 10 minutes; closer to the end, on every pass.
+2. If the limit has run out, it starts the worker through GitHub with the same GitHub sign-in from the Keychain that the commands use. If the limit is still out 15 minutes later, it starts the worker again, and once more an hour after that: at most three runs per weekly window. It does not repeat when the worker sees no resets at all.
 3. It writes the outcome as one timestamped line to `~/Library/Logs/codex-auto-resets/watch.log`.
 
 The Mac never applies a reset itself. The worker reads the limit again with its own sign-in and decides by the rules, so a mistake on the Mac never spends a reset. The end of the limit is seen whichever client used it up: Codex, opencode, your phone, another computer.
@@ -84,7 +84,10 @@ Lines in `watch.log` (after the time of the pass):
 | Line | Meaning |
 | --- | --- |
 | `idle` | The limit has not run out, or the worker was already started for this weekly window. |
+| `quiet` | The pass did not read the limit: its end is far off, or every run for this window has been made. |
 | `dispatched` | The limit ran out; the worker was started. |
+| `dispatched (2 of 3)`, `dispatched (3 of 3)` | The limit still has not renewed; the worker was started again. |
+| `no_resets` | The limit still has not renewed, but there are no resets; the worker is not started again for this window. |
 | `transient_error: …` | ChatGPT did not answer this time; the next pass retries. If `transient_error: wham_429` keeps repeating, ChatGPT is throttling the polling, and the reset will come later. |
 | `reauth_required…` | The Mac's ChatGPT sign-in is lost. Run `aures setup`. |
 | `no_session` | The Mac has no ChatGPT sign-in. If the weekly rule is on, run `aures setup`. |
@@ -125,6 +128,7 @@ When a worker run fails, GitHub emails you. Run `aures status`: it shows the cau
 | The worker lost its ChatGPT sign-in | `aures login` and sign in again. Rules and history are kept. |
 | The worker is disabled in GitHub | Open the link in the message and click **Enable workflow**. |
 | The worker has not run for N h | Open the link in the message and check that GitHub Actions is working. Runs usually resume on their own. |
+| GitHub has not run the worker on schedule for N h | Runs from the Mac and apply-now go through, but scheduled ones do not, and the before-expiry rule depends on them. Check GitHub Actions at the link in the message. |
 | This is another ChatGPT account | Sign in to the account the worker was set up for. Switching accounts takes a reinstall: `uninstall`, then `setup`. |
 | Setup is not finished | `aures setup`. |
 | The worker is out of date | `aures upgrade`. |

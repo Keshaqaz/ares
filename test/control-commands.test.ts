@@ -99,6 +99,23 @@ test('status warns when the worker has not run for hours', async () => {
   assert.match(io.output(), /СБРОСЫ · 2/, 'the last published resets are still shown');
 });
 
+test('status warns about a silent cron even when dispatched runs keep the worker going', async () => {
+  const { world, run } = await installed();
+  world.advance(HOUR);
+  await world.github.schedule();
+  world.advance(7 * HOUR);
+  await world.github.dispatch();
+  world.advance(30 * 60_000);
+  assert.ok((await run(status)).io.lines.includes('● воркер работает · ждёт запуска по расписанию'));
+
+  world.advance(HOUR);
+  await world.github.dispatch();
+  const { code, io } = await run(status);
+  assert.equal(code, 0);
+  assert.ok(io.lines.includes('● нет запуска по расписанию 8 ч'), io.output());
+  assert.match(io.lines.at(-1) ?? '', /^! GitHub не запускал воркер по расписанию уже 8 ч, а правило перед истечением зависит от этих запусков\. Проверьте: https:\/\/github\.com\/.*\/actions$/);
+});
+
 test('status warns that a disabled workflow does not run the worker', async () => {
   const { world, repo, run } = await installed();
   repo.workflowState = 'disabled_manually';

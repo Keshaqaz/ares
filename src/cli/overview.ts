@@ -16,9 +16,9 @@ import pkg from '../../package.json' with { type: 'json' };
 // one line about the worker and the warnings that need the user. The overview keeps what it
 // read and is worded when drawn, so the screen can change the language on the spot.
 
-// The cron asks for every hour, but GitHub runs it every 6–7 hours; the before-expiry rule
-// leaves 8 hours, so a longer silence is worth the user's attention.
-export const STALE_MS = 8 * 3600_000;
+// The cron asks for every hour, but GitHub runs it every 6–8 hours; the before-expiry rule
+// leaves no more than its window, so a longer silence is worth the user's attention.
+export const STALE_MS = BEFORE_EXPIRY_MS;
 export const WIDTH = 72;
 export const RULES: Rule[] = ['beforeExpiry', 'weeklyAutoApply'];
 
@@ -71,6 +71,8 @@ export interface Overview {
   check: MacCheck;
   workflowState: string | null;
   lastRun: WorkflowRun | null;
+  // When the cron last started the worker; null before its first run.
+  lastScheduledAt: number | null;
   // null until the cron has run twice.
   nextRunAt: number | null;
   logged: Logged | null;
@@ -87,11 +89,12 @@ export async function readOverview({ api, repo, mac, now }: { api: GitHubApi; re
   const failed = lastRun?.status === 'completed' && lastRun.conclusion !== 'success';
   const logged = failed ? loggedOutcome(await api.runLog(name, lastRun.id).catch(() => null)) : null;
   return { repo, readAt: now(), resets: summary ? byDeadline(summary.resets) : null, rules, rulesBroken: Boolean(rulesFile && !rules),
-    check, workflowState, lastRun, nextRunAt: nextScheduledRun(scheduled), logged, lastApplied: summary?.lastApplied ?? null, lastAttempt: summary?.lastAttempt ?? null };
+    check, workflowState, lastRun, lastScheduledAt: scheduled[0] ? runAt(scheduled[0]) : null, nextRunAt: nextScheduledRun(scheduled), logged, lastApplied: summary?.lastApplied ?? null, lastAttempt: summary?.lastAttempt ?? null };
 }
 
 // The worker in one line, and what the user should do about it.
-function workerState({ repo, workflowState, lastRun, nextRunAt, readAt }: Overview, timeZone?: string): { tone: Tone; text: string; warning?: string } {
+function workerState({ repo, workflowState, lastRun, lastScheduledAt, nextRunAt, readAt }: Overview, timeZone?: string):
+  { tone: Tone; text: string; warning?: string } {
   if (!workflowState) return { tone: 'warn', text: t('setup is not finished', 'установка не завершена'), warning: unfinished() };
   if (workflowState !== 'active') {
     return { tone: 'bad', text: t('worker is disabled in GitHub', 'воркер выключен в GitHub'),
@@ -107,6 +110,13 @@ function workerState({ repo, workflowState, lastRun, nextRunAt, readAt }: Overvi
     return { tone: 'warn', text: t(`worker silent for ${hours}h`, `воркер молчит ${hours} ч`),
       warning: t(`The worker has not run for ${hours}h. Check: ${repo.html_url}/actions`,
         `Воркер не запускался уже ${hours} ч. Проверьте: ${repo.html_url}/actions`) };
+  }
+  // Runs from this Mac or apply-now do not stand in for the cron: the before-expiry rule rests on it.
+  if (lastScheduledAt !== null && readAt - lastScheduledAt > STALE_MS) {
+    const silent = Math.floor((readAt - lastScheduledAt) / 3600_000);
+    return { tone: 'warn', text: t(`no scheduled run for ${silent}h`, `нет запуска по расписанию ${silent} ч`),
+      warning: t(`GitHub has not run the worker on schedule for ${silent}h, and the before-expiry rule depends on it. Check: ${repo.html_url}/actions`,
+        `GitHub не запускал воркер по расписанию уже ${silent} ч, а правило перед истечением зависит от этих запусков. Проверьте: ${repo.html_url}/actions`) };
   }
   if (nextRunAt === null) return { tone: 'ok', text: t('worker works · waiting for a scheduled run', 'воркер работает · ждёт запуска по расписанию') };
   if (nextRunAt <= readAt) return { tone: 'ok', text: t('worker works · next run due any moment', 'воркер работает · следующий запуск ожидается в любой момент') };

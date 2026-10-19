@@ -58,7 +58,9 @@ export function actionsRunner(world: CliFakeWorld, { node = false }: { node?: bo
     let printed: string, exitCode: number;
     if (node) ({ stdout: printed, exitCode } = await nodeWorker(world, root, dir, key, applyNow, login, revoke));
     else {
-      const result = await runWorker({ dir, key, now: world.now, fetch: world.fetch, applyNow, login, revoke });
+      // A pause between retries passes on the world's clock, as it does on the runner.
+      const result = await runWorker({ dir, key, now: world.now, fetch: world.fetch, applyNow, login, revoke,
+        sleep: async ms => { world.advance(ms); } });
       printed = result.reason ? `${result.outcome}: ${result.reason}` : result.outcome;
       exitCode = result.exitCode;
     }

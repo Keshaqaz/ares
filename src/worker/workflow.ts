@@ -34,7 +34,8 @@ concurrency:
 jobs:
   tick:
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    # A run takes seconds; retries of a tick that is worth retrying add two minutes (run.ts).
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Tick

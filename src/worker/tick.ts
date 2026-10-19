@@ -35,6 +35,15 @@ function chooseByRules({ weeklyQuota, resets }: Observed, applied: Applied[], ru
   return null;
 }
 
+// Whether a tick that failed for now is worth repeating within the run: the next scheduled
+// run comes hours later (ADR-0004), and a reset may expire or the user may wait meanwhile. It
+// is, for a consume in doubt, for «Применить сейчас» and for a reset the rules want now, by the
+// last read; otherwise the next run checks again.
+export function worthRetrying({ state, outcome }: TickResult, rules: Rules, now: number, applyNow: string | null): boolean {
+  if (outcome !== 'transient_error' && outcome !== 'pending') return false;
+  return Boolean(state.pending || applyNow || state.observed && chooseByRules(state.observed, state.applied, rules, now));
+}
+
 export type TickOutcome = 'idle' | 'applied' | 'pending' | 'transient_error' | 'reauth_required';
 // The state as a tick works on it: pending and applied always present.
 export type Ticked = State & { pending: Pending | null; applied: Applied[] };

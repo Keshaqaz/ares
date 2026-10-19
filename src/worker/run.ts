@@ -2,7 +2,7 @@ import { readFile, writeFile, appendFile } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { join } from 'node:path';
-import { tick } from './tick.ts';
+import { tick, worthRetrying } from './tick.ts';
 import { revoke as revokeSession } from '../chatgpt/session.ts';
 import { TransientFailure, object } from '../chatgpt/http.ts';
 import type { Fetch, TransientReason } from '../chatgpt/http.ts';
@@ -15,6 +15,9 @@ import { FILES } from './layout.ts';
 
 const BOT = ['-c', 'user.name=github-actions[bot]', '-c', 'user.email=41898333+github-actions[bot]@users.noreply.github.com'];
 const PUSH_ATTEMPTS = 3;
+// A tick worth retrying (worthRetrying) is repeated this many times, this far apart; the
+// workflow's timeout-minutes leaves room for them.
+export const TICK_RETRIES = 2, RETRY_PAUSE_MS = 60_000;
 
 const run = promisify(execFile);
 const git = (dir: string, ...args: string[]) => run('git', args, { cwd: dir });
@@ -57,6 +60,7 @@ export interface RunOptions {
   login?: string | null;
   revoke?: boolean;
   stepSummaryPath?: string | null;
+  sleep?: (ms: number) => Promise<unknown>;
 }
 export type RunOutcome = TickOutcome | 'broken_state' | 'revoked' | 'revoke_failed' | 'commit_failed';
 export interface RunResult { outcome: RunOutcome; reason?: BrokenStateReason | TransientReason | 'push_failed'; exitCode: 0 | 1 }
@@ -66,8 +70,9 @@ export interface RunResult { outcome: RunOutcome; reason?: BrokenStateReason | T
 // login is the text of the login secret, if the repository has one. revoke makes the run
 // revoke the worker session in OpenAI instead of a tick, before `uninstall` deletes the
 // repository; the run does not fail when OpenAI does not confirm it, uninstall reports that.
+// A tick worth retrying is repeated after sleep(RETRY_PAUSE_MS), its clock moved on by the pause.
 export async function runWorker({ dir, key, now, fetch, applyNow = null, login = null, revoke = false,
-  stepSummaryPath = null }: RunOptions): Promise<RunResult> {
+  stepSummaryPath = null, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)) }: RunOptions): Promise<RunResult> {
   const report = async (fields: Omit<StepSummaryFields, 'now'>) => {
     if (stepSummaryPath) await appendFile(stepSummaryPath, stepSummary({ now, ...fields }));
   };
@@ -104,7 +109,13 @@ export async function runWorker({ dir, key, now, fetch, applyNow = null, login =
     saved = comparable(next);
   };
   try {
-    const result = await tick({ state, rules, now, fetch, applyNow, login: login ? readLogin(login) : null, persist });
+    const loginSecret = login ? readLogin(login) : null;
+    let result = await tick({ state, rules, now, fetch, applyNow, login: loginSecret, persist });
+    // A retry takes the login secret again; the state already holds its verdict, so it is not taken twice.
+    for (let retry = 1; retry <= TICK_RETRIES && worthRetrying(result, rules, now + (retry - 1) * RETRY_PAUSE_MS, applyNow); retry++) {
+      await sleep(RETRY_PAUSE_MS);
+      result = await tick({ state: result.state, rules, now: now + retry * RETRY_PAUSE_MS, fetch, applyNow, login: loginSecret, persist });
+    }
     const summary = openSummary({ state: result.state, rules });
     const summaryText = `${JSON.stringify(summary, null, 2)}\n`;
     const previousSummary = await readFile(path('summary'), 'utf8').catch(() => null);

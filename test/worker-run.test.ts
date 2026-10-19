@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { writeFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { runWorker } from '../src/worker/run.ts';
+import { runWorker, TICK_RETRIES, RETRY_PAUSE_MS } from '../src/worker/run.ts';
 import type { RunOptions } from '../src/worker/run.ts';
 import { FILES } from '../src/worker/layout.ts';
 import { sealState, openState, generateKey, BrokenState } from '../src/worker/state-file.ts';
@@ -24,9 +24,11 @@ async function workerWorld({ rules = RULES } = {}) {
   // The shape setup writes: no pending consume, no applications yet.
   const initial: State = { formatVersion: 1, session: world.login(), pending: null, applied: [] };
   const repo = await workerRepo({ state: initial, rules });
+  // A pause between retries passes on the world's clock; pauses lists them.
+  const pauses: number[] = [];
   const run = (options: Partial<RunOptions> = {}) => runWorker({ dir: repo.dir, key: repo.key, now: world.now, fetch: world.fetch,
-    stepSummaryPath: repo.stepSummary, ...options });
-  return { world, repo, initial, run };
+    stepSummaryPath: repo.stepSummary, sleep: async ms => { pauses.push(ms); world.advance(ms); }, ...options });
+  return { world, repo, initial, run, pauses };
 }
 const expiry = (session: Session): number => {
   const { exp }: { exp: number } = JSON.parse(Buffer.from(session.accessToken.split('.')[1] ?? '', 'base64url').toString());
@@ -121,11 +123,85 @@ test('a consume is preceded by a pushed pending state and followed by a pushed r
 });
 
 test('a transient failure without a refresh commits nothing and does not fail the run', async () => {
-  const { world, repo, run } = await workerWorld();
+  const { world, repo, run, pauses } = await workerWorld();
   world.chatgpt.fail = 'network';
   assert.deepEqual(await run(), { outcome: 'transient_error', exitCode: 0 });
   assert.deepEqual(repo.commits(), ['Set up worker']);
   assert.match(await repo.readStepSummary(), /Temporary error/);
+  assert.deepEqual(pauses, [], 'nothing is due, so the next scheduled run checks again');
+});
+
+test('a failed read is retried within the run when the last read had a reset due, and the reset is applied', async () => {
+  const { world, repo, run, pauses } = await workerWorld();
+  world.chatgpt.credits = [credit('reset-a', world.now + 2 * HOUR)];
+  world.chatgpt.fail = { status: 503 };
+  assert.deepEqual(await run(), { outcome: 'transient_error', exitCode: 0 });
+  assert.deepEqual(pauses, [], 'before the first read nothing is known to be due');
+
+  // The next run reads the due reset, then the consume is refused once and goes through on the retry.
+  world.chatgpt.fail = null;
+  world.chatgpt.consumeFail = { status: 502 };
+  const fetch: Fetch = async (url, init) => {
+    const reply = await world.fetch(url, init);
+    if (String(url).endsWith('/consume')) world.chatgpt.consumeFail = null;
+    return reply;
+  };
+  assert.deepEqual(await run({ fetch }), { outcome: 'applied', exitCode: 0 });
+  assert.deepEqual(pauses, [RETRY_PAUSE_MS]);
+  assert.deepEqual(world.spent(), ['reset-a']);
+  const [first, second] = world.consumeCalls();
+  assert.ok(first && second);
+  assert.equal(second.key, first.key, 'the retry keeps the redeem_request_id');
+  assert.equal(repo.state().applied?.at(-1)?.creditId, 'reset-a');
+});
+
+test('a read failure with nothing due by the last read is not retried; a consume in doubt is, with one key, then left to the next run', async () => {
+  const { world, repo, run, pauses } = await workerWorld();
+  world.chatgpt.credits = [credit('reset-a', world.now + 2 * HOUR)];
+  await run();
+  assert.deepEqual(world.spent(), ['reset-a']);
+  world.chatgpt.credits.push(credit('reset-b', world.now + 3 * HOUR));
+  world.chatgpt.fail = 'network';
+  const commits = repo.commits().length;
+  assert.deepEqual(await run(), { outcome: 'transient_error', exitCode: 0 });
+  assert.deepEqual(pauses, [], 'the last read had no other reset due');
+
+  world.chatgpt.fail = null;
+  world.chatgpt.lose = 'before';
+  assert.deepEqual(await run(), { outcome: 'pending', exitCode: 0 });
+  assert.deepEqual(pauses, Array(TICK_RETRIES).fill(RETRY_PAUSE_MS));
+  const keys = world.consumeCalls().slice(1).map(call => call.key);
+  assert.equal(keys.length, 1 + TICK_RETRIES);
+  assert.equal(new Set(keys).size, 1, 'one attempt, one redeem_request_id');
+  assert.equal(repo.state().pending?.creditId, 'reset-b');
+  assert.ok(repo.commits().length > commits);
+});
+
+test('a retry does not take the login secret a second time', async () => {
+  const { world, repo, run, pauses } = await workerWorld();
+  world.chatgpt.credits = [credit('reset-a', world.now + 2 * HOUR)];
+  await run();
+  world.chatgpt.credits = [credit('reset-b', world.now + 3 * HOUR)];
+  world.chatgpt.lose = 'before';
+  const session = world.login();
+  assert.equal((await run({ login: JSON.stringify({ id: 'login-1', session }) })).outcome, 'pending');
+  assert.equal(pauses.length, TICK_RETRIES);
+  assert.deepEqual(repo.state().login?.at, world.now - TICK_RETRIES * RETRY_PAUSE_MS);
+  assert.deepEqual(repo.state().session, session);
+  assert.deepEqual(world.violations, []);
+});
+
+test('apply-now that meets a failed read is retried within the run', async () => {
+  const { world, run, pauses } = await workerWorld();
+  world.chatgpt.fail = { status: 503 };
+  let reads = 0;
+  const fetch: Fetch = async (url, init) => {
+    if (String(url).endsWith('/usage') && ++reads > 1) world.chatgpt.fail = null;
+    return world.fetch(url, init);
+  };
+  assert.deepEqual(await run({ fetch, applyNow: 'reset-a' }), { outcome: 'applied', exitCode: 0 });
+  assert.deepEqual(pauses, [RETRY_PAUSE_MS]);
+  assert.deepEqual(world.spent(), ['reset-a']);
 });
 
 test('a lost worker session fails the run and asks for a new login', async () => {

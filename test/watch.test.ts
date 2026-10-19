@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, writeFile, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { decide, watch } from '../src/cli/watch.ts';
+import { decide, quiet, watch, DISPATCHES, NEAR_PERCENT, QUIET_MS } from '../src/cli/watch.ts';
 import type { PassFiles } from '../src/cli/watch.ts';
 import { WatchFiles } from '../src/cli/watch-files.ts';
 import type { WatchState } from '../src/cli/watch-files.ts';
@@ -15,29 +15,63 @@ import { shortTime } from '../src/cli/overview.ts';
 import { window } from './support/fake-world.ts';
 import type { FakeWorld } from './support/fake-world.ts';
 import { cliWorld } from './support/cli-world.ts';
+import { FILES } from '../src/worker/layout.ts';
 
 const MINUTE = 60_000, HOUR = 60 * MINUTE, DAY = 24 * HOUR;
 const NOW = Date.parse('2026-10-20T12:00:00Z');
 const weekly = (usedPercent: number, renewsAt: number): Quota => ({ usedPercent, exhausted: usedPercent >= 100, renewsAt });
 
-test('decide asks for one check per exhausted weekly window', () => {
+test('decide asks for a check per exhausted weekly window, and repeats it while the window stays exhausted', () => {
   const renewsAt = NOW + 2 * DAY;
-  assert.equal(decide(weekly(99, renewsAt), {}, NOW).dispatch, false);
+  assert.equal(decide(weekly(99, renewsAt), {}, NOW).dispatch, null);
   const first = decide(weekly(100, renewsAt), { lastPass: { at: NOW - 2 * MINUTE, outcome: 'idle' } }, NOW);
-  assert.equal(first.dispatch, true);
-  assert.deepEqual(first.nextState, { lastPass: { at: NOW - 2 * MINUTE, outcome: 'idle' }, dispatched: { renewsAt, at: NOW } });
+  assert.equal(first.dispatch, 'first');
+  assert.deepEqual(first.nextState, { lastPass: { at: NOW - 2 * MINUTE, outcome: 'idle' }, dispatched: { renewsAt, at: NOW, count: 1 } });
 
   const asked = first.nextState;
-  assert.equal(decide(weekly(100, renewsAt + 3_000), asked, NOW + 2 * MINUTE).dispatch, false, 'the same window read again');
-  assert.equal(decide(weekly(100, renewsAt - 3_000), asked, NOW + 2 * MINUTE).dispatch, false);
-  const next = decide(weekly(100, NOW + 7 * DAY), asked, NOW + HOUR);
-  assert.equal(next.dispatch, true, 'a reset renewed the window and it ran out again');
-  assert.equal(next.nextState.dispatched?.renewsAt, NOW + 7 * DAY);
+  assert.equal(decide(weekly(100, renewsAt + 3_000), asked, NOW + 2 * MINUTE).dispatch, null, 'the same window read again');
+  assert.equal(decide(weekly(100, renewsAt - 3_000), asked, NOW + 14 * MINUTE).dispatch, null);
+  const second = decide(weekly(100, renewsAt), asked, NOW + 15 * MINUTE);
+  assert.equal(second.dispatch, 'repeat');
+  assert.deepEqual(second.nextState.dispatched, { renewsAt, at: NOW + 15 * MINUTE, count: 2 });
+  assert.equal(decide(weekly(100, renewsAt), second.nextState, NOW + 74 * MINUTE).dispatch, null);
+  const third = decide(weekly(100, renewsAt), second.nextState, NOW + 75 * MINUTE);
+  assert.equal(third.dispatch, 'repeat');
+  assert.equal(third.nextState.dispatched?.count, DISPATCHES);
+  assert.equal(decide(weekly(100, renewsAt), third.nextState, NOW + DAY).dispatch, null, `at most ${DISPATCHES} runs per window`);
+
+  const next = decide(weekly(100, NOW + 7 * DAY), third.nextState, NOW + DAY);
+  assert.equal(next.dispatch, 'first', 'a reset renewed the window and it ran out again');
+  assert.deepEqual(next.nextState.dispatched, { renewsAt: NOW + 7 * DAY, at: NOW + DAY, count: 1 });
+});
+
+test('decide takes a window asked for by an older watch.json, without a count, as asked once', () => {
+  const renewsAt = NOW + 2 * DAY;
+  const old = { dispatched: { renewsAt, at: NOW } };
+  assert.equal(decide(weekly(100, renewsAt), old, NOW + 2 * MINUTE).dispatch, null);
+  assert.equal(decide(weekly(100, renewsAt), old, NOW + 15 * MINUTE).nextState.dispatched?.count, 2);
 });
 
 test('decide does not ask for a window that has already renewed or a plan without a weekly window', () => {
-  assert.deepEqual(decide(weekly(100, NOW - MINUTE), {}, NOW), { dispatch: false, nextState: {} });
-  assert.deepEqual(decide(null, {}, NOW), { dispatch: false, nextState: {} });
+  assert.deepEqual(decide(weekly(100, NOW - MINUTE), {}, NOW), { dispatch: null, nextState: {} });
+  assert.deepEqual(decide(null, {}, NOW), { dispatch: null, nextState: {} });
+});
+
+test('quiet leaves the quota unread for ten minutes far from its end and after the last run for a window', () => {
+  const renewsAt = NOW + 2 * DAY;
+  const read = (usedPercent: number | null, at = NOW) => ({ at, usedPercent, renewsAt: usedPercent === null ? null : renewsAt });
+  assert.equal(quiet({}, NOW), false, 'nothing read yet');
+  assert.equal(quiet({ read: read(NEAR_PERCENT - 1) }, NOW + QUIET_MS - 1), true);
+  assert.equal(quiet({ read: read(NEAR_PERCENT - 1) }, NOW + QUIET_MS), false);
+  assert.equal(quiet({ read: read(null) }, NOW + 2 * MINUTE), true, 'a plan without a weekly window');
+  assert.equal(quiet({ read: read(NEAR_PERCENT) }, NOW + 2 * MINUTE), false, 'near the end every pass reads');
+  assert.equal(quiet({ read: read(100), dispatched: { renewsAt, at: NOW, count: 1 } }, NOW + 2 * MINUTE), false);
+  assert.equal(quiet({ read: read(100), dispatched: { renewsAt, at: NOW, count: DISPATCHES } }, NOW + 2 * MINUTE), true);
+  assert.equal(quiet({ read: read(100), dispatched: { renewsAt: renewsAt - 7 * DAY, at: NOW, count: DISPATCHES } }, NOW + 2 * MINUTE), false,
+    'all runs went to an earlier window');
+  assert.equal(quiet({ read: read(10, NOW + HOUR) }, NOW), false, 'a read from the future');
+  // @ts-expect-error: watch.json of another shape.
+  assert.equal(quiet({ read: { at: NOW, usedPercent: '10' } }, NOW + MINUTE), false);
 });
 
 // Watch files in memory; events lists the writes in order. state is watch.json as it is on
@@ -86,20 +120,23 @@ test('watch starts one worker run per exhausted window and none while the quota 
   exhaust(world, renewsAt);
   world.advance(2 * MINUTE);
   assert.equal(await pass(), 0);
+  assert.equal(dispatches().length, 0, 'far from its end the quota is read every ten minutes');
+  world.advance(8 * MINUTE);
+  assert.equal(await pass(), 0);
   assert.equal(dispatches().length, 1);
   assert.deepEqual(dispatches()[0]?.inputs, { apply_now: '' });
-  assert.deepEqual(files.state.dispatched, { renewsAt, at: world.now });
+  assert.deepEqual(files.state.dispatched, { renewsAt, at: world.now, count: 1 });
 
   world.advance(2 * MINUTE);
   await pass();
-  assert.equal(dispatches().length, 1, 'the same window does not start a second run');
+  assert.equal(dispatches().length, 1, 'the same window does not start a second run right away');
 
   // A reset renewed the window, and it ran out again.
   exhaust(world, world.now + 7 * DAY);
   world.advance(2 * MINUTE);
   await pass();
   assert.equal(dispatches().length, 2);
-  assert.deepEqual(lines, ['idle', 'dispatched', 'idle', 'dispatched']);
+  assert.deepEqual(lines, ['idle', 'quiet', 'dispatched', 'idle', 'dispatched']);
   assert.deepEqual(world.violations, []);
   assert.deepEqual(world.github.violations, []);
 });
@@ -111,6 +148,7 @@ test('a day of passes: the reset lands within minutes of the weekly quota runnin
   const env = await mac({ weekly: true });
   const { world, lines, pass, dispatches } = env;
   const refusedAt = world.now + 9 * HOUR + MINUTE, renewsAt = refusedAt + 2 * DAY;
+  const start = world.now, reads = () => world.requests.filter(r => r.path.endsWith('/wham/usage')).length;
   let refusalLine: number | null = null, throttled = 0;
   for (let n = 0; n < 720; n++) {
     world.advance(2 * MINUTE);
@@ -118,11 +156,14 @@ test('a day of passes: the reset lands within minutes of the weekly quota runnin
       exhaust(world, renewsAt);
       refusalLine = lines.length;
     }
-    // Every 7th read is throttled, and so is the first one after the client was refused.
+    // The weekly quota climbs through the morning towards its end.
+    if (refusalLine === null) world.chatgpt.secondary = window(604800, Math.floor(40 + 59 * (world.now - start) / (refusedAt - start)), renewsAt);
+    // Every 7th pass is throttled, and so is the first one after the client was refused.
     const throttle = n % 7 === 0 || lines.length === refusalLine;
     world.chatgpt.fail = throttle ? { status: 429 } : null;
-    throttled += Number(throttle);
+    const before = reads();
     assert.equal(await pass(), 0);
+    throttled += Number(throttle && reads() > before);
   }
   world.chatgpt.fail = null;
 
@@ -136,7 +177,8 @@ test('a day of passes: the reset lands within minutes of the weekly quota runnin
   assert.equal(run.conclusion, 'success');
   assert.equal(world.chatgpt.redemptions.length, 1);
   assert.equal(world.chatgpt.secondary?.used_percent, 0, 'the reset renewed the weekly window');
-  assert.ok(lines.slice(refusalLine + 2).every(line => line === 'idle' || line === 'transient_error: wham_429'));
+  assert.ok(lines.slice(refusalLine + 2).every(line => ['idle', 'quiet', 'transient_error: wham_429'].includes(line)));
+  assert.ok(reads() < 720 / 2, `${reads()} reads in a day`);
   assert.equal(lines.filter(line => line === 'transient_error: wham_429').length, throttled);
 
   const { code, io } = await env.run(status);
@@ -287,5 +329,34 @@ test('a pass reads a watch.json with fields of another type as no window asked f
   await pass();
   assert.deepEqual(lines, ['dispatched']);
   assert.equal(dispatches().length, 1);
-  assert.deepEqual(files.state.dispatched, { renewsAt, at: world.now });
+  assert.deepEqual(files.state.dispatched, { renewsAt, at: world.now, count: 1 });
+});
+
+test('a window the worker run did not renew gets a second and a third run, then none', async () => {
+  const { world, files, lines, pass, dispatches } = await mac();
+  exhaust(world);
+  for (let n = 0; n < 60; n++) {
+    await pass();
+    world.advance(2 * MINUTE);
+  }
+  assert.equal(dispatches().length, DISPATCHES);
+  assert.deepEqual(lines.filter(line => line.startsWith('dispatched')), ['dispatched', 'dispatched (2 of 3)', 'dispatched (3 of 3)']);
+  assert.equal(lines.indexOf('dispatched (2 of 3)'), lines.indexOf('dispatched') + 8, 'fifteen minutes later, on the eighth pass');
+  assert.partialDeepStrictEqual(files.state, { dispatched: { count: DISPATCHES } });
+  assert.ok(lines.slice(lines.indexOf('dispatched (3 of 3)') + 1).includes('quiet'), 'the last run for the window quiets the reads');
+});
+
+test('no repeat run when the worker summary lists no resets, and the window is left alone', async () => {
+  const { world, repo, files, lines, pass, dispatches } = await mac();
+  exhaust(world);
+  await pass();
+  assert.equal(dispatches().length, 1);
+  world.github.write(repo, FILES.summary, JSON.stringify({ ...JSON.parse(world.github.text(repo, FILES.summary)), resets: [] }));
+  for (let n = 0; n < 60; n++) {
+    world.advance(2 * MINUTE);
+    await pass();
+  }
+  assert.equal(dispatches().length, 1);
+  assert.equal(lines.filter(line => line === 'no_resets').length, 1);
+  assert.partialDeepStrictEqual(files.state, { dispatched: { count: DISPATCHES } });
 });

@@ -22,8 +22,10 @@ const isSession = (value: unknown): value is Session =>
 export interface WatchState {
   // The computer session is lost; setup clears it with a new one.
   sessionLost?: boolean;
-  // The exhausted weekly window a worker run was started for.
-  dispatched?: { renewsAt: number; at: number };
+  // The exhausted weekly window worker runs were started for: the latest at, count of them (none: 1).
+  dispatched?: { renewsAt: number; at: number; count?: number };
+  // The weekly quota as the last pass read it; null fields for a plan without a weekly window.
+  read?: { at: number; usedPercent: number | null; renewsAt: number | null };
   lastPass?: { at: number; outcome: string };
 }
 
