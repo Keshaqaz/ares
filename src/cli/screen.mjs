@@ -152,17 +152,40 @@ export async function openScreen({ fetch, keychain, io, mac, now = Date.now,
   return screen;
 }
 
+// Rows of the terminal a painted line takes: a line longer than the terminal wraps.
+const rowsOf = (line, columns) => Math.max(1, Math.ceil([...line.replace(/\x1b\[[0-9;]*m/g, '')].length / columns));
+
 // Shows the screen in the terminal until q, on the alternate screen with a margin around it.
-// Every frame is drawn from the top left over the previous one. Resolves to the exit code: 130
-// when Ctrl-C left an action unfinished; what it was doing is then printed after the screen.
+// A frame redraws only the lines that changed, each at its own row, and never takes more rows
+// than the terminal has: a taller one would scroll it on every turn of the spinner, and the
+// user's selection with it. Resolves to the exit code: 130 when Ctrl-C left an action
+// unfinished; what it was doing is then printed after the screen.
 export function runScreen(screen, { input, output }) {
-  let done = false;
-  const draw = () => {
+  let done = false, shown = [], bottom = 1; // the lines on the terminal with their rows, the row under them
+  const draw = (full = false) => {
     if (done) return;
     const columns = output.columns || 80, width = Math.min(WIDTH, columns - 1 - MARGIN.length);
     const lines = ['', ...screen.frame(width, true).map(line => MARGIN + line)];
-    output.write(`\x1b[?2026h\x1b[H${lines.join('\x1b[K\n')}\x1b[K\x1b[J\x1b[?2026l`);
+    // The top gives way: the action, its codes and the keys are at the bottom.
+    let height = lines.reduce((rows, line) => rows + rowsOf(line, columns), 0);
+    while (height > (output.rows || 24) && lines.length > 1) height -= rowsOf(lines.shift(), columns);
+    let row = 1, text = full ? '\x1b[2J' : '';
+    const next = lines.map(line => {
+      const at = { line, row, rows: rowsOf(line, columns) };
+      row += at.rows;
+      return at;
+    });
+    next.forEach((at, i) => {
+      if (!full && shown[i]?.line === at.line && shown[i].row === at.row) return;
+      for (let r = at.row; r < at.row + at.rows; r++) text += `\x1b[${r};1H\x1b[2K`;
+      text += `\x1b[${at.row};1H${at.line}`;
+    });
+    if (!full && row < bottom) text += `\x1b[${row};1H\x1b[J`;
+    shown = next;
+    bottom = row;
+    if (text) output.write(`\x1b[?2026h${text}\x1b[?2026l`);
   };
+  const redraw = () => draw(true);
   // The spinner turns while an action runs; the clock and the time left move every half minute.
   let ticks = 0;
   const spin = setInterval(() => {
@@ -175,8 +198,8 @@ export function runScreen(screen, { input, output }) {
   input.setRawMode?.(true);
   input.resume();
   output.write('\x1b[?1049h\x1b[?25l');
-  output.on?.('resize', draw);
-  screen.changed = draw;
+  output.on?.('resize', redraw);
+  screen.changed = () => draw();
   draw();
   return new Promise((resolve, reject) => {
     const finish = error => {
@@ -185,7 +208,7 @@ export function runScreen(screen, { input, output }) {
       done = true;
       clearInterval(spin);
       input.off('keypress', onKey);
-      output.off?.('resize', draw);
+      output.off?.('resize', redraw);
       input.setRawMode?.(raw ?? false);
       input.pause();
       output.write('\x1b[?25h\x1b[?1049l');

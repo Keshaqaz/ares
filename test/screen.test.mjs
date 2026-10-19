@@ -105,23 +105,42 @@ test('a failed action shows why and leaves the screen open', async () => {
   assert.equal(repo.runs.length, 1);
 });
 
-test('the terminal: the screen takes the alternate screen, frames are drawn from the top, q gives the terminal back', async () => {
-  const { screen } = await opened();
-  const input = new PassThrough(), output = new PassThrough();
+// The screen in a fake terminal of the size given: its output and keys.
+function terminal(screen, size) {
+  const input = new PassThrough(), output = Object.assign(new PassThrough(), size);
   let written = '';
   output.on('data', chunk => { written += chunk; });
-  Object.assign(output, { columns: 100 });
   const done = runScreen(screen, { input, output });
-  assert.ok(written.startsWith('\x1b[?1049h\x1b[?25l'), 'the alternate screen, without the cursor');
-  input.write('\x1b[B');
-  await new Promise(resolve => setImmediate(resolve));
-  const frames = written.split('\x1b[H').slice(1);
-  assert.equal(frames.length, 2, 'the second frame goes over the first');
-  assert.match(frames[1], /^\x1b\[K\n {2}\x1b\[1maures/, 'a margin around the screen');
-  assert.match(frames[1], /▸ \x1b\[0m\x1b\[1;36mreset-a/);
+  const press = async key => { const from = written.length; input.write(key); await new Promise(resolve => setImmediate(resolve));
+    return written.slice(from); };
+  return { input, done, press, written: () => written };
+}
+const visible = text => text.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '');
+
+test('the terminal: the screen takes the alternate screen, redraws the lines that changed, q gives the terminal back', async () => {
+  const { screen } = await opened();
+  const { done, press, written } = terminal(screen, { columns: 100, rows: 40 });
+  assert.ok(written().startsWith('\x1b[?1049h\x1b[?25l'), 'the alternate screen, without the cursor');
+  assert.match(written(), /\x1b\[2;1H {2}\x1b\[1maures/, 'a margin around the screen');
+  const moved = await press('\x1b[B');
+  assert.match(moved, /\x1b\[6;1H\x1b\[2K\x1b\[6;1H {2}\x1b\[1;36m {2}\x1b\[0mreset-b/);
+  assert.match(moved, /\x1b\[7;1H\x1b\[2K\x1b\[7;1H {2}\x1b\[1;36m▸ \x1b\[0m\x1b\[1;36mreset-a/);
+  assert.equal([...moved.matchAll(/\x1b\[2K/g)].length, 2, 'only the two lines of the cursor');
+  await press('q');
+  assert.equal(await done, 0);
+  assert.ok(written().endsWith('\x1b[?25h\x1b[?1049l'), 'the cursor and the terminal as it was are back');
+});
+
+test('the terminal: a frame taller than the terminal keeps its bottom and never scrolls it', async () => {
+  const { screen } = await opened();
+  const { input, done, written } = terminal(screen, { columns: 100, rows: 8 });
+  const rows = [...written().matchAll(/\x1b\[(\d+);1H/g)].map(([, row]) => Number(row));
+  assert.equal(Math.max(...rows), 8);
+  assert.doesNotMatch(written(), /\n/, 'no line feed that could scroll the terminal');
+  assert.match(visible(written()), /↑↓ выбор/);
+  assert.doesNotMatch(visible(written()), /aures|СБРОСЫ/, 'the top gives way');
   input.write('q');
   assert.equal(await done, 0);
-  assert.ok(written.endsWith('\x1b[?25h\x1b[?1049l'), 'the cursor and the terminal as it was are back');
 });
 
 test('the screen in English: l switches to Russian and back, keeping the choice on this Mac', async () => {
