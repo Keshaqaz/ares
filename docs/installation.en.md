@@ -12,7 +12,11 @@ The CLI speaks Russian; the messages quoted below are given in Russian with a tr
 
 ## Install
 
-From source, with Node 26:
+```sh
+brew install keshaqaz/tap/codex-auto-resets
+```
+
+From source (Node 26 required):
 
 ```sh
 git clone https://github.com/Keshaqaz/ares.git && cd ares
@@ -21,8 +25,6 @@ echo "alias codex-auto-resets='node $PWD/src/cli/main.mjs'" >> ~/.zshrc && sourc
 ```
 
 The last line sets up the `codex-auto-resets` command this guide uses. Without it, run `node src/cli/main.mjs` from the project folder.
-
-Homebrew (`brew install keshaqaz/tap/codex-auto-resets`) arrives with the first release.
 
 ## First setup
 
@@ -145,17 +147,15 @@ If `setup`, `rules` or `upgrade` prints «Внеочередная провер�
 
 ## Upgrade
 
+```sh
+brew upgrade codex-auto-resets
+codex-auto-resets upgrade
+```
+
 From source, in the project folder:
 
 ```sh
 git pull && npm ci && npm run build:worker
-codex-auto-resets upgrade
-```
-
-With Homebrew:
-
-```sh
-brew upgrade codex-auto-resets
 codex-auto-resets upgrade
 ```
 
@@ -171,7 +171,7 @@ Installed with Homebrew, the agent runs the program through the link `$(brew --p
 codex-auto-resets uninstall
 ```
 
-Then remove the program: the source folder and the `alias codex-auto-resets=…` line in `~/.zshrc`, or `brew uninstall codex-auto-resets` if you installed with Homebrew.
+Then remove the program: `brew uninstall codex-auto-resets`. Installed from source, delete the project folder and the `alias codex-auto-resets=…` line in `~/.zshrc`.
 
 `uninstall` asks you to sign in to GitHub once more: deleting a repository needs a separate permission, which the CLI does not keep. It then revokes the worker's ChatGPT sign-in and deletes the repository. Next it removes the Mac check agent, revokes the Mac's ChatGPT sign-in and deletes its files and log, and finally removes the GitHub sign-in from the Keychain. Open the GitHub page it links and click **Revoke** to close access completely.
 

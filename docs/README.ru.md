@@ -7,7 +7,7 @@
 Сам применяет выданные сбросы лимита ChatGPT, чтобы они не сгорали.<br>
 Работает в вашем приватном репозитории на GitHub. Компьютер можно выключить.
 
-[![version](https://img.shields.io/badge/version-0.1.0-8A2BE2)](../package.json)
+[![version](https://img.shields.io/badge/version-0.1.0-8A2BE2)](https://github.com/Keshaqaz/ares/releases/latest)
 [![platform](https://img.shields.io/badge/CLI-macOS-000?logo=apple)](installation.md)
 [![node](https://img.shields.io/badge/node-%E2%89%A526-339933?logo=nodedotjs&logoColor=white)](installation.md)
 [![license](https://img.shields.io/badge/license-MIT-blue)](../LICENSE)
@@ -28,21 +28,16 @@
 
 ## Быстрый старт
 
-Из исходников, нужен Node 26:
-
 ```sh
-git clone https://github.com/Keshaqaz/ares.git && cd ares
-npm ci && npm run build:worker
-node src/cli/main.mjs setup
+brew install keshaqaz/tap/codex-auto-resets
+codex-auto-resets setup
 ```
-
-Установка через Homebrew (`brew install keshaqaz/tap/codex-auto-resets`) появится с первым выпуском.
 
 `setup` попросит войти в GitHub и в ChatGPT по коду, создаст приватный репозиторий `codex-auto-resets-worker`, предложит правила и один раз запустит воркер:
 
 <img src="assets/setup.png" alt="codex-auto-resets setup: вход в GitHub и ChatGPT, правила, проверка с Mac и пробный запуск">
 
-Подробно — в [инструкции](installation.md).
+Подробно, в том числе об установке из исходников, — в [инструкции](installation.md).
 
 ## Команды
 

@@ -7,7 +7,7 @@
 Applies your issued ChatGPT rate-limit resets so they don't go to waste.<br>
 Runs in your own private GitHub repo. Your Mac can be off.
 
-[![version](https://img.shields.io/badge/version-0.1.0-8A2BE2)](package.json)
+[![version](https://img.shields.io/badge/version-0.1.0-8A2BE2)](https://github.com/Keshaqaz/ares/releases/latest)
 [![platform](https://img.shields.io/badge/CLI-macOS-000?logo=apple)](docs/installation.en.md)
 [![node](https://img.shields.io/badge/node-%E2%89%A526-339933?logo=nodedotjs&logoColor=white)](docs/installation.en.md)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
@@ -28,21 +28,16 @@ Runs in your own private GitHub repo. Your Mac can be off.
 
 ## Quick start
 
-From source, with Node 26:
-
 ```sh
-git clone https://github.com/Keshaqaz/ares.git && cd ares
-npm ci && npm run build:worker
-node src/cli/main.mjs setup
+brew install keshaqaz/tap/codex-auto-resets
+codex-auto-resets setup
 ```
-
-Homebrew (`brew install keshaqaz/tap/codex-auto-resets`) arrives with the first release.
 
 `setup` signs you in to GitHub and ChatGPT with one-time codes, creates the private repo `codex-auto-resets-worker`, offers the rules and runs the worker once. The CLI speaks Russian:
 
 <img src="docs/assets/setup.png" alt="codex-auto-resets setup: GitHub and ChatGPT sign-in, rules, the Mac check and a trial run">
 
-Full guide: [docs/installation.en.md](docs/installation.en.md).
+Full guide, including installing from source: [docs/installation.en.md](docs/installation.en.md).
 
 ## Commands
 
