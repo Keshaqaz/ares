@@ -26,6 +26,18 @@ Runs in your own private GitHub repo. Your Mac can be off.
 - **No servers, no subscriptions.** Only GitHub Actions in your account: up to ~750 of the 2,000 free minutes a month.
 - **Codex on your Mac is untouched.** The worker and the Mac check have ChatGPT sign-ins of their own; nothing is copied from Codex.
 
+> [!IMPORTANT]
+> ### 🔒 Your tokens never leave your accounts
+>
+> AURES has no server of its own and collects nothing. Everything runs on **your** Mac and in **your** GitHub account:
+>
+> - **GitHub sign-in** stays in your Mac's Keychain.
+> - **The worker's ChatGPT sign-in** lives in your private repo, encrypted with AES-256-GCM. The key is an Actions secret that only your own workflow can read.
+> - **The Mac check's ChatGPT sign-in** stays in a file on your Mac.
+> - The CLI and the worker talk to GitHub and OpenAI only. No telemetry, no third parties, not even the author.
+>
+> The code is open: see for yourself in [src/](src/).
+
 ## Quick start
 
 ```sh
