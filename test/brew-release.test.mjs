@@ -21,7 +21,7 @@ test('--version prints the package version on any platform', async () => {
 test('the formula installs the release archive behind a node wrapper and tests --version', () => {
   const sha256 = 'a'.repeat(64);
   const text = formula({ version: '1.2.3', sha256 });
-  assert.equal(releaseUrl('1.2.3'), 'https://github.com/Keshaqaz/ares/releases/download/v1.2.3/aures-1.2.3.tgz');
+  assert.equal(releaseUrl('1.2.3'), 'https://github.com/Keshaqaz/aures/releases/download/v1.2.3/aures-1.2.3.tgz');
   assert.match(text, /^class Aures < Formula$/m);
   assert.match(text, new RegExp(`^  url "${releaseUrl('1.2.3')}"$`, 'm'));
   assert.match(text, new RegExp(`^  sha256 "${sha256}"$`, 'm'));

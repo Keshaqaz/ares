@@ -17,7 +17,7 @@ brew install keshaqaz/tap/aures
 Из исходников (нужен Node 26):
 
 ```sh
-git clone https://github.com/Keshaqaz/ares.git && cd ares
+git clone https://github.com/Keshaqaz/aures.git && cd aures
 npm ci && npm run build:worker
 echo "alias aures='node $PWD/src/cli/main.mjs'" >> ~/.zshrc && source ~/.zshrc
 ```

@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 import pkg from '../package.json' with { type: 'json' };
 
 const root = fileURLToPath(new URL('..', import.meta.url));
-const REPOSITORY = 'https://github.com/Keshaqaz/ares';
+const REPOSITORY = 'https://github.com/Keshaqaz/aures';
 
 // The name `npm pack` gives the archive; the release asset keeps it.
 export const archiveName = version => `aures-${version}.tgz`;
