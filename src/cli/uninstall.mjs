@@ -53,7 +53,7 @@ export async function uninstall({ fetch, keychain, io, mac, now = Date.now, slee
     if (!repo) io.print('Репозитория воркера нет.');
     else if (repo.description !== WORKER_DESCRIPTION) io.print(`Репозиторий ${repo.html_url} создан не codex-auto-resets, оставлен как есть.`);
     else {
-      io.print(`Будут удалены репозиторий ${repo.html_url} со всей историей и вход в GitHub из Связки ключей.`);
+      io.print(`Будут удалены репозиторий ${repo.html_url} со всей историей, проверка с этого Mac и вход в GitHub из Связки ключей.`);
       if (!YES.includes((await io.prompt('Удалить? [y/N] ')).trim().toLowerCase())) {
         io.print('Отменено.');
         return 0;

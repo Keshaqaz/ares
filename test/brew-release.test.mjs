@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { archiveName, formula, packRelease, releaseUrl } from '../scripts/release-brew.mjs';
+import { agentProgram } from '../src/cli/launch-agent.mjs';
 import pkg from '../package.json' with { type: 'json' };
 
 const run = promisify(execFile);
@@ -30,6 +31,15 @@ test('the formula installs the release archive behind a node wrapper and tests -
   assert.match(text, /assert_equal version\.to_s, shell_output\("#\{bin}\/codex-auto-resets --version"\)\.strip/);
   assert.throws(() => formula({ version: '1.2', sha256 }), RangeError);
   assert.throws(() => formula({ version: '1.2.3', sha256: 'abc' }), RangeError);
+});
+
+test('the launchd agent recognizes a keg laid out by the formula and runs it through the opt link', () => {
+  const text = formula({ version: '1.2.3', sha256: 'a'.repeat(64) });
+  const [, bin] = text.match(/\(bin\/"([^"]+)"\)\.write/);
+  const [, main] = text.match(/"#\{libexec}\/([^"]+)" "\$@"/);
+  const keg = '/opt/homebrew/Cellar/codex-auto-resets/1.2.3';
+  assert.deepEqual(agentProgram({ main: `${keg}/libexec/${main}`, node: '/opt/homebrew/opt/node/bin/node' }),
+    [`/opt/homebrew/opt/codex-auto-resets/bin/${bin}`, 'watch']);
 });
 
 test('the release archive carries the CLI, the worker bundle and its dependencies, and runs on its own', async t => {

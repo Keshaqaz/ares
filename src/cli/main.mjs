@@ -23,12 +23,12 @@ const COMMANDS = { setup, status, 'apply-now': applyNow, rules, login, upgrade, 
 const WATCH_KEYCHAIN_MS = 10_000;
 const USAGE = `Использование: codex-auto-resets <команда>
   setup      установить или продолжить установку
-  status     сбросы, правила и состояние воркера
+  status     сбросы, правила, состояние воркера и проверки с Mac
   apply-now  применить сброс сейчас
   rules      когда применять сбросы
   login      заново войти в ChatGPT
   upgrade    обновить воркер после brew upgrade
-  uninstall  удалить воркер и вход в GitHub
+  uninstall  удалить воркер, проверку с Mac и вход в GitHub
   --version  версия программы`;
 
 async function main() {

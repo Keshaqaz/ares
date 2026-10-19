@@ -10,6 +10,8 @@ brew install keshaqaz/tap/codex-auto-resets
 
 Архив скачивается без авторизации, поэтому репозиторий и его выпуски должны быть публичными.
 
+Агент launchd проверки с Mac (ADR-0005) запускает `<prefix>/opt/codex-auto-resets/bin/codex-auto-resets watch`. Ссылка `opt` после `brew upgrade` указывает на новую версию, поэтому формуле ничего добавлять не нужно. `agentProgram` в `src/cli/launch-agent.mjs` узнаёт установку Homebrew по пути `…/Cellar/codex-auto-resets/<версия>/libexec/src/cli/main.mjs`, который задаёт обёртка формулы. Если формула меняет `libexec` или имя файла в `bin`, поменяйте `agentProgram` вместе с ней: `test/brew-release.test.mjs` сверяет их.
+
 ## Шаги
 
 0. Первый выпуск закрыт воротами по замеру из [ADR-0004](adr/0004-github-only-worker.md): нужен результат `prototype/cron-lag`, и максимальный разрыв между запусками cron должен укладываться в 8 часов.
@@ -38,6 +40,12 @@ brew install keshaqaz/tap/codex-auto-resets
    brew test codex-auto-resets
    brew audit --strict --online codex-auto-resets
    codex-auto-resets --version
+   ```
+
+   Если на этом Mac включено недельное правило, проверьте, что агент запускает программу через `opt`-путь, а не через папку версии:
+
+   ```sh
+   plutil -extract ProgramArguments json -o - ~/Library/LaunchAgents/com.github.keshaqaz.codex-auto-resets.watch.plist
    ```
 
 После `brew upgrade` пользователь обновляет воркер в своём репозитории командой `codex-auto-resets upgrade`.

@@ -1,8 +1,9 @@
 # Notices of included dependencies
 
 This project declares one runtime dependency, resolved through
-`package-lock.json`; the dependency itself is installed from the npm registry
-by `npm ci` and is not vendored into the source tree.
+`package-lock.json`. In the source tree it is installed from the npm registry
+by `npm ci` and is not vendored; the Homebrew release archive bundles it
+(`bundleDependencies`).
 
 ## libsodium-wrappers 0.7.15 — ISC License
 
@@ -45,8 +46,9 @@ by `npm ci` and is not vendored into the source tree.
 
 ## ascii.rest — MIT License (adapted frames)
 
-The monitor (`src/installer/monitor-ui.mjs`) adapts the "bounce" spinner and the
-"boot log" status tags from https://ascii.rest, ported to plain JavaScript.
+`src/installer/monitor-ui.mjs` (previous architecture, still in the package)
+adapts the "bounce" spinner and the "boot log" status tags from
+https://ascii.rest, ported to plain JavaScript.
 
     Copyright (c) @Shubham / bas3line
 
@@ -69,6 +71,6 @@ The monitor (`src/installer/monitor-ui.mjs`) adapts the "bounce" spinner and the
     SOFTWARE.
 
 
-Pinned toolchain (not distributed with this project): Node.js 26.10.0
-(Node.js license applies to the runtime, not to this code), official Codex
-App Server 0.160.1 (used as an external binary, not included).
+Runtime (not distributed with this project): Node.js 26, pinned to 26.10.0
+for development and taken from Homebrew's `node` formula when installed with
+Homebrew (the Node.js license applies to the runtime, not to this code).
