@@ -62,28 +62,23 @@ test('turning the weekly rule on logs this Mac into ChatGPT and starts the agent
   assert.deepEqual(world.violations, []);
 });
 
-test('turning the weekly rule off unloads the agent and revokes and deletes the Mac session', async () => {
+test('turning the weekly rule off unloads the agent and keeps the Mac session; turning it on again asks for no code', async () => {
   const { world, mac, run, session, loaded } = await watching();
   const macToken = (await session()).refreshToken;
-  const { code, io } = await run(rules, { answers: ['2', ''] });
-  assert.equal(code, 0, io.output());
-  assert.equal(io.lines.at(-1), 'Внеочередная проверка с этого Mac выключена, его вход в ChatGPT отозван.');
+  const off = await run(rules, { answers: ['2', ''] });
+  assert.equal(off.code, 0, off.io.output());
+  assert.equal(off.io.lines.at(-1), 'Внеочередная проверка с этого Mac выключена.');
   assert.equal(loaded(), false);
   assert.equal(await exists(mac.agent.plistPath), false);
-  assert.equal(await session(), null);
-  assert.deepEqual(world.auth.revoked, [macToken]);
-  assert.equal(world.auth.sessions[0].family, 'active', 'the worker session stays');
-  assert.equal(world.auth.sessions[1].family, 'refresh_token_invalidated');
-});
+  assert.equal((await session()).refreshToken, macToken);
+  assert.deepEqual(world.auth.revoked, []);
 
-test('a failed revocation does not keep the Mac session', async () => {
-  const { world, run, session, loaded } = await watching();
-  world.auth.revokeFail = 'network';
-  const { code, io } = await run(rules, { answers: ['2', ''] });
-  assert.equal(code, 0, io.output());
-  assert.equal(io.lines.at(-1), 'Внеочередная проверка с этого Mac выключена. Вход Mac в ChatGPT не отозван (network), но удалён с этого Mac.');
-  assert.equal(await session(), null);
-  assert.equal(loaded(), false);
+  const on = await run(rules, { answers: ['2', ''] });
+  assert.equal(on.code, 0, on.io.output());
+  assert.ok(!on.io.lines.includes(macLogin()), on.io.output());
+  assert.equal(on.io.lines.at(-1), 'Внеочередная проверка с этого Mac включена.');
+  assert.equal(loaded(), true);
+  assert.equal(world.auth.sessions.length, 2, 'no new session');
 });
 
 test('setup with the weekly rule chosen asks for the Mac code, and a repeated setup asks nothing', async () => {
@@ -122,13 +117,13 @@ test('setup after the Mac session is lost asks for the code again and clears ses
   assert.deepEqual(lines, ['idle']);
 });
 
-test('setup removes the agent and the Mac session when the rule was turned off elsewhere', async () => {
+test('setup removes the agent when the rule was turned off elsewhere', async () => {
   const { world, repo, run, session, loaded } = await watching();
   world.github.write(repo, FILES.rules, WEEKLY_OFF);
   const { code, io } = await run(setup, { answers: [] });
   assert.equal(code, 0, io.output());
   assert.equal(loaded(), false);
-  assert.equal(await session(), null);
+  assert.ok(await session());
 });
 
 test('an agent launchctl does not load is reported, and the command still succeeds', async () => {
@@ -172,6 +167,15 @@ test('uninstall leaves no agent, plist, Mac session, log or watch.json', async (
   assert.equal(await exists(mac.files.dir), false);
   assert.equal(await exists(dirname(mac.agent.logPath)), false);
   assert.ok(world.auth.revoked.includes(macToken));
+});
+
+test('a failed revocation in uninstall does not keep the Mac session', async () => {
+  const { world, mac, run } = await watching();
+  world.auth.revokeFail = 'network';
+  const { code, io } = await run(uninstall, { answers: ['y'] });
+  assert.equal(code, 0, io.output());
+  assert.ok(io.lines.includes('Внеочередная проверка с этого Mac выключена. Вход Mac в ChatGPT не отозван (network), но удалён с этого Mac.'), io.output());
+  assert.equal(await exists(mac.files.dir), false);
 });
 
 test('uninstall the user cancels leaves this Mac as it is', async () => {

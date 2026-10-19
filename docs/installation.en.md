@@ -61,7 +61,7 @@ If `setup` is interrupted, run it again: it picks up where it stopped and loses 
 | Before expiry (last 8 hours) | on | Applies a reset when less than 8 hours are left before it expires. |
 | When the weekly limit runs out | off | As soon as the worker sees the weekly limit is used up, applies the reset that expires first. While the Mac is awake, the Mac check notices the end of the limit, and the reset comes within minutes. |
 
-The rules cover all resets at once and work independently. Change them any time on the `aures` screen or with `aures rules`; new rules take effect from the next worker run. Turning the weekly rule on asks for a ChatGPT code for this Mac, as in step 5 of setup. Turning it off removes the Mac check and revokes the Mac's ChatGPT sign-in.
+The rules cover all resets at once and work independently. Change them any time on the `aures` screen or with `aures rules`; new rules take effect from the next worker run. Turning the weekly rule on asks for a ChatGPT code for this Mac, as in step 5 of setup. Turning it off removes the Mac check but keeps the Mac's ChatGPT sign-in, so turning it on again asks for no code.
 
 The worker runs about once an hour, but GitHub sometimes delays runs by several hours, so the rules don't fire at an exact minute.
 
@@ -195,7 +195,7 @@ rm -r ~/Library/Application\ Support/codex-auto-resets ~/Library/Logs/codex-auto
 
 The GitHub sign-in gives the CLI access to all your repositories, like `gh`. The worker repository must stay private: if you make it public, the CLI refuses to work with it.
 
-The Mac's ChatGPT sign-in is kept in a `0600` file, not in the Keychain: it is longer than the CLI can safely pass to the Keychain (details in [ADR-0005](adr/0005-weekly-check-from-mac.md)). Any program running as your macOS user can read the file; that is the same level of access as the Codex sign-in. The sign-in is used only to read the limit, and turning the weekly rule off or `uninstall` revokes it.
+The Mac's ChatGPT sign-in is kept in a `0600` file, not in the Keychain: it is longer than the CLI can safely pass to the Keychain (details in [ADR-0005](adr/0005-weekly-check-from-mac.md)). Any program running as your macOS user can read the file; that is the same level of access as the Codex sign-in. The sign-in is used only to read the limit, and `uninstall` revokes it.
 
 ## What it costs
 

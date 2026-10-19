@@ -4,16 +4,16 @@ import { LaunchctlFailed } from './launch-agent.mjs';
 import { showCode } from './common.mjs';
 import { t } from './language.mjs';
 
-// The out-of-schedule check from this Mac (ADR-0005): the computer session and the launchd
-// agent exist only while the weekly rule is on. mac is { files, agent }: the watch files and
-// the LaunchAgent.
+// The out-of-schedule check from this Mac (ADR-0005): the launchd agent runs only while the
+// weekly rule is on, the computer session stays until uninstall. mac is { files, agent }: the
+// watch files and the LaunchAgent.
 export const macLogin = () => t('Sign in to ChatGPT for this Mac: it notices the end of the weekly limit (Codex is not affected).',
   'Вход в ChatGPT для этого Mac: он замечает конец недельного лимита (Codex не затронут).');
 const SETUP = '`aures setup`';
 
 // Brings this Mac in line with the weekly rule, as setup and rules leave it.
 export async function followWeeklyRule({ weekly, mac, fetch, io, now, sleep }) {
-  return weekly ? startChecking({ mac, fetch, io, now, sleep }) : stopChecking({ mac, fetch, io });
+  return weekly ? startChecking({ mac, fetch, io, now, sleep }) : stopChecking({ mac, io });
 }
 
 // Opens a computer session when there is none or it is lost, and (re)loads the agent.
@@ -42,9 +42,14 @@ async function installAgent({ agent, io }) {
   return true;
 }
 
-// Unloads the agent, revokes the computer session where OpenAI confirms it and deletes it
-// either way. forget also deletes watch.json and the log, for uninstall.
-async function stopChecking({ mac: { files, agent }, fetch, io, forget = false }) {
+// Unloads the agent and keeps the computer session, so turning the rule back on asks for no code.
+async function stopChecking({ mac: { agent }, io }) {
+  if (await agent.remove()) io.print(t('The check from this Mac is off.', 'Внеочередная проверка с этого Mac выключена.'));
+}
+
+// `uninstall`: unloads the agent, revokes the computer session where OpenAI confirms it and
+// deletes it either way, with watch.json and the log: nothing of the check stays on this Mac.
+export async function forgetMac({ mac: { files, agent }, fetch, io }) {
   const removed = await agent.remove();
   const session = await files.readSession();
   let unrevoked = null;
@@ -54,17 +59,13 @@ async function stopChecking({ mac: { files, agent }, fetch, io, forget = false }
       unrevoked = error.reason;
     }
   }
-  if (forget) await Promise.all([files.removeAll(), agent.removeLogFolder()]);
-  else await files.removeSession();
+  await Promise.all([files.removeAll(), agent.removeLogFolder()]);
   if (!removed && !session) return;
   io.print(!session ? t('The check from this Mac is off.', 'Внеочередная проверка с этого Mac выключена.') : unrevoked === null ?
     t('The check from this Mac is off, its ChatGPT sign-in is revoked.', 'Внеочередная проверка с этого Mac выключена, его вход в ChatGPT отозван.') :
     t(`The check from this Mac is off. The Mac's ChatGPT sign-in is not revoked (${unrevoked}), but it is deleted from this Mac.`,
       `Внеочередная проверка с этого Mac выключена. Вход Mac в ChatGPT не отозван (${unrevoked}), но удалён с этого Mac.`));
 }
-
-// `uninstall`: nothing of the check stays on this Mac.
-export const forgetMac = ({ mac, fetch, io }) => stopChecking({ mac, fetch, io, forget: true });
 
 // `upgrade`: the agent is reloaded from a plist with this version's program.
 export async function reloadAgent({ weekly, mac: { files, agent }, io }) {

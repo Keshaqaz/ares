@@ -113,7 +113,7 @@ Both rules cover all resets and work independently; change them with `aures rule
 
 - **Timing is approximate.** GitHub delays and skips scheduled runs, sometimes for hours. That's why the before-expiry rule works within an 8-hour window, not at an exact minute.
 - **The Mac check works only while the Mac is awake** and you are logged in to it. Otherwise the hourly run applies the reset, hours later.
-- **One more ChatGPT code.** Turning the weekly rule on signs this Mac in to ChatGPT; the sign-in is kept in a file readable by your macOS user, and turning the rule off revokes it.
+- **One more ChatGPT code.** Turning the weekly rule on signs this Mac in to ChatGPT; the sign-in is kept in a file readable by your macOS user, and stays there when the rule is off; `aures uninstall` revokes it.
 - **Paid ChatGPT plan required**, with 5-hour and weekly limits. On a plan with a single monthly limit the weekly rule never fires.
 - **macOS only.** The CLI keeps its GitHub sign-in in the Keychain.
 - **Broad GitHub access.** The GitHub sign-in gives the CLI access to all your repositories, like `gh`.

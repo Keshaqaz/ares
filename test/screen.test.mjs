@@ -75,8 +75,8 @@ test('Enter on a rule switches it, and the weekly rule sets up the check from th
 
   await press('return');
   assert.equal(readRules(world.github.text(repo, FILES.rules)).weeklyAutoApply, false);
-  assert.match(text(), /Внеочередная проверка с этого Mac выключена, его вход в ChatGPT отозван\./);
-  assert.equal(await mac.files.readSession(), null);
+  assert.match(text(), /Внеочередная проверка с этого Mac выключена\./);
+  assert.ok(await mac.files.readSession());
 });
 
 test('a reset with an ID as ChatGPT gives it is shown as RES and the last 4 characters and applied by the whole ID', async () => {

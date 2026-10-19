@@ -32,7 +32,6 @@ export class WatchFiles {
     return object(session) && SESSION_FIELDS.every(key => typeof session[key] === 'string' && session[key]) ? session : null;
   }
   async writeSession(session) { await this.write(SESSION, session); }
-  async removeSession() { await rm(join(this.dir, SESSION), { force: true }); }
   // A broken watch.json counts as empty.
   async readState() {
     const state = await this.read(STATE);
