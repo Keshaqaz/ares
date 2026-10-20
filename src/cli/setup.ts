@@ -5,7 +5,8 @@ import { workflowYaml } from '../worker/workflow.ts';
 import { CommandFailed, WORKER_REPOSITORY, WORKER_DESCRIPTION, chatgptLogin, showCode, workingLine, connectGitHub, workerRepository,
   chooseRules, readSummary, failedRunAdvice, runWorkerNow, command, trialVerdict, notReadYet } from './common.ts';
 import { setupGoogle } from './setup-google.ts';
-import type { Platform, WatchFiles } from './watch-files.ts';
+import { runWhileEnabled } from './pause.ts';
+import type { Install, WatchFiles } from './watch-files.ts';
 import { followWeeklyRule } from './mac-check.ts';
 import type { CommandOptions, GitHub, Io, Sleep } from './common.ts';
 import type { GitHubApi, Repository } from '../github/api.ts';
@@ -23,11 +24,13 @@ async function ensureRepository({ api, login, io }: GitHub & { io: Io }): Promis
 }
 
 // Dispatches a trial run (CONTEXT.md, «Пробный запуск»), waits for it and reads what the
-// worker published and what the rules would do.
-async function trialRun({ api, repo, io, now, sleep, timeZone }:
-  { api: GitHubApi; repo: Repository; io: Io; now: () => number; sleep: Sleep; timeZone: string | undefined }): Promise<string> {
+// worker published and what the rules would do. A worker on pause runs it with the schedule
+// briefly on and off again after, so the pause stays (ADR-0007).
+async function trialRun({ api, repo, io, now, sleep, timeZone, paused }:
+  { api: GitHubApi; repo: Repository; io: Io; now: () => number; sleep: Sleep; timeZone: string | undefined; paused: boolean }): Promise<string> {
   io.print(t('Checking the worker…', 'Проверяем воркер…'));
-  const { run, logged } = await runWorkerNow({ api, repo, inputs: { [TRIAL_INPUT]: 'true' }, now, sleep, wait: io.wait });
+  const one = () => runWorkerNow({ api, repo, inputs: { [TRIAL_INPUT]: 'true' }, now, sleep, wait: io.wait });
+  const { run, logged } = paused ? await runWhileEnabled({ platform: 'github', api, repo }, one) : await one();
   if (run.conclusion !== 'success') throw new CommandFailed(`${failedRunAdvice(logged ?? {})}\n${t('Details', 'Подробности')}: ${run.html_url}`);
   const summary = logged?.outcome === 'transient_error' ? null : await readSummary(api, repo);
   const verdict = logged && trialVerdict(logged);
@@ -37,10 +40,11 @@ async function trialRun({ api, repo, io, now, sleep, timeZone }:
 }
 
 // The platform of the worker (ADR-0007), as the install record keeps it; asked without a
-// recommendation, with what each costs, when there is no record yet.
-async function choosePlatform(io: Io, files: WatchFiles): Promise<Platform> {
+// recommendation, with what each costs, when there is no record yet. The rest of the record,
+// such as a pause, stays as it is.
+async function choosePlatform(io: Io, files: WatchFiles): Promise<Install> {
   const install = await files.readInstall();
-  if (install) return install.platform;
+  if (install) return install;
   io.print(t('Where the worker will run:', 'Где будет работать воркер:'));
   io.print(t('  1. GitHub Actions — runs once an hour, but GitHub skips many runs; the before-expiry rule starts 8 hours ahead.',
     '  1. GitHub Actions — запуск раз в час, но GitHub пропускает многие запуски; правило перед истечением начинает за 8 часов.'));
@@ -52,8 +56,9 @@ async function choosePlatform(io: Io, files: WatchFiles): Promise<Platform> {
     const answer = (await io.prompt(t('Type 1 or 2: ', 'Введите 1 или 2: '))).trim();
     const platform = answer === '1' ? 'github' : answer === '2' ? 'google' : null;
     if (platform) {
-      await files.writeInstall({ platform });
-      return platform;
+      const chosen: Install = { platform };
+      await files.writeInstall(chosen);
+      return chosen;
     }
   }
 }
@@ -69,16 +74,19 @@ export interface SetupOptions extends CommandOptions {
 export async function setup(options: SetupOptions): Promise<number> {
   const { io, mac, now = Date.now, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)) } = options;
   return command('setup', io, async () => {
-    const platform = await choosePlatform(io, mac.files);
-    return platform === 'google' ? setupGoogle({ ...options, now, sleep }) : setupGitHub({ ...options, now, sleep });
+    const install = await choosePlatform(io, mac.files);
+    const paused = install.paused === true;
+    return install.platform === 'google' ?
+      setupGoogle({ ...options, now, sleep, paused }) :
+      setupGitHub({ ...options, now, sleep, paused });
   });
 }
 
 // On GitHub. Files already in the repository are kept, so a repeated setup never loses state
 // or rules and never rewrites the cron. This Mac follows the weekly rule: the check from it is
-// set up or removed.
-async function setupGitHub({ fetch, keychain, io, workerSource, mac, now, sleep, random = Math.random, timeZone }:
-  SetupOptions & { now: () => number; sleep: Sleep }): Promise<number> {
+// set up or removed. A worker on pause stays paused: the files go in, the schedule stays off.
+async function setupGitHub({ fetch, keychain, io, workerSource, mac, now, sleep, random = Math.random, timeZone, paused }:
+  SetupOptions & { now: () => number; sleep: Sleep; paused: boolean }): Promise<number> {
   const { api, login } = await connectGitHub({ fetch, keychain, io, now, sleep });
   const repo = await ensureRepository({ api, login, io });
   const name = repo.full_name;
@@ -120,6 +128,6 @@ async function setupGitHub({ fetch, keychain, io, workerSource, mac, now, sleep,
     await api.putFile(name, FILES.workflow, workflowYaml({ minute }), { message: 'Run the worker every hour' });
   }
   if (weekly !== null) await followWeeklyRule({ weekly, mac, fetch, io, now, sleep });
-  io.print(await trialRun({ api, repo, io, now, sleep, timeZone }));
+  io.print(await trialRun({ api, repo, io, now, sleep, timeZone, paused }));
   return 0;
 }

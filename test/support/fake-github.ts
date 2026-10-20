@@ -231,9 +231,16 @@ export async function withGitHub(world: GitHubWorld, { login = 'octo-fake' }: { 
       repo.secrets.set(secret, sent(body, 'encrypted_value'));
       return new Response(null, { status: existed ? 204 : 201 });
     }
-    const workflow = rest.match(/^\/actions\/workflows\/([^/]+)(?:\/(dispatches|runs))?$/);
+    const workflow = rest.match(/^\/actions\/workflows\/([^/]+)(?:\/(dispatches|runs|disable|enable))?$/);
     if (workflow) {
       const exists = [...repo.files.keys()].includes(`.github/workflows/${workflow[1]}`);
+      // The pause of the worker and unpausing it (ADR-0007): the cron runs an active workflow
+      // only, and dispatch to a disabled one stays refused below.
+      if ((workflow[2] === 'disable' || workflow[2] === 'enable') && method === 'PUT') {
+        if (!exists) return json(404, { message: 'Not Found' });
+        repo.workflowState = workflow[2] === 'disable' ? 'disabled_manually' : 'active';
+        return new Response(null, { status: 204 });
+      }
       if (!workflow[2] && method === 'GET') {
         if (!exists || github.dispatchNotFound > 0) return json(404, { message: 'Not Found' });
         return json(200, { id: 77, name: 'aures', path: `.github/workflows/${workflow[1]}`, state: repo.workflowState });

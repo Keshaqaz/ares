@@ -143,10 +143,11 @@ export class Screen {
 
   async apply(creditId: string, note: Note): Promise<void> {
     const { worker, now, sleep } = this;
-    const before = await readyToApply(worker);
+    const paused = this.model?.paused === true;
+    const before = await readyToApply(worker, paused);
     // The spinner line says what the run waits for; the reset stays named in it.
     const wait = (text: string | null) => { if (text) { this.busy = `${resetName(creditId)}: ${text}`; this.changed(); } };
-    const { code, message } = await applyReset({ worker, creditId, before, now, sleep, wait });
+    const { code, message } = await applyReset({ worker, creditId, before, now, sleep, wait, paused });
     note(message, code === 0 ? 'ok' : 'warn');
   }
 

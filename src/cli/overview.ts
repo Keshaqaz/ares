@@ -87,15 +87,19 @@ export interface Overview {
   // null when there is no rules file or it does not read.
   rules: Rules | null;
   rulesBroken: boolean;
+  // The install record says the worker is on pause (ADR-0007): its schedule is off.
+  paused: boolean;
   check: MacCheck;
   lastApplied: Summary['lastApplied'];
   lastAttempt: Summary['lastAttempt'];
 }
+// What the install record of this Mac says about a pause.
+const readPaused = async (mac: Mac): Promise<boolean> => (await mac.files.readInstall())?.paused === true;
 export async function readOverview({ worker, mac, now }: { worker: Worker; mac: Mac; now: () => number }): Promise<Overview> {
   if (worker.platform === 'google') return readGoogle({ worker, mac, now });
   const { api, repo } = worker, name = repo.full_name;
-  const [summary, rulesFile, workflowState, lastRun, scheduled] = await Promise.all([readSummary(api, repo), api.file(name, FILES.rules),
-    api.workflowState(name, WORKFLOW_FILE), api.latestRun(name, WORKFLOW_FILE), api.scheduledRuns(name, WORKFLOW_FILE)]);
+  const [summary, rulesFile, workflowState, lastRun, scheduled, paused] = await Promise.all([readSummary(api, repo), api.file(name, FILES.rules),
+    api.workflowState(name, WORKFLOW_FILE), api.latestRun(name, WORKFLOW_FILE), api.scheduledRuns(name, WORKFLOW_FILE), readPaused(mac)]);
   let rules: Rules | null = null;
   try { rules = rulesFile && readRules(rulesFile.text); } catch (error) { if (!(error instanceof BrokenState)) throw error; }
   const check = await macCheckStatus({ weekly: rules?.weeklyAutoApply ?? null, mac });
@@ -103,23 +107,32 @@ export async function readOverview({ worker, mac, now }: { worker: Worker; mac: 
   const logged = failed ? loggedOutcome(await api.runLog(name, lastRun.id).catch(() => null)) : null;
   return { worker: { platform: 'github', repo, workflowState, lastRun, lastScheduledAt: scheduled[0] ? runAt(scheduled[0]) : null,
     nextRunAt: nextScheduledRun(scheduled), logged }, readAt: now(), resets: summary ? byDeadline(summary.resets) : null, rules,
-  rulesBroken: Boolean(rulesFile && !rules), check, lastApplied: summary?.lastApplied ?? null, lastAttempt: summary?.lastAttempt ?? null };
+  rulesBroken: Boolean(rulesFile && !rules), paused, check, lastApplied: summary?.lastApplied ?? null, lastAttempt: summary?.lastAttempt ?? null };
 }
 
 // On Google everything comes in one doPost status. The worker there keeps no rules it cannot read.
 async function readGoogle({ worker, mac, now }: { worker: GoogleWorker; mac: Mac; now: () => number }):
   Promise<Overview> {
-  const status = await worker.status();
+  const [status, paused] = await Promise.all([worker.status(), readPaused(mac)]);
   const summary = status.summary as Summary | null, rules = rulesOf(status.rules);
   // The check from this Mac does not wake the worker on Google yet: it is shown as off.
   const check = await macCheckStatus({ weekly: null, mac });
   return { worker: { platform: 'google', scriptId: worker.scriptId, schedule: status.schedule === true,
     journal: Array.isArray(status.journal) ? status.journal as JournalEntry[] : [] }, readAt: now(),
-  resets: summary ? byDeadline(summary.resets) : null, rules, rulesBroken: false, check, lastApplied: summary?.lastApplied ?? null,
+  resets: summary ? byDeadline(summary.resets) : null, rules, rulesBroken: false, paused, check, lastApplied: summary?.lastApplied ?? null,
   lastAttempt: summary?.lastAttempt ?? null };
 }
 
 type WorkerState = { tone: Tone; text: string; warning?: string };
+// A worker on pause (CONTEXT.md): the schedule is off by the user's choice, the session and the
+// state stay. With no pause timer every reset left to itself burns at its deadline, so the
+// warning stands and «Применить сейчас» is the only thing that still applies (ADR-0007).
+const pausedWorker = (): WorkerState => ({
+  tone: 'warn',
+  text: t('worker is paused', 'воркер на паузе'),
+  warning: t('The worker is paused: resets are not applied and each burns at its activation deadline. «Apply now» still works.',
+    'Воркер на паузе: сбросы не применяются и каждый сгорит в свой срок активации. «Применить сейчас» продолжает работать.'),
+});
 const nextRun = (nextRunAt: number | null, readAt: number): WorkerState => {
   if (nextRunAt === null) return { tone: 'ok', text: t('worker works · waiting for a scheduled run', 'воркер работает · ждёт запуска по расписанию') };
   if (nextRunAt <= readAt) return { tone: 'ok', text: t('worker works · next run due any moment', 'воркер работает · следующий запуск ожидается в любой момент') };
@@ -129,7 +142,8 @@ const nextRun = (nextRunAt: number | null, readAt: number): WorkerState => {
 const executions = (scriptId: string): string => `${projectUrl(scriptId)}/executions`;
 
 // The worker in one line, and what the user should do about it.
-function workerState({ worker, readAt }: Overview, timeZone?: string): WorkerState {
+function workerState({ worker, readAt, paused }: Overview, timeZone?: string): WorkerState {
+  if (paused) return pausedWorker();
   if (worker.platform === 'google') return googleState(worker, readAt, timeZone);
   const { repo, workflowState, lastRun, lastScheduledAt, nextRunAt } = worker;
   if (!workflowState) return { tone: 'warn', text: t('setup is not finished', 'установка не завершена'), warning: unfinished() };
@@ -243,7 +257,10 @@ export function renderOverview(model: Overview, { now, timeZone, width = WIDTH, 
   for (const reset of model.resets ?? []) {
     const selected = at({ kind: 'reset', creditId: reset.creditId });
     const expiresAt = reset.expiresAt ? Date.parse(reset.expiresAt) : null;
+    // On pause no rule applies anything, so every reset with a deadline waits only to burn; one
+    // without a deadline cannot burn and keeps its «no expiry».
     const status: Segment = expiresAt === null ? ['', ''] : expiresAt <= now() ? [t('expired', 'срок вышел'), S.dim] :
+      model.paused ? [t('burns', 'сгорит'), S.yellow] :
       model.rules?.beforeExpiry && expiresAt - now() <= WINDOW_MS[model.worker.platform] ? [t('applies soon', 'скоро применится'), S.yellow] :
         [timeLeft(expiresAt - now()), S.dim];
     lines.push(spread([[selected ? '▸ ' : '  ', S.cyan], [resetName(reset.creditId).padEnd(idWidth + 3), selected ? S.cyan : ''], status],

@@ -374,8 +374,9 @@ export function explain(error: unknown, command: string | null = null): string |
   return null;
 }
 
-// Runs a command body and turns known failures into their message and exit code 1.
-export async function command(name: string, io: Printer, body: () => Promise<number>): Promise<number> {
+// Runs a command body and turns known failures into their message and exit code 1. name is the
+// command to repeat after a failure; null an action on the screen, which the user just repeats.
+export async function command(name: string | null, io: Printer, body: () => Promise<number>): Promise<number> {
   try {
     return await body();
   } catch (error) {

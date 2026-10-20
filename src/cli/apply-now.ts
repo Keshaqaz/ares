@@ -1,8 +1,9 @@
 import { CommandFailed, YES, resetName, attemptResult, deadline, byDeadline, runnableWorkflow, readSummary, failedRunAdvice, runWorkerNow,
-  command } from './common.ts';
+  command, unfinished, WORKFLOW_FILE } from './common.ts';
 import type { CommandOptions, Sleep } from './common.ts';
 import { openWorker } from './active-worker.ts';
 import type { Worker } from './active-worker.ts';
+import { runWhileEnabled } from './pause.ts';
 import { brokenOnGoogle } from './google.ts';
 import type { RunOutcome } from '../worker/run.ts';
 import type { Summary } from '../worker/summary.ts';
@@ -39,15 +40,20 @@ function verdict({ creditId, before, after, outcome, failed, details }: Ran & { 
 }
 
 // The resets the user picks from, once the worker can take an application: null before its first read.
-export async function readyToApply(worker: Worker): Promise<Summary | null> {
+// A worker on pause takes one too (ADR-0007): its schedule being off is no obstacle, so only the
+// workflow has to be there.
+export async function readyToApply(worker: Worker, paused = false): Promise<Summary | null> {
   if (worker.platform === 'google') return (await worker.status()).summary as Summary | null;
-  await runnableWorkflow(worker.api, worker.repo);
+  if (paused) {
+    if (await worker.api.workflowState(worker.repo.full_name, WORKFLOW_FILE) === null) throw new CommandFailed(unfinished());
+  } else await runnableWorkflow(worker.api, worker.repo);
   return readSummary(worker.api, worker.repo);
 }
 
 // Applies the reset regardless of the rules and tells what became of it: on GitHub in a
 // dispatched run, on Google in doPost apply_now. before is the summary the user chose the reset
-// from; wait is runWorkerNow's.
+// from; wait is runWorkerNow's. A paused worker keeps its pause: on GitHub the run happens with
+// the workflow briefly on and off again after.
 export interface ApplyResetOptions {
   worker: Worker;
   creditId: string;
@@ -55,8 +61,9 @@ export interface ApplyResetOptions {
   now: () => number;
   sleep: Sleep;
   wait: (text: string | null) => void;
+  paused?: boolean;
 }
-export async function applyReset({ worker, creditId, before, now, sleep, wait }: ApplyResetOptions): Promise<Verdict> {
+export async function applyReset({ worker, creditId, before, now, sleep, wait, paused = false }: ApplyResetOptions): Promise<Verdict> {
   if (worker.platform === 'google') {
     wait(t('The worker on Google is applying the reset…', 'Воркер на Google применяет сброс…'));
     const reply = await worker.ask('apply_now', { creditId }).finally(() => wait(null));
@@ -65,10 +72,13 @@ export async function applyReset({ worker, creditId, before, now, sleep, wait }:
     return verdict({ creditId, before, after: reply.summary as Summary | null, outcome, failed, details: null });
   }
   const { api, repo } = worker;
-  const { run, logged } = await runWorkerNow({ api, repo, inputs: { apply_now: creditId }, now, sleep, wait });
-  const after = await readSummary(api, repo);
-  const failed = run.conclusion === 'success' ? null : `${failedRunAdvice(logged ?? {})}\n${t('Details', 'Подробности')}: ${run.html_url}`;
-  return verdict({ creditId, before, after, outcome: logged?.outcome ?? null, failed, details: run.html_url });
+  const one = async () => {
+    const { run, logged } = await runWorkerNow({ api, repo, inputs: { apply_now: creditId }, now, sleep, wait });
+    const after = await readSummary(api, repo);
+    const failed = run.conclusion === 'success' ? null : `${failedRunAdvice(logged ?? {})}\n${t('Details', 'Подробности')}: ${run.html_url}`;
+    return verdict({ creditId, before, after, outcome: logged?.outcome ?? null, failed, details: run.html_url });
+  };
+  return paused ? await runWhileEnabled(worker, one) : one();
 }
 
 // `aures apply-now`: «Применить сейчас». The user picks one of the resets the
@@ -78,7 +88,8 @@ export async function applyNow(options: CommandOptions): Promise<number> {
   const { io, now = Date.now, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)), timeZone } = options;
   return command('apply-now', io, async () => {
     const worker = await openWorker(options, 'apply-now');
-    const before = await readyToApply(worker);
+    const paused = (await options.mac.files.readInstall())?.paused === true;
+    const before = await readyToApply(worker, paused);
     if (!before) {
       throw new CommandFailed(t('The resets are not read yet. Try again after the next worker run.',
         'Сбросы ещё не прочитаны. Повторите после следующего запуска воркера.'));
@@ -101,7 +112,7 @@ export async function applyNow(options: CommandOptions): Promise<number> {
     if (!YES.includes(confirmed)) { io.print(t('Cancelled.', 'Отменено.')); return 0; }
 
     io.print(t('Applying…', 'Применяем…'));
-    const { code, message } = await applyReset({ worker, creditId, before, now, sleep, wait: io.wait });
+    const { code, message } = await applyReset({ worker, creditId, before, now, sleep, wait: io.wait, paused });
     for (const line of message.split('\n')) io.print(line);
     return code;
   });

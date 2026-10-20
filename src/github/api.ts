@@ -199,6 +199,12 @@ export class GitHubApi {
     const id = (reply.value as { workflow_run_id?: unknown } | null)?.workflow_run_id;
     return { runId: reply.status === 200 && typeof id === 'number' ? id : null };
   }
+  // Takes the workflow's schedule off and back on (the pause of the worker, ADR-0007): the cron
+  // runs an active workflow only, and GitHub takes no dispatch to a disabled one.
+  async setWorkflow(repo: string, workflow: string, on: boolean): Promise<void> {
+    await this.expect('workflow', `/repos/${repo}/actions/workflows/${workflow}/${on ? 'enable' : 'disable'}`,
+      [204], { method: 'PUT' });
+  }
   // active, disabled_manually, disabled_inactivity…; null while GitHub does not know the workflow.
   async workflowState(repo: string, workflow: string): Promise<string | null> {
     const reply = await this.expect('workflow', `/repos/${repo}/actions/workflows/${workflow}`, [200, 404]);

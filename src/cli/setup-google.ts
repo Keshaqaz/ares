@@ -44,9 +44,11 @@ function trialLine({ outcome, reason, wouldApply, summary }: Trial, timeZone: st
   return notReadYet(outcome === 'transient_error');
 }
 
-export async function setupGoogle({ fetch, io, mac: { files }, open, googleKeychain, secretKeychain, appsScriptSource, now, sleep, timeZone }:
-  SetupOptions & { now: () => number; sleep: Sleep }): Promise<number> {
-  const remember = (google: GoogleWorker) => files.writeInstall({ platform: 'google', google });
+export async function setupGoogle({ fetch, io, mac: { files }, open, googleKeychain, secretKeychain, appsScriptSource, now, sleep, timeZone,
+  paused }: SetupOptions & { now: () => number; sleep: Sleep; paused: boolean }): Promise<number> {
+  // The record keeps a pause through the repair: the schedule is not brought back and the
+  // passes from this Mac keep not waking the worker.
+  const remember = (google: GoogleWorker) => files.writeInstall({ platform: 'google', google, ...paused ? { paused: true } : {} });
   let google = (await files.readInstall())?.google ?? null;
   let secret = await readSecret(secretKeychain);
   const ask = (action: string, extra?: Record<string, unknown>) => {
@@ -106,8 +108,11 @@ export async function setupGoogle({ fetch, io, mac: { files }, open, googleKeych
     }
   }
   if (status.schedule !== true) {
-    workerDid(await ask('schedule', { on: true }), COMMAND);
-    io.print(t('The worker runs every 5 minutes.', 'Воркер запускается каждые 5 минут.'));
+    if (paused) io.print(t('The worker stays paused: its schedule stays off.', 'Воркер остаётся на паузе: расписание остаётся снятым.'));
+    else {
+      workerDid(await ask('schedule', { on: true }), COMMAND);
+      io.print(t('The worker runs every 5 minutes.', 'Воркер запускается каждые 5 минут.'));
+    }
   }
   io.print(t('Checking the worker…', 'Проверяем воркер…'));
   io.print(trialLine(workerDid(await ask('trial'), COMMAND) as unknown as Trial, timeZone));
