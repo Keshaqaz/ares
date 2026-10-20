@@ -18,7 +18,7 @@ function setup({ rules = DEFAULT_RULES, ...options }: { rules?: Rules; now?: num
   const world = fakeWorld(options);
   world.chatgpt.credits = [];
   // run(state, { rules }) overrides the rules for one tick.
-  const run = (state: State, extra: Partial<TickOptions> = {}) => tick({ state, rules, now: world.now, fetch: world.fetch, ...extra });
+  const run = (state: State, extra: Partial<TickOptions> = {}) => tick({ state, rules, now: world.now, fetch: world.fetch, beforeExpiryMs: 8 * HOUR, ...extra });
   const state: State = { formatVersion: 1, session: world.login() };
   return { world, state, run };
 }
@@ -37,6 +37,17 @@ test('the before-expiry rule waits until the last 8 hours of the activation dead
   assert.deepEqual(due.state.applied, [{ creditId: 'reset-a', expiresAt: START + 8 * HOUR + MINUTE,
     reason: 'before_expiry', at: world.now, recovers: null }]);
   assert.deepEqual(world.violations, []);
+});
+
+test('the before-expiry window comes from the platform: with 1 hour the rule waits for the last hour', async () => {
+  const { world, state, run } = setup();
+  world.chatgpt.credits = [credit('reset-a', world.now + HOUR + MINUTE)];
+  const early = await run(state, { beforeExpiryMs: HOUR });
+  assert.equal(early.outcome, 'idle');
+  assert.equal(world.consumeCalls().length, 0);
+  world.advance(MINUTE);
+  assert.equal((await run(early.state, { beforeExpiryMs: HOUR })).outcome, 'applied');
+  assert.deepEqual(world.spent(), ['reset-a']);
 });
 
 test('exhausting only the five-hour quota applies nothing', async () => {

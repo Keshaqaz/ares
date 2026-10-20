@@ -11,6 +11,7 @@ import { RULES_FORMAT_VERSION } from '../worker/state-file.ts';
 import type { Rules, ApplyReason, AttemptResult } from '../worker/state-file.ts';
 import type { Summary } from '../worker/summary.ts';
 import type { RunOutcome } from '../worker/run.ts';
+import type { WouldApply } from '../worker/tick.ts';
 import { KeychainUnavailable } from './keychain.ts';
 import type { Keychain } from './keychain.ts';
 import type { Mac } from './mac-check.ts';
@@ -24,7 +25,7 @@ export const WORKFLOW_FILE = FILES.workflow.split('/').at(-1) ?? FILES.workflow;
 const RUN_TIMEOUT_MS = 10 * 60_000, POLL_MS = 5_000;
 // Job logs appear a few seconds after the run completes.
 const LOG_ATTEMPTS = 4;
-const OUTCOMES: RunOutcome[] = ['idle', 'applied', 'pending', 'transient_error', 'reauth_required', 'broken_state', 'commit_failed',
+const OUTCOMES: RunOutcome[] = ['idle', 'applied', 'pending', 'would_apply', 'transient_error', 'reauth_required', 'broken_state', 'commit_failed',
   'revoked', 'revoke_failed'];
 
 export type Sleep = (ms: number) => Promise<unknown>;
@@ -49,8 +50,8 @@ export interface CommandOptions {
 }
 // The GitHub sign-in a command works with.
 export interface GitHub { api: GitHubApi; login: string }
-// The outcome the worker printed into its job log, with its reason.
-export interface Logged { outcome: RunOutcome; reason: string | null }
+// The outcome the worker printed into its job log, with its reason, and for would_apply the reset.
+export interface Logged { outcome: RunOutcome; reason: string | null; wouldApply?: WouldApply }
 // One of the general rules.
 export type Rule = Exclude<keyof Rules, 'formatVersion'>;
 
@@ -197,13 +198,17 @@ export function workingLine(summary: Summary, timeZone?: string): string {
     `Воркер работает. Сбросов: ${resets.length}, ближайший истекает ${formatTime(nearest, timeZone)}.`);
 }
 
-// The last outcome the worker printed into its job log, e.g. «2026-…Z broken_state: key_invalid».
+// The last outcome the worker printed into its job log (runLine), e.g. «2026-…Z broken_state: key_invalid»
+// or «2026-…Z would_apply: weekly RateLimitResetCredit_…».
 export function loggedOutcome(log: string | null): Logged | null {
   let found: Logged | null = null;
   for (const line of (log ?? '').split('\n')) {
-    const match = line.match(/^(?:\S+Z )?([a-z_]+)(?:: ([a-z0-9_]+))?\s*$/);
+    const match = line.match(/^(?:\S+Z )?([a-z_]+)(?:: ([a-z0-9_]+)(?: (\S+))?)?\s*$/);
     const outcome = OUTCOMES.find(known => known === match?.[1]);
-    if (match && outcome) found = { outcome, reason: match[2] ?? null };
+    if (!match || !outcome) continue;
+    const [, , reason = null, creditId] = match;
+    // runLine prints an ApplyReason next to would_apply.
+    found = { outcome, reason, ...outcome === 'would_apply' && reason && creditId && { wouldApply: { creditId, reason: reason as ApplyReason } } };
   }
   return found;
 }

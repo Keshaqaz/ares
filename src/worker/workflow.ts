@@ -1,4 +1,4 @@
-import { FILES, STATE_KEY_SECRET, LOGIN_SECRET, REVOKE_INPUT } from './layout.ts';
+import { FILES, STATE_KEY_SECRET, LOGIN_SECRET, REVOKE_INPUT, TRIAL_INPUT } from './layout.ts';
 
 // The worker repository's only workflow. The cron is static (ADR-0004): setup picks the
 // minute so that installations do not all start together, and upgrade keeps it.
@@ -19,6 +19,11 @@ on:
         type: string
       ${REVOKE_INPUT}:
         description: 'Revoke the worker ChatGPT sign-in instead of a check (used by uninstall)'
+        required: false
+        default: false
+        type: boolean
+      ${TRIAL_INPUT}:
+        description: 'Show what the rules would apply without applying it (used by setup)'
         required: false
         default: false
         type: boolean
@@ -44,6 +49,7 @@ jobs:
           WORKER_LOGIN: \${{ secrets.${LOGIN_SECRET} }}
           APPLY_NOW: \${{ inputs.apply_now }}
           REVOKE_SESSION: \${{ inputs.${REVOKE_INPUT} }}
+          TRIAL_RUN: \${{ inputs.${TRIAL_INPUT} }}
         run: node ${FILES.worker}
 `;
 }

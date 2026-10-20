@@ -11,3 +11,7 @@ export const STATE_KEY_SECRET = 'STATE_KEY';
 export const LOGIN_SECRET = 'WORKER_LOGIN';
 // The workflow_dispatch input with which `uninstall` has the worker revoke its session.
 export const REVOKE_INPUT = 'revoke_session';
+// The workflow_dispatch input of a trial run (CONTEXT.md, «Пробный запуск»).
+export const TRIAL_INPUT = 'trial_run';
+// The before-expiry window on GitHub: wider than the gaps between its scheduled runs (ADR-0004).
+export const BEFORE_EXPIRY_MS = 8 * 3600_000;

@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildWorker } from '../scripts/build-worker.ts';
 import { workflowYaml } from '../src/worker/workflow.ts';
-import { FILES, STATE_KEY_SECRET } from '../src/worker/layout.ts';
+import { FILES, STATE_KEY_SECRET, TRIAL_INPUT } from '../src/worker/layout.ts';
 import { generateKey } from '../src/worker/state-file.ts';
 import type { Summary } from '../src/worker/summary.ts';
 import { fakeWorld } from './support/fake-world.ts';
@@ -21,6 +21,8 @@ test('the workflow runs hourly on a static cron at the chosen minute, one run at
   assert.match(yaml, /^ {2}schedule:\n {4}- cron: '17 \* \* \* \*'\n {2}workflow_dispatch:\n/m);
   assert.equal(yaml.match(/cron:/g)?.length, 1);
   assert.match(yaml, /^ {6}apply_now:\n/m);
+  assert.match(yaml, new RegExp(`^ {6}${TRIAL_INPUT}:\\n(?: {8}.*\\n)* {8}type: boolean\\n`, 'm'));
+  assert.match(yaml, new RegExp(`TRIAL_RUN: \\$\\{\\{ inputs\\.${TRIAL_INPUT} \\}\\}`));
   assert.match(yaml, /^concurrency:\n {2}group: codex-auto-resets\n {2}cancel-in-progress: false\n/m);
   assert.match(yaml, /^permissions:\n {2}contents: write\n(?! )/m);
   assert.equal(yaml.match(/permissions:/g)?.length, 1);

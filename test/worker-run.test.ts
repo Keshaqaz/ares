@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { writeFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { runWorker, TICK_RETRIES, RETRY_PAUSE_MS } from '../src/worker/run.ts';
+import { runWorker, runLine, TICK_RETRIES, RETRY_PAUSE_MS } from '../src/worker/run.ts';
 import type { RunOptions } from '../src/worker/run.ts';
 import { FILES } from '../src/worker/layout.ts';
 import { sealState, openState, generateKey, BrokenState } from '../src/worker/state-file.ts';
@@ -288,6 +288,38 @@ test('rules the CLI pushed during the run survive the worker commit', async () =
   assert.deepEqual(repo.commits(), ['Set up worker', 'Change rules', 'Worker tick: idle']);
   assert.deepEqual(JSON.parse(repo.show(FILES.rules) ?? 'null'), changed);
   assert.ok(repo.state().observed);
+});
+
+test('a trial run says which reset the rules would apply, spends none and keeps the read state', async () => {
+  const { world, repo, run } = await workerWorld();
+  world.chatgpt.credits = [credit('reset-a', world.now + 2 * HOUR), credit('reset-b', world.now + 3 * DAY)];
+  assert.deepEqual(await run({ trial: true }),
+    { outcome: 'would_apply', wouldApply: { creditId: 'reset-a', reason: 'before_expiry' }, exitCode: 0 });
+  assert.equal(world.consumeCalls().length, 0);
+  assert.equal(repo.state().pending, null);
+  assert.deepEqual(repo.state().observed?.resets.map(r => r.id), ['reset-a', 'reset-b']);
+  assert.match(await repo.readStepSummary(), /Trial run: the rules would apply `reset-a` \(before expiry\)\./);
+  // A regular run still applies it.
+  assert.equal((await run()).outcome, 'applied');
+  assert.deepEqual(world.spent(), ['reset-a']);
+});
+
+test('a trial run with nothing due says so, and a failed read in it is not retried', async () => {
+  const { world, repo, run, pauses } = await workerWorld();
+  assert.deepEqual(await run({ trial: true }), { outcome: 'idle', exitCode: 0 });
+  assert.match(await repo.readStepSummary(), /Trial run: nothing to apply\./);
+  world.chatgpt.credits = [credit('reset-a', world.now + 2 * HOUR)];
+  await run({ trial: true });
+  world.chatgpt.fail = { status: 503 };
+  assert.deepEqual(await run({ trial: true }), { outcome: 'transient_error', exitCode: 0 });
+  assert.deepEqual(pauses, [], 'the last read had a reset due, but a trial run applies nothing to wait for');
+});
+
+test('the line a run prints names the outcome, its reason or the reset a trial run would apply', () => {
+  assert.equal(runLine({ outcome: 'idle', exitCode: 0 }), 'idle');
+  assert.equal(runLine({ outcome: 'broken_state', reason: 'key_invalid', exitCode: 1 }), 'broken_state: key_invalid');
+  assert.equal(runLine({ outcome: 'would_apply', wouldApply: { creditId: 'RateLimitResetCredit_0eb4', reason: 'weekly' }, exitCode: 0 }),
+    'would_apply: weekly RateLimitResetCredit_0eb4');
 });
 
 test('the summary and Actions Summary carry resets and rules but no secrets', async () => {

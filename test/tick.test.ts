@@ -12,7 +12,7 @@ const RULES = { formatVersion: 1, beforeExpiry: true, weeklyAutoApply: false };
 function setup(options?: Parameters<typeof fakeWorld>[0]) {
   const world = fakeWorld(options);
   const state: State = { formatVersion: 1, session: world.login() };
-  const run = (s: State, options: Partial<TickOptions> = {}) => tick({ state: s, rules: RULES, now: world.now, fetch: world.fetch, ...options });
+  const run = (s: State, options: Partial<TickOptions> = {}) => tick({ state: s, rules: RULES, now: world.now, fetch: world.fetch, beforeExpiryMs: 8 * HOUR, ...options });
   return { world, state, run };
 }
 

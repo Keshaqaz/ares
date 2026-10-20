@@ -9,8 +9,8 @@ import { execFileSync, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
-import { runWorker } from '../../src/worker/run.ts';
-import { FILES, STATE_KEY_SECRET, LOGIN_SECRET, REVOKE_INPUT } from '../../src/worker/layout.ts';
+import { runWorker, runLine } from '../../src/worker/run.ts';
+import { FILES, STATE_KEY_SECRET, LOGIN_SECRET, REVOKE_INPUT, TRIAL_INPUT } from '../../src/worker/layout.ts';
 import type { FakeWorld } from './fake-world.ts';
 import type { Runner } from './fake-github.ts';
 import type { CliFakeWorld } from './cli-world.ts';
@@ -18,9 +18,9 @@ import type { CliFakeWorld } from './cli-world.ts';
 const git = (cwd: string, ...args: string[]): string => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: 'pipe' });
 const AUTHOR = ['-c', 'user.name=fake-github', '-c', 'user.email=fake-github@example.invalid'];
 
-// The worker as the workflow runs it: `node worker.mjs` with STATE_KEY, APPLY_NOW, WORKER_LOGIN and REVOKE_SESSION.
+// The worker as the workflow runs it: `node worker.mjs` with STATE_KEY, APPLY_NOW, WORKER_LOGIN, REVOKE_SESSION and TRIAL_RUN.
 async function nodeWorker(world: FakeWorld, root: string, dir: string, key: string | undefined, applyNow: string | null,
-  login: string | null, revoke: boolean): Promise<{ stdout: string; exitCode: number }> {
+  login: string | null, revoke: boolean, trial: boolean): Promise<{ stdout: string; exitCode: number }> {
   const preload = join(root, 'fake-fetch.mjs');
   const { now, accountId, auth: { sessions }, chatgpt: { primary, secondary, credits } } = world;
   await writeFile(preload, `import { fakeWorld } from ${JSON.stringify(new URL('./fake-world.ts', import.meta.url).href)};
@@ -30,7 +30,7 @@ async function nodeWorker(world: FakeWorld, root: string, dir: string, key: stri
     globalThis.fetch = world.fetch;
     Date.now = () => world.now;\n`);
   const env = { PATH: process.env.PATH, HOME: process.env.HOME, STATE_KEY: key ?? '', APPLY_NOW: applyNow ?? '',
-    WORKER_LOGIN: login ?? '', REVOKE_SESSION: String(revoke) };
+    WORKER_LOGIN: login ?? '', REVOKE_SESSION: String(revoke), TRIAL_RUN: String(trial) };
   // A failed run rejects with the same stdout and the exit code.
   const result: { stdout: string; code?: number } = await promisify(execFile)(process.execPath, ['--import', preload, FILES.worker],
     { cwd: dir, env }).catch((error: { stdout: string; code: number }) => error);
@@ -54,14 +54,14 @@ export function actionsRunner(world: CliFakeWorld, { node = false }: { node?: bo
 
     const key = world.github.secret(repo, STATE_KEY_SECRET), applyNow = run.inputs?.apply_now || null;
     const login = world.github.secret(repo, LOGIN_SECRET) || null;
-    const revoke = run.inputs?.[REVOKE_INPUT] === 'true';
+    const revoke = run.inputs?.[REVOKE_INPUT] === 'true', trial = run.inputs?.[TRIAL_INPUT] === 'true';
     let printed: string, exitCode: number;
-    if (node) ({ stdout: printed, exitCode } = await nodeWorker(world, root, dir, key, applyNow, login, revoke));
+    if (node) ({ stdout: printed, exitCode } = await nodeWorker(world, root, dir, key, applyNow, login, revoke, trial));
     else {
       // A pause between retries passes on the world's clock, as it does on the runner.
-      const result = await runWorker({ dir, key, now: world.now, fetch: world.fetch, applyNow, login, revoke,
+      const result = await runWorker({ dir, key, now: world.now, fetch: world.fetch, applyNow, login, revoke, trial,
         sleep: async ms => { world.advance(ms); } });
-      printed = result.reason ? `${result.outcome}: ${result.reason}` : result.outcome;
+      printed = runLine(result);
       exitCode = result.exitCode;
     }
     for (const path of git(origin, 'ls-tree', '-r', '--name-only', 'main').split('\n').filter(Boolean)) {

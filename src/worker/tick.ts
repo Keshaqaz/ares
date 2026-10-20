@@ -7,8 +7,6 @@ import type { IssuedReset, ConsumeResult } from '../chatgpt/client.ts';
 import { migrateState, STATE_MIGRATIONS } from './state-file.ts';
 import type { State, Rules, Login, Migration, Observed, Pending, Applied, ApplyReason, LastAttempt, AttemptResult } from './state-file.ts';
 
-// The before-expiry rule makes its first attempt on the first tick inside this window.
-export const BEFORE_EXPIRY_MS = 8 * 3600_000;
 // A reset renews the weekly window and moves its renewsAt by days; two reads of one window
 // differ by seconds at most.
 export const SAME_WINDOW_MS = 3600_000;
@@ -25,7 +23,8 @@ const byDeadline = (a: IssuedReset, b: IssuedReset): number => (a.expiresAt ?? I
 // deadlines. An application made while the weekly quota was exhausted records the window
 // it recovered, so a later read of the same exhaustion does not spend a second reset.
 interface Choice { reset: IssuedReset; reason: ApplyReason }
-function chooseByRules({ weeklyQuota, resets }: Observed, applied: Applied[], rules: Rules, now: number): Choice | null {
+function chooseByRules({ weeklyQuota, resets }: Observed, applied: Applied[], rules: Rules, now: number,
+  beforeExpiryMs: number): Choice | null {
   const spent = new Set<number | null>(applied.map(a => minuteGroup(a.expiresAt)).filter(g => g !== null));
   const candidates = resets.filter(r => (r.expiresAt === null || r.expiresAt > now) && !spent.has(minuteGroup(r.expiresAt)))
     .sort(byDeadline);
@@ -34,7 +33,7 @@ function chooseByRules({ weeklyQuota, resets }: Observed, applied: Applied[], ru
     !applied.some(a => a.recovers !== null && Math.abs(a.recovers - weeklyQuota.renewsAt) < SAME_WINDOW_MS);
   if (rules.weeklyAutoApply && exhausted && candidates[0]) return { reset: candidates[0], reason: 'weekly' };
   if (rules.beforeExpiry) {
-    const due = candidates.find(r => r.expiresAt !== null && r.expiresAt - now <= BEFORE_EXPIRY_MS);
+    const due = candidates.find(r => r.expiresAt !== null && r.expiresAt - now <= beforeExpiryMs);
     if (due) return { reset: due, reason: 'before_expiry' };
   }
   return null;
@@ -44,21 +43,28 @@ function chooseByRules({ weeklyQuota, resets }: Observed, applied: Applied[], ru
 // run comes hours later (ADR-0004), and a reset may expire or the user may wait meanwhile. It
 // is, for a consume in doubt, for «Применить сейчас» and for a reset the rules want now, by the
 // last read; otherwise the next run checks again.
-export function worthRetrying({ state, outcome }: TickResult, rules: Rules, now: number, applyNow: string | null): boolean {
+export function worthRetrying({ state, outcome }: TickResult, rules: Rules, now: number, applyNow: string | null,
+  beforeExpiryMs: number): boolean {
   if (outcome !== 'transient_error' && outcome !== 'pending') return false;
-  return Boolean(state.pending || applyNow || state.observed && chooseByRules(state.observed, state.applied, rules, now));
+  return Boolean(state.pending || applyNow || state.observed && chooseByRules(state.observed, state.applied, rules, now, beforeExpiryMs));
 }
 
-export type TickOutcome = 'idle' | 'applied' | 'pending' | 'transient_error' | 'reauth_required';
+export type TickOutcome = 'idle' | 'applied' | 'pending' | 'would_apply' | 'transient_error' | 'reauth_required';
 // The state as a tick works on it: pending and applied always present.
 export type Ticked = State & { pending: Pending | null; applied: Applied[] };
-export interface TickResult { state: Ticked; outcome: TickOutcome }
+// The reset a trial run would apply, and why.
+export interface WouldApply { creditId: string; reason: ApplyReason }
+export interface TickResult { state: Ticked; outcome: TickOutcome; wouldApply?: WouldApply }
 export interface TickOptions {
   state: State;
   rules: Rules;
   now: number;
   fetch: Fetch;
+  // The before-expiry rule makes its first attempt on the first tick this close to the
+  // deadline; the platform sets it (CONTEXT.md, «Правило перед истечением»).
+  beforeExpiryMs: number;
   applyNow?: string | null;
+  trial?: boolean;
   login?: Login | null;
   persist?: (state: Ticked) => Promise<unknown>;
   migrations?: Migration[];
@@ -74,8 +80,11 @@ export interface TickOptions {
 // (its redeem_request_id must survive a lost reply), so the caller commits those states first.
 // A state of an older formatVersion is migrated first, and the returned state is in the
 // current one; migrations are the format steps (state-file.ts).
-export async function tick({ state, rules, now, fetch, applyNow = null, login = null, persist = async () => {},
-  migrations = STATE_MIGRATIONS }: TickOptions): Promise<TickResult> {
+// A trial run (CONTEXT.md, «Пробный запуск») goes as far as the consume and sends none, new
+// or repeated: it names the reset it would apply (would_apply) or none (idle), keeps a pending
+// still listed as it is and records nothing about an attempt.
+export async function tick({ state, rules, now, fetch, beforeExpiryMs, applyNow = null, trial = false, login = null,
+  persist = async () => {}, migrations = STATE_MIGRATIONS }: TickOptions): Promise<TickResult> {
   let next: Ticked = { pending: null, applied: [], ...migrateState(state, migrations) };
   try {
     // The login secret outlives its use; its tokens are rotated away after the first tick.
@@ -97,20 +106,27 @@ export async function tick({ state, rules, now, fetch, applyNow = null, login = 
     // deadline a reset leaves the list anyway, so its disappearance proves nothing.
     const { pending } = next;
     if (pending) {
-      if (resets.some(r => r.id === pending.creditId)) return await attempt(fetch, { ...next, pending }, now);
+      if (resets.some(r => r.id === pending.creditId)) {
+        if (trial) return wouldApply(next, pending);
+        return await attempt(fetch, { ...next, pending }, now);
+      }
       if (pending.expiresAt !== null && pending.expiresAt <= now) {
         return unsettled(next, pending, now);
       }
-      return { state: recordApplied({ ...next, pending: null }, pending, now), outcome: 'applied' };
+      next = recordApplied({ ...next, pending: null }, pending, now);
+      // A regular tick spends nothing more on this one; a trial run, which spends nothing,
+      // goes on to say what the rules would do next.
+      if (!trial) return { state: next, outcome: 'applied' };
     }
     let choice: Choice | null = null;
     if (applyNow) {
       const reset = resets.find(r => r.id === applyNow);
       if (reset) choice = { reset, reason: 'apply_now' };
-      else next = { ...next, lastAttempt: lastAttempt({ creditId: applyNow, reason: 'apply_now' }, now, 'missing') };
+      else if (!trial) next = { ...next, lastAttempt: lastAttempt({ creditId: applyNow, reason: 'apply_now' }, now, 'missing') };
     }
-    choice ??= chooseByRules(observed, next.applied, rules, now);
+    choice ??= chooseByRules(observed, next.applied, rules, now, beforeExpiryMs);
     if (!choice) return { state: next, outcome: 'idle' };
+    if (trial) return wouldApply(next, { creditId: choice.reset.id, reason: choice.reason });
     const chosen = { ...next, pending: { creditId: choice.reset.id, expiresAt: choice.reset.expiresAt, reason: choice.reason,
       redeemRequestId: randomUUID(), at: now, recovers: quotas.weeklyQuota?.exhausted ? quotas.weeklyQuota.renewsAt : null } };
     next = chosen;
@@ -143,6 +159,8 @@ async function attempt(fetch: Fetch, state: Ticked & { pending: Pending }, now: 
   return { state: recordApplied(done, pending, now), outcome: 'applied' };
 }
 
+const wouldApply = (state: Ticked, { creditId, reason }: WouldApply): TickResult =>
+  ({ state, outcome: 'would_apply', wouldApply: { creditId, reason } });
 const lastAttempt = ({ creditId, reason }: { creditId: string; reason: ApplyReason }, at: number,
   result: AttemptResult): LastAttempt => ({ creditId, reason, at, result });
 // Lets the attempt go without knowing whether it applied the reset.

@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setup } from '../src/cli/setup.ts';
 import { buildWorker } from '../scripts/build-worker.ts';
-import { FILES, STATE_KEY_SECRET } from '../src/worker/layout.ts';
+import { FILES, STATE_KEY_SECRET, TRIAL_INPUT } from '../src/worker/layout.ts';
 import { openState, readRules } from '../src/worker/state-file.ts';
 import type { Summary } from '../src/worker/summary.ts';
 import { credit } from './support/fake-world.ts';
@@ -36,7 +36,7 @@ test('setup goes from nothing to a working worker in a private repository', asyn
   assert.equal(state.session.accountId, world.accountId);
   assert.equal(state.session.refreshToken, world.auth.current?.refresh);
   // The trial run read the resets and published them.
-  assert.deepEqual(repo.runs.map(r => [r.event, r.conclusion]), [['workflow_dispatch', 'success']]);
+  assert.deepEqual(repo.runs.map(r => [r.event, r.conclusion, r.inputs[TRIAL_INPUT]]), [['workflow_dispatch', 'success', 'true']]);
   assert.deepEqual(state.observed?.resets.map(r => r.id).sort(), ['reset-a', 'reset-b']);
 
   assert.equal(keychain.entries.size, 1);
@@ -44,7 +44,7 @@ test('setup goes from nothing to a working worker in a private repository', asyn
   assert.match(io.output(), /https:\/\/auth\.openai\.com\/codex\/device/);
   assert.match(io.output(), /Перед истечением \(в последние 8 часов\) — включено/);
   assert.match(io.output(), /Когда кончится недельный лимит — выключено/);
-  assert.match(io.lines.at(-1) ?? '', /^Воркер работает\. Сбросов: 2, ближайший истекает 22 октября 2026 г\. в 15:00 UTC\.$/);
+  assert.match(io.lines.at(-1) ?? '', /^Воркер работает\. Сбросов: 2, ближайший истекает 22 октября 2026 г\. в 15:00 UTC\. Сейчас применять нечего\.$/);
   assert.deepEqual(world.violations, []);
   assert.deepEqual(world.github.violations, []);
 });
@@ -58,14 +58,26 @@ test('end to end: the worker setup committed runs on plain node and ticks on the
   const repo = world.github.repo();
   assert.ok(repo);
   assert.match(world.github.text(repo, FILES.worker), /^\/\/ aures worker /);
-  assert.match(repo.runs[0]?.log ?? '', /Z applied\n$/);
-  // The before-expiry rule setup wrote reached the worker: it applied the reset due in 3 hours.
+  assert.match(repo.runs[0]?.log ?? '', /Z would_apply: before_expiry reset-due\n$/);
+  // The before-expiry rule setup wrote reached the worker: the trial run names the reset due
+  // in 3 hours and leaves it to a regular run.
+  assert.match(io.lines.at(-1) ?? '', /Сейчас правила применили бы сброс reset-due \(перед истечением\)\.$/);
   const summary: Summary = JSON.parse(world.github.text(repo, FILES.summary));
-  assert.equal(summary.lastApplied?.creditId, 'reset-due');
+  assert.equal(summary.lastApplied, null);
   assert.deepEqual(summary.rules, { beforeExpiry: true, weeklyAutoApply: false });
   const state = openState(world.github.text(repo, FILES.state), world.github.secret(repo, STATE_KEY_SECRET));
-  assert.equal(state.applied?.at(-1)?.reason, 'before_expiry');
+  assert.deepEqual(state.applied, []);
+  assert.equal(state.pending, null);
   assert.equal(state.session.accountId, world.accountId);
+});
+
+test('the trial run of setup names the reset the rules would apply and spends none', async () => {
+  const { world, run } = await installWorld();
+  world.chatgpt.credits.push(credit('RateLimitResetCredit_0eb466b3212c819193799a1741f067f8', world.now + 2 * HOUR));
+  const { code, io } = await run();
+  assert.equal(code, 0, io.output());
+  assert.match(io.lines.at(-1) ?? '', /^Воркер работает\. Сбросов: 3, .* Сейчас правила применили бы сброс RES67F8 \(перед истечением\)\.$/);
+  assert.deepEqual(world.consumeCalls(), []);
 });
 
 test('the GitHub token stays in the Keychain: never in the repository, its secrets or the output', async () => {
@@ -144,6 +156,19 @@ for (const [label, path, logins] of [
     assert.match(second.io.lines.at(-1) ?? '', /^Воркер работает\./);
   });
 }
+
+test('a repeated setup over a workflow of an older version asks for an upgrade first and dispatches nothing', async () => {
+  const { world, run } = await installWorld();
+  await run();
+  const repo = world.github.repo();
+  assert.ok(repo);
+  const current = world.github.text(repo, FILES.workflow);
+  world.github.write(repo, FILES.workflow, current.replace(new RegExp(`\\n {6}${TRIAL_INPUT}:\\n(?: {8}.*\\n)*`), '\n'));
+  const { code, io } = await run({ answers: [] });
+  assert.equal(code, 1);
+  assert.equal(io.lines.at(-1), 'Воркер старой версии. Запустите `aures upgrade`, затем снова `aures setup`.');
+  assert.equal(repo.runs.length, 1, 'only the first trial run');
+});
 
 test('a state left without its key is replaced through a new ChatGPT login', async () => {
   const { world, run } = await installWorld();

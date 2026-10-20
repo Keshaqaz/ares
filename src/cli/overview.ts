@@ -1,9 +1,8 @@
 import type { GitHubApi, Repository, WorkflowRun } from '../github/api.ts';
-import { FILES } from '../worker/layout.ts';
+import { FILES, BEFORE_EXPIRY_MS } from '../worker/layout.ts';
 import { readRules, BrokenState } from '../worker/state-file.ts';
 import type { Rules } from '../worker/state-file.ts';
 import type { Summary } from '../worker/summary.ts';
-import { BEFORE_EXPIRY_MS } from '../worker/tick.ts';
 import { WORKFLOW_FILE, resetName, unfinished, ruleLabel, reasonText, attemptResult, enableUrl, byDeadline, readSummary, loggedOutcome,
   failedRunAdvice } from './common.ts';
 import type { Logged, Rule } from './common.ts';

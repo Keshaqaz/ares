@@ -8,10 +8,10 @@ import { TransientFailure, object } from '../chatgpt/http.ts';
 import type { Fetch, TransientReason } from '../chatgpt/http.ts';
 import { sealState, openState, readRules, readLogin, BrokenState } from './state-file.ts';
 import type { State, Rules, BrokenStateReason } from './state-file.ts';
-import type { TickOutcome } from './tick.ts';
+import type { TickOutcome, WouldApply } from './tick.ts';
 import { openSummary, stepSummary } from './summary.ts';
 import type { StepSummaryFields } from './summary.ts';
-import { FILES } from './layout.ts';
+import { FILES, BEFORE_EXPIRY_MS } from './layout.ts';
 
 const BOT = ['-c', 'user.name=github-actions[bot]', '-c', 'user.email=41898333+github-actions[bot]@users.noreply.github.com'];
 const PUSH_ATTEMPTS = 3;
@@ -61,22 +61,30 @@ export interface RunOptions {
   applyNow?: string | null;
   login?: string | null;
   revoke?: boolean;
+  trial?: boolean;
   stepSummaryPath?: string | null;
   sleep?: (ms: number) => Promise<unknown>;
 }
 export type RunOutcome = TickOutcome | 'broken_state' | 'revoked' | 'revoke_failed' | 'commit_failed';
-export interface RunResult { outcome: RunOutcome; reason?: BrokenStateReason | TransientReason | 'push_failed'; exitCode: 0 | 1 }
+export interface RunResult { outcome: RunOutcome; reason?: BrokenStateReason | TransientReason | 'push_failed'; wouldApply?: WouldApply;
+  exitCode: 0 | 1 }
+
+// What the run prints into its job log, where the CLI finds it (loggedOutcome): the outcome,
+// then its reason, or for would_apply the reason and the reset.
+export const runLine = ({ outcome, reason, wouldApply }: RunResult): string =>
+  wouldApply ? `${outcome}: ${wouldApply.reason} ${wouldApply.creditId}` : reason ? `${outcome}: ${reason}` : outcome;
 
 // One worker run inside a checkout of the worker repository: decrypt state, tick,
 // encrypt and commit what changed. Fails (exitCode 1) only when the user has to act.
 // login is the text of the login secret, if the repository has one. revoke makes the run
 // revoke the worker session in OpenAI instead of a tick, before `uninstall` deletes the
 // repository; the run does not fail when OpenAI does not confirm it, uninstall reports that.
-// A tick worth retrying is repeated after sleep(RETRY_PAUSE_MS), its clock moved on by the pause.
-export async function runWorker({ dir, key, now, fetch, applyNow = null, login = null, revoke = false,
+// A tick worth retrying is repeated after sleep(RETRY_PAUSE_MS), its clock moved on by the pause,
+// except on a trial run, which waits for nothing it would apply.
+export async function runWorker({ dir, key, now, fetch, applyNow = null, login = null, revoke = false, trial = false,
   stepSummaryPath = null, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)) }: RunOptions): Promise<RunResult> {
   const report = async (fields: Omit<StepSummaryFields, 'now'>) => {
-    if (stepSummaryPath) await appendFile(stepSummaryPath, stepSummary({ now, ...fields }));
+    if (stepSummaryPath) await appendFile(stepSummaryPath, stepSummary({ now, trial, ...fields }));
   };
   const path = (name: keyof typeof FILES) => join(dir, FILES[name]);
   let state: State, rules: Rules | null = null;
@@ -112,11 +120,13 @@ export async function runWorker({ dir, key, now, fetch, applyNow = null, login =
   };
   try {
     const loginSecret = login ? readLogin(login) : null;
-    let result = await tick({ state, rules, now, fetch, applyNow, login: loginSecret, persist });
+    const tickOptions = { rules, fetch, beforeExpiryMs: BEFORE_EXPIRY_MS, applyNow, trial, login: loginSecret, persist };
+    let result = await tick({ ...tickOptions, state, now });
     // A retry takes the login secret again; the state already holds its verdict, so it is not taken twice.
-    for (let retry = 1; retry <= TICK_RETRIES && worthRetrying(result, rules, now + (retry - 1) * RETRY_PAUSE_MS, applyNow); retry++) {
+    for (let retry = 1; !trial && retry <= TICK_RETRIES &&
+      worthRetrying(result, rules, now + (retry - 1) * RETRY_PAUSE_MS, applyNow, BEFORE_EXPIRY_MS); retry++) {
       await sleep(RETRY_PAUSE_MS);
-      result = await tick({ state: result.state, rules, now: now + retry * RETRY_PAUSE_MS, fetch, applyNow, login: loginSecret, persist });
+      result = await tick({ ...tickOptions, state: result.state, now: now + retry * RETRY_PAUSE_MS });
     }
     const summary = openSummary({ state: result.state, rules });
     const summaryText = `${JSON.stringify(summary, null, 2)}\n`;
@@ -133,8 +143,9 @@ export async function runWorker({ dir, key, now, fetch, applyNow = null, login =
       changed.push(FILES.summary);
     }
     if (changed.length) await commit(dir, changed, `Worker tick: ${result.outcome}`);
-    await report({ outcome: result.outcome, summary });
-    return { outcome: result.outcome, exitCode: result.outcome === 'reauth_required' ? 1 : 0 };
+    const { outcome, wouldApply } = result;
+    await report({ outcome, wouldApply, summary });
+    return { outcome, ...wouldApply && { wouldApply }, exitCode: outcome === 'reauth_required' ? 1 : 0 };
   } catch (error) {
     if (!(error instanceof CommitFailed)) throw error;
     // A refreshed session that did not reach the remote is lost with the runner.

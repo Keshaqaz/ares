@@ -22,7 +22,7 @@ function broken(change: Change) {
   const session = world.login();
   // The tick sees the failure and spends nothing.
   const ticks = async () => {
-    const result = await tick({ state: { formatVersion: 1, session }, rules: RULES, now: world.now, fetch: world.fetch });
+    const result = await tick({ state: { formatVersion: 1, session }, rules: RULES, now: world.now, fetch: world.fetch, beforeExpiryMs: 8 * 3600_000 });
     assert.equal(result.outcome, 'transient_error');
     assert.deepEqual(world.consumeCalls(), []);
   };

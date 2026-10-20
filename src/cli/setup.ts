@@ -1,11 +1,11 @@
 import { deviceLogin } from '../chatgpt/session.ts';
-import { FILES, STATE_KEY_SECRET, LOGIN_SECRET } from '../worker/layout.ts';
+import { FILES, STATE_KEY_SECRET, LOGIN_SECRET, TRIAL_INPUT } from '../worker/layout.ts';
 import { generateKey, sealState, readRules, BrokenState, STATE_FORMAT_VERSION } from '../worker/state-file.ts';
 import { workflowYaml } from '../worker/workflow.ts';
 import { CommandFailed, WORKER_REPOSITORY, WORKER_DESCRIPTION, chatgptLogin, showCode, workingLine, connectGitHub, workerRepository,
-  chooseRules, readSummary, failedRunAdvice, runWorkerNow, command } from './common.ts';
+  chooseRules, readSummary, failedRunAdvice, runWorkerNow, command, resetName, reasonText } from './common.ts';
 import { followWeeklyRule } from './mac-check.ts';
-import type { CommandOptions, GitHub, Io, Sleep } from './common.ts';
+import type { CommandOptions, GitHub, Io, Logged, Sleep } from './common.ts';
 import type { GitHubApi, Repository } from '../github/api.ts';
 import { t } from './language.ts';
 
@@ -20,14 +20,25 @@ async function ensureRepository({ api, login, io }: GitHub & { io: Io }): Promis
   return created;
 }
 
-// Dispatches a regular tick, waits for its run and reads what the worker published.
+// What the rules would do now, by a trial run's outcome; nothing for another outcome.
+function trialVerdict({ outcome, wouldApply }: Logged): string | null {
+  if (wouldApply) {
+    const name = resetName(wouldApply.creditId), why = reasonText(wouldApply.reason);
+    return t(`Now the rules would apply the reset ${name} (${why}).`, `Сейчас правила применили бы сброс ${name} (${why}).`);
+  }
+  return outcome === 'idle' ? t('Nothing to apply now.', 'Сейчас применять нечего.') : null;
+}
+
+// Dispatches a trial run (CONTEXT.md, «Пробный запуск»), waits for it and reads what the
+// worker published and what the rules would do.
 async function trialRun({ api, repo, io, now, sleep, timeZone }:
   { api: GitHubApi; repo: Repository; io: Io; now: () => number; sleep: Sleep; timeZone: string | undefined }): Promise<string> {
   io.print(t('Checking the worker…', 'Проверяем воркер…'));
-  const { run, logged } = await runWorkerNow({ api, repo, inputs: {}, now, sleep, wait: io.wait });
+  const { run, logged } = await runWorkerNow({ api, repo, inputs: { [TRIAL_INPUT]: 'true' }, now, sleep, wait: io.wait });
   if (run.conclusion !== 'success') throw new CommandFailed(`${failedRunAdvice(logged ?? {})}\n${t('Details', 'Подробности')}: ${run.html_url}`);
   const summary = logged?.outcome === 'transient_error' ? null : await readSummary(api, repo);
-  if (summary) return workingLine(summary, timeZone);
+  const verdict = logged && trialVerdict(logged);
+  if (summary) return [workingLine(summary, timeZone), verdict].filter(Boolean).join(' ');
   // Before its first successful read the worker publishes nothing.
   const busy = logged?.outcome === 'transient_error';
   return t(`The worker is installed, but the resets are not read yet${busy ? ': ChatGPT is temporarily unavailable' : ''}. ` +
@@ -50,6 +61,11 @@ export async function setup({ fetch, keychain, io, workerSource, mac, now = Date
     const [state, rules, worker, workflow, hasKey] = await Promise.all([
       api.file(name, FILES.state), api.file(name, FILES.rules), api.file(name, FILES.worker), api.file(name, FILES.workflow),
       api.hasSecret(name, STATE_KEY_SECRET)]);
+    // setup keeps an existing workflow, and one of an older version has no trial run to dispatch.
+    if (workflow && !workflow.text.includes(`\n      ${TRIAL_INPUT}:\n`)) {
+      throw new CommandFailed(t('The worker is of an older version. Run `aures upgrade`, then `aures setup` again.',
+        'Воркер старой версии. Запустите `aures upgrade`, затем снова `aures setup`.'));
+    }
 
     // The key cannot be read back, so a state without its key is useless and is replaced.
     if (state && hasKey) io.print(t('The ChatGPT sign-in is already there.', 'Вход в ChatGPT уже есть.'));

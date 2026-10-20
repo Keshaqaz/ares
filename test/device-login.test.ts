@@ -30,7 +30,7 @@ test('device login shows a code, waits for the user and opens a worker session',
   const polls = world.requests.filter(r => r.path === '/api/accounts/deviceauth/token');
   assert.equal(polls.length, 3);
   // @ts-expect-error: no rules at all, so the tick only reads.
-  const { outcome } = await tick({ state: { formatVersion: 1, session: result }, rules: {}, now: world.now, fetch: world.fetch });
+  const { outcome } = await tick({ state: { formatVersion: 1, session: result }, rules: {}, now: world.now, fetch: world.fetch, beforeExpiryMs: 8 * 3600_000 });
   assert.equal(outcome, 'idle');
   assert.deepEqual(world.violations, []);
 });

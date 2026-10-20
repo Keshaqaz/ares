@@ -235,6 +235,10 @@ export async function withGitHub(world: GitHubWorld, { login = 'octo-fake' }: { 
         }
         if (body.ref !== 'main') return json(422, { message: 'No ref found' });
         if (repo.workflowState !== 'active') return json(422, { message: 'Cannot trigger a \'workflow_dispatch\' on a disabled workflow' });
+        // GitHub refuses an input the workflow does not declare.
+        const declared = repo.files.get(`.github/workflows/${workflow[1]}`)?.text ?? '';
+        const unexpected = Object.keys(sent(body, 'inputs')).filter(input => !declared.includes(`\n      ${input}:\n`));
+        if (unexpected.length) return json(422, { message: `Unexpected inputs provided: ${JSON.stringify(unexpected)}` });
         const run = await startRun(repo, 'workflow_dispatch', sent(body, 'inputs'));
         if (body.return_run_details !== true || !github.runDetails) return new Response(null, { status: 204 });
         const url = `https://api.github.com/repos/${login}/${repo.meta.name}/actions/runs/${run.id}`;
