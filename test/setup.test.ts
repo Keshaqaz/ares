@@ -217,7 +217,8 @@ test('polls GitHub drops or fails while the run is queued do not end setup', asy
   world.github.fail = (method, path) => /\/actions\/runs\/\d+$/.test(path) ? failures.shift()?.() ?? null : null;
   const { code, io } = await run();
   assert.equal(code, 0, io.output());
-  assert.deepEqual(io.waits, [STARTING, QUEUED, 'GitHub не отвечает, продолжаем ждать…', QUEUED, null]);
+  // The run GitHub named is polled from the first poll on, so the failures meet it at once.
+  assert.deepEqual(io.waits, [STARTING, 'GitHub не отвечает, продолжаем ждать…', QUEUED, null]);
   assert.equal(world.github.repo()?.runs.length, 1, 'the worker is dispatched once');
   assert.match(io.lines.at(-1) ?? '', /^Воркер работает\./);
 });

@@ -49,6 +49,8 @@ export interface FakeGitHub {
   fail: ((method: string, path: string) => Response | Promise<Response> | null | undefined) | null;
   // How long a dispatched run waits in the queue before the runner takes it, as in an outage.
   queueMs: number;
+  // false: a dispatch answers 204 even when asked for the run, as before return_run_details.
+  runDetails: boolean;
   approve(userCode: string, answer?: Approval): void;
   repo(name?: string): FakeRepository | undefined;
   // The text of a file that must be there.
@@ -75,7 +77,7 @@ export async function withGitHub(world: GitHubWorld, { login = 'octo-fake' }: { 
   let serial = 0;
   const github: FakeGitHub = {
     login, devices: new Map(), tokens: new Map(), repos: new Map(), requests: [], violations: [],
-    runner: null, dispatchNotFound: 0, logDelay: 0, fail: null, queueMs: 0,
+    runner: null, dispatchNotFound: 0, logDelay: 0, fail: null, queueMs: 0, runDetails: true,
     approve: (userCode, answer = true) => {
       for (const device of github.devices.values()) if (device.userCode === userCode) device.approved = answer;
     },
@@ -233,8 +235,10 @@ export async function withGitHub(world: GitHubWorld, { login = 'octo-fake' }: { 
         }
         if (body.ref !== 'main') return json(422, { message: 'No ref found' });
         if (repo.workflowState !== 'active') return json(422, { message: 'Cannot trigger a \'workflow_dispatch\' on a disabled workflow' });
-        await startRun(repo, 'workflow_dispatch', sent(body, 'inputs'));
-        return new Response(null, { status: 204 });
+        const run = await startRun(repo, 'workflow_dispatch', sent(body, 'inputs'));
+        if (body.return_run_details !== true || !github.runDetails) return new Response(null, { status: 204 });
+        const url = `https://api.github.com/repos/${login}/${repo.meta.name}/actions/runs/${run.id}`;
+        return json(200, { workflow_run_id: run.id, run_url: url, html_url: run.html_url });
       }
       if (workflow[2] === 'runs' && method === 'GET') {
         if (!exists || github.dispatchNotFound > 0) return json(404, { message: 'Not Found' });

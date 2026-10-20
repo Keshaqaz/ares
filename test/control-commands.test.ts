@@ -157,6 +157,48 @@ test('apply-now applies the chosen reset in a dispatched run and shows the resul
   assert.equal(summary().lastApplied?.reason, 'apply_now');
 });
 
+test('apply-now follows its own run when the Mac dispatches another one meanwhile', async () => {
+  const { world, repo, run } = await installed();
+  // Ours waits in the queue; the regular tick the check from the Mac starts finishes at once.
+  world.github.queueMs = 60_000;
+  const runner = world.github.runner;
+  world.github.runner = (repo, run) => run.inputs.apply_now ? runner?.(repo, run) ?? null :
+    { conclusion: 'success', log: '2026-10-20T12:00:00.000Z idle\n' };
+  let dispatched = false, foreign = false;
+  world.github.fail = (method, path) => {
+    if (method === 'POST' && path.endsWith('/dispatches')) dispatched = true;
+    else if (dispatched && !foreign && method === 'GET') {
+      foreign = true;
+      world.github.queueMs = 0;
+      void world.github.dispatch();
+    }
+    return null;
+  };
+  const { code, io } = await run(applyNow, { answers: ['2', 'y'] });
+  assert.equal(code, 0, io.output());
+  assert.equal(repo.runs.length, 3, 'setup, ours and the Mac\'s');
+  assert.deepEqual(world.spent(), ['reset-a']);
+  assert.equal(io.lines.at(-1), 'Сброс reset-a применён.');
+});
+
+test('apply-now waits when GitHub does not show the run it just named yet', async () => {
+  const { world, run } = await installed();
+  let hidden = 2;
+  world.github.fail = (method, path) => method === 'GET' && /\/actions\/runs\/\d+$/.test(path) && hidden-- > 0 ?
+    new Response(JSON.stringify({ message: 'Not Found' }), { status: 404 }) : null;
+  const { code, io } = await run(applyNow, { answers: ['2', 'y'] });
+  assert.equal(code, 0, io.output());
+  assert.equal(io.lines.at(-1), 'Сброс reset-a применён.');
+});
+
+test('apply-now finds its run among the new ones when GitHub does not name it', async () => {
+  const { world, run } = await installed();
+  world.github.runDetails = false;
+  const { code, io } = await run(applyNow, { answers: ['2', 'y'] });
+  assert.equal(code, 0, io.output());
+  assert.equal(io.lines.at(-1), 'Сброс reset-a применён.');
+});
+
 test('apply-now does nothing until the user picks a reset and confirms it', async () => {
   const { world, repo, run } = await installed();
   let result = await run(applyNow, { answers: ['7', 'abc', ''] });
@@ -305,6 +347,16 @@ test('login removes its secret even when the run is not seen through', async () 
   const { code, io } = await run(login);
   assert.equal(code, 1);
   assert.match(io.lines.at(-1) ?? '', /дольше 10 минут/);
+  assert.equal(repo.secrets.has(LOGIN_SECRET), false);
+});
+
+test('login whose run waits in the GitHub queue past the wait asks for login again, not to wait', async () => {
+  const { world, repo, run } = await installed();
+  world.github.queueMs = 11 * 60_000;
+  const { code, io } = await run(login);
+  assert.equal(code, 1);
+  assert.match(io.lines.at(-1) ?? '', /новый вход ему не передан\. Повторите `aures login`\.$/);
+  assert.doesNotMatch(io.output(), /запустится сам/);
   assert.equal(repo.secrets.has(LOGIN_SECRET), false);
 });
 

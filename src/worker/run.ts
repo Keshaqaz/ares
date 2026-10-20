@@ -46,10 +46,12 @@ async function commit(dir: string, paths: string[], message: string): Promise<vo
   }
 }
 
-// Key order is not a change, and neither is the read time, which moves on every tick.
+// Key order is not a change, and neither are the read time and the quotas, which move on most
+// ticks: a run reads the quotas afresh, and the summary does not carry them.
 const sorted = (value: unknown): unknown => Array.isArray(value) ? value.map(sorted) : object(value) ?
   Object.fromEntries(Object.keys(value).sort().map(key => [key, sorted(value[key])])) : value;
-const comparable = (state: State): string => JSON.stringify(sorted({ ...state, observed: state.observed && { ...state.observed, at: undefined } }));
+const comparable = (state: State): string => JSON.stringify(sorted({ ...state, observed: state.observed &&
+  { ...state.observed, at: undefined, weeklyQuota: undefined, fiveHourQuota: undefined } }));
 
 export interface RunOptions {
   dir: string;

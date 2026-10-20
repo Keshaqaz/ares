@@ -11,7 +11,7 @@ import type { BrokenStateReason, State } from '../src/worker/state-file.ts';
 import type { Summary } from '../src/worker/summary.ts';
 import type { Session } from '../src/chatgpt/session.ts';
 import type { Fetch } from '../src/chatgpt/http.ts';
-import { fakeWorld, credit } from './support/fake-world.ts';
+import { fakeWorld, credit, window } from './support/fake-world.ts';
 import type { FakeWorld } from './support/fake-world.ts';
 import { workerRepo } from './support/worker-repo.ts';
 import type { WorkerRepo } from './support/worker-repo.ts';
@@ -68,6 +68,17 @@ test('a first tick commits the read state and summary, a tick that changes nothi
   assert.equal(repo.commits().length, 3);
   const summary: Summary = JSON.parse(repo.show(FILES.summary) ?? 'null');
   assert.deepEqual(summary.resets.map(r => r.creditId), ['reset-a', 'reset-b']);
+});
+
+test('a tick that only sees the quotas move commits nothing', async () => {
+  const { world, repo, run } = await workerWorld();
+  await run();
+  const commits = repo.commits();
+  world.advance(HOUR);
+  world.chatgpt.primary = window(18000, 75, world.now + 2 * HOUR);
+  world.chatgpt.secondary = window(604800, 65, world.now + 3 * DAY);
+  assert.deepEqual(await run(), { outcome: 'idle', exitCode: 0 });
+  assert.deepEqual(repo.commits(), commits);
 });
 
 test('a refreshed session is pushed before the tick reads quotas and resets', async () => {

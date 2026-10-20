@@ -12,6 +12,9 @@ export const BEFORE_EXPIRY_MS = 8 * 3600_000;
 // A reset renews the weekly window and moves its renewsAt by days; two reads of one window
 // differ by seconds at most.
 export const SAME_WINDOW_MS = 3600_000;
+// An attempt the server keeps calling already redeemed while it still lists the reset is let
+// go after this long, so that it does not hold back every later application.
+export const ALREADY_REDEEMED_LIMIT_MS = 24 * 3600_000;
 
 // Group of matching deadlines: resets whose deadline falls on one calendar minute.
 const minuteGroup = (expiresAt: number | null): number | null => expiresAt === null ? null : Math.floor(expiresAt / 60_000);
@@ -25,7 +28,8 @@ function chooseByRules({ weeklyQuota, resets }: Observed, applied: Applied[], ru
   const spent = new Set<number | null>(applied.map(a => minuteGroup(a.expiresAt)).filter(g => g !== null));
   const candidates = resets.filter(r => (r.expiresAt === null || r.expiresAt > now) && !spent.has(minuteGroup(r.expiresAt)))
     .sort(byDeadline);
-  const exhausted = weeklyQuota?.exhausted &&
+  // A window past its renewal time starts over by itself; the check from the Mac skips it too.
+  const exhausted = weeklyQuota?.exhausted && weeklyQuota.renewsAt > now &&
     !applied.some(a => a.recovers !== null && Math.abs(a.recovers - weeklyQuota.renewsAt) < SAME_WINDOW_MS);
   if (rules.weeklyAutoApply && exhausted && candidates[0]) return { reset: candidates[0], reason: 'weekly' };
   if (rules.beforeExpiry) {
@@ -118,7 +122,8 @@ export async function tick({ state, rules, now, fetch, applyNow = null, login = 
   }
 }
 
-// POST consume for state.pending. An unknown result keeps it for the next tick.
+// POST consume for state.pending. An unknown result keeps it for the next tick, except an
+// already_redeemed one past ALREADY_REDEEMED_LIMIT_MS.
 async function attempt(fetch: Fetch, state: Ticked & { pending: Pending }, now: number): Promise<TickResult> {
   const { pending } = state;
   let result: ConsumeResult;
@@ -128,7 +133,10 @@ async function attempt(fetch: Fetch, state: Ticked & { pending: Pending }, now: 
     if (error instanceof TransientFailure) return { state, outcome: 'pending' };
     throw error;
   }
-  if (result === 'already_redeemed') return { state, outcome: 'pending' };
+  if (result === 'already_redeemed') {
+    if (now - pending.at < ALREADY_REDEEMED_LIMIT_MS) return { state, outcome: 'pending' };
+    return { state: { ...state, pending: null, lastAttempt: lastAttempt(pending, now, 'unknown') }, outcome: 'idle' };
+  }
   const done = { ...state, pending: null, lastAttempt: lastAttempt(pending, now, result) };
   if (result !== 'reset') return { state: done, outcome: 'idle' };
   return { state: recordApplied(done, pending, now), outcome: 'applied' };

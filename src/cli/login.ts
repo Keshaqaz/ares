@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { deviceLogin } from '../chatgpt/session.ts';
 import { FILES, STATE_KEY_SECRET, LOGIN_SECRET } from '../worker/layout.ts';
-import { CommandFailed, unfinished, chatgptLogin, showCode, workingLine, connectGitHub, installedWorker, runnableWorkflow, readSummary, failedRunAdvice,
+import { CommandFailed, RunNotStarted, unfinished, chatgptLogin, showCode, workingLine, connectGitHub, installedWorker, runnableWorkflow, readSummary, failedRunAdvice,
   runWorkerNow, command } from './common.ts';
 import type { CommandOptions } from './common.ts';
 import { t } from './language.ts';
@@ -40,7 +40,12 @@ export async function login({ fetch, keychain, io, now = Date.now,
     // The secret goes even when the run is not seen through: a rejected session is another
     // account's live one, and a stale secret would bring back rotated tokens over a newer state.
     let run, logged;
-    try { ({ run, logged } = await runWorkerNow({ api, repo, inputs: {}, now, sleep, wait: io.wait })); } finally {
+    try { ({ run, logged } = await runWorkerNow({ api, repo, inputs: {}, now, sleep, wait: io.wait })); } catch (error) {
+      // A run that starts after the secret is gone runs without the new sign-in.
+      if (!(error instanceof RunNotStarted)) throw error;
+      throw new CommandFailed(t('The worker has been waiting to start on GitHub for over 10 minutes, the new sign-in has not been passed to it. ' +
+        'Run `aures login` again.', 'Воркер ждёт запуска на GitHub дольше 10 минут, новый вход ему не передан. Повторите `aures login`.'));
+    } finally {
       await api.deleteSecret(name, LOGIN_SECRET).catch(() => {});
     }
     const summary = await readSummary(api, repo);

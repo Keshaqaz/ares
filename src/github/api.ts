@@ -39,7 +39,7 @@ export interface NewRepositoryBody {
 // sha is absent for a new file.
 export interface PutFileBody { message: string; content: string; sha?: string }
 export interface PutSecretBody { key_id: string; encrypted_value: string }
-export interface DispatchBody { ref: string; inputs: Record<string, string> }
+export interface DispatchBody { ref: string; inputs: Record<string, string>; return_run_details: boolean }
 // A file on the default branch; sha names this version of it.
 export interface RepositoryFile { text: string; sha: string }
 
@@ -185,12 +185,16 @@ export class GitHubApi {
   async deleteSecret(repo: string, secret: string): Promise<void> {
     await this.expect('delete_secret', `/repos/${repo}/actions/secrets/${secret}`, [204, 404], { method: 'DELETE' });
   }
-  // false while GitHub does not know the workflow yet: right after its push a dispatch gets
-  // 404, or 422 while the workflow_dispatch trigger is not registered.
-  async dispatch(repo: string, workflow: string, { ref, inputs }: { ref: string; inputs: Record<string, string> }): Promise<boolean> {
-    const reply = await this.expect('dispatch', `/repos/${repo}/actions/workflows/${workflow}/dispatches`, [204, 404, 422],
-      { method: 'POST', body: { ref, inputs } satisfies DispatchBody });
-    return reply.status === 204;
+  // The run it started: id is null when GitHub does not name it (204). null while GitHub does
+  // not know the workflow yet: right after its push a dispatch gets 404, or 422 while the
+  // workflow_dispatch trigger is not registered.
+  async dispatch(repo: string, workflow: string, { ref, inputs }: { ref: string; inputs: Record<string, string> }):
+    Promise<{ id: number | null } | null> {
+    const reply = await this.expect('dispatch', `/repos/${repo}/actions/workflows/${workflow}/dispatches`, [200, 204, 404, 422],
+      { method: 'POST', body: { ref, inputs, return_run_details: true } satisfies DispatchBody });
+    if (reply.status === 404 || reply.status === 422) return null;
+    const id = (reply.value as { workflow_run_id?: unknown } | null)?.workflow_run_id;
+    return { id: reply.status === 200 && typeof id === 'number' ? id : null };
   }
   // active, disabled_manually, disabled_inactivity…; null while GitHub does not know the workflow.
   async workflowState(repo: string, workflow: string): Promise<string | null> {
@@ -213,8 +217,10 @@ export class GitHubApi {
       `/repos/${repo}/actions/workflows/${workflow}/runs?event=workflow_dispatch&per_page=20`, [200, 404]);
     return status === 200 ? (value as Runs | null)?.workflow_runs ?? [] : [];
   }
-  async run(repo: string, id: number): Promise<WorkflowRun> {
-    return (await this.expect('run', `/repos/${repo}/actions/runs/${id}`, [200])).value as WorkflowRun;
+  // null while GitHub does not show a run it has just named (404).
+  async run(repo: string, id: number): Promise<WorkflowRun | null> {
+    const reply = await this.expect('run', `/repos/${repo}/actions/runs/${id}`, [200, 404]);
+    return reply.status === 200 ? reply.value as WorkflowRun : null;
   }
   // Plain text log of the run's job, or null when GitHub does not give it (yet).
   async runLog(repo: string, id: number): Promise<string | null> {

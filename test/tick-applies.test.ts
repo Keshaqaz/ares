@@ -64,6 +64,15 @@ test('the first tick that sees the weekly quota exhausted applies the reset with
   assert.deepEqual(world.spent(), ['reset-near']);
 });
 
+test('an exhausted weekly window whose renewal time has passed spends no reset', async () => {
+  const { world, state, run } = setup({ rules: WEEKLY_ONLY });
+  world.chatgpt.credits = [credit('reset-a', world.now + 4 * DAY)];
+  world.chatgpt.secondary = window(604800, 100, world.now - MINUTE);
+  const result = await run(state);
+  assert.equal(result.outcome, 'idle');
+  assert.deepEqual(world.spent(), []);
+});
+
 test('a weekly read still showing the same exhaustion after an application spends no second reset', async () => {
   const { world, state, run } = setup({ rules: WEEKLY_ONLY });
   world.chatgpt.credits = [credit('reset-a', world.now + 4 * DAY), credit('reset-b', world.now + 5 * DAY)];
@@ -187,6 +196,21 @@ for (const [label, change] of [['a 5xx', w => { w.chatgpt.consumeFail = { status
     assert.equal(result.state.pending.redeemRequestId, call.key);
   });
 }
+
+test('an attempt the server calls already redeemed while it still lists the reset is let go after a day', async () => {
+  const { world, state, run } = setup();
+  world.chatgpt.credits = [credit('reset-none', null)];
+  world.chatgpt.outcome = 'already_redeemed';
+  const first = await run(state, { applyNow: 'reset-none' });
+  assert.equal(first.outcome, 'pending');
+  world.advance(HOUR);
+  assert.equal((await run(first.state)).outcome, 'pending');
+  world.advance(DAY);
+  const late = await run(first.state);
+  assert.equal(late.outcome, 'idle');
+  assert.equal(late.state.pending, null);
+  assert.deepEqual(late.state.lastAttempt, { creditId: 'reset-none', reason: 'apply_now', at: world.now, result: 'unknown' });
+});
 
 test('a rejected session on consume keeps the pending attempt for after the next login', async () => {
   const { world, state, run } = setup();
