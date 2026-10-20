@@ -1,8 +1,10 @@
-// The fake world a CLI command runs in: ChatGPT, auth.openai.com and GitHub with an Actions
-// runner, a Keychain and a user at the terminal.
+// The fake world a CLI command runs in: ChatGPT, auth.openai.com, GitHub with an Actions
+// runner, Google with Apps Script, a Keychain and a user at the terminal.
 import { fakeWorld, credit } from './fake-world.ts';
 import { withGitHub } from './fake-github.ts';
 import { actionsRunner } from './actions-runner.ts';
+import { withGoogle } from './fake-google.ts';
+import type { FakeGoogle } from './fake-google.ts';
 import { fakeMac } from './fake-mac.ts';
 import type { FakeWorld } from './fake-world.ts';
 import type { FakeGitHub, Approval } from './fake-github.ts';
@@ -10,6 +12,7 @@ import type { FakeMac } from './fake-mac.ts';
 import { setLanguage } from '../../src/cli/language.ts';
 import type { Language } from '../../src/cli/language.ts';
 import type { CommandOptions, Io } from '../../src/cli/common.ts';
+import { GITHUB_TOKEN_ACCOUNT, GOOGLE_TOKEN_ACCOUNT, WORKER_SECRET_ACCOUNT } from '../../src/cli/keychain.ts';
 import type { Keychain } from '../../src/cli/keychain.ts';
 import type { Migration } from '../../src/worker/state-file.ts';
 
@@ -25,7 +28,7 @@ export interface Terminal extends Io {
   waits: (string | null)[];
   output(): string;
 }
-export type CliFakeWorld = FakeWorld & { github: FakeGitHub };
+export type CliFakeWorld = FakeWorld & { github: FakeGitHub; google: FakeGoogle };
 
 export function terminal(world: CliFakeWorld, answers: string[] = [], { github = true }: { github?: Approval } = {}): Terminal {
   const lines: string[] = [], asked: string[] = [], waits: (string | null)[] = [];
@@ -48,12 +51,11 @@ export function terminal(world: CliFakeWorld, answers: string[] = [], { github =
   };
 }
 
-// The macOS Keychain entry with the GitHub token.
+// One entry of the macOS Keychain, by its account; entries are all of them, by account.
 export interface FakeKeychain extends Keychain { entries: Map<string, string> }
-export function fakeKeychain(): FakeKeychain {
-  const entries = new Map<string, string>();
-  return { entries, read: async () => entries.get('github') ?? null,
-    write: async token => { entries.set('github', token); }, remove: async () => { entries.delete('github'); } };
+export function fakeKeychain(account = GITHUB_TOKEN_ACCOUNT, entries = new Map<string, string>()): FakeKeychain {
+  return { entries, read: async () => entries.get(account) ?? null,
+    write: async token => { entries.set(account, token); }, remove: async () => { entries.delete(account); } };
 }
 
 // What run hands a command, enough for any of them; a test overrides some for one command.
@@ -62,6 +64,9 @@ export type RunOptions = Partial<WorldOptions> & { answers?: string[]; github?: 
 export interface CliWorld {
   world: CliFakeWorld;
   keychain: FakeKeychain;
+  // The Google refresh token and the worker's doPost secret, in the same Keychain.
+  googleKeychain: FakeKeychain;
+  secretKeychain: FakeKeychain;
   mac: FakeMac;
   run(command: (options: WorldOptions) => Promise<number>, options?: RunOptions): Promise<{ code: number; io: Terminal }>;
 }
@@ -74,9 +79,11 @@ export async function cliWorld({ node = false, workerSource = WORKER_SOURCE, lan
   setLanguage(language);
   const base = fakeWorld();
   base.chatgpt.credits = [credit('reset-a', base.now + 5 * DAY), credit('reset-b', base.now + 2 * DAY + 3 * HOUR)];
-  const world = Object.assign(base, { github: await withGitHub(base) });
+  const world = Object.assign(base, { github: await withGitHub(base), google: withGoogle(base) });
   world.github.runner = actionsRunner(world, { node });
   const keychain = fakeKeychain();
+  const googleKeychain = fakeKeychain(GOOGLE_TOKEN_ACCOUNT, keychain.entries),
+    secretKeychain = fakeKeychain(WORKER_SECRET_ACCOUNT, keychain.entries);
   const mac = await fakeMac();
   const run: CliWorld['run'] = (command, { answers = [], github, ...options } = {}) => {
     const io = terminal(world, answers, { github });
@@ -84,5 +91,5 @@ export async function cliWorld({ node = false, workerSource = WORKER_SOURCE, lan
       random: () => 0.5, workerSource, timeZone: 'UTC', mac, ...options });
     return done.then(code => ({ code, io }));
   };
-  return { world, keychain, mac, run };
+  return { world, keychain, googleKeychain, secretKeychain, mac, run };
 }

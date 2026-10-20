@@ -27,6 +27,9 @@ export interface FakeAppsScript {
   // Called before a batch is served: another execution may start meanwhile.
   onFetch: (() => void) | null;
   violations: string[];
+  // Runs these sources as the project's files from now on, as a new version does; properties
+  // and triggers stay.
+  load(files: string[]): void;
   // Calls into the script the way Apps Script does.
   tick(): void;
   doGet(): Reply;
@@ -42,12 +45,19 @@ const output = (content: string): TextOutput & { mimeType: string } => {
   return text;
 };
 
-// secret is the one the project's secret file declares; null leaves the file out.
-export async function fakeAppsScript({ world, secret = 'fake-secret-0123456789' }: { world: FakeWorld; secret?: string | null }):
-  Promise<FakeAppsScript> {
+// secret is the one the project's secret file declares; null leaves the file out. files, when
+// given, are the project's sources instead of the secret file and the bundle.
+export async function fakeAppsScript({ world, secret = 'fake-secret-0123456789', files }:
+  { world: FakeWorld; secret?: string | null; files?: string[] }): Promise<FakeAppsScript> {
+  let context: Record<string, unknown> = {};
   const gas: FakeAppsScript = {
     properties: new Map(), largestValue: 0, triggers: [], lockHeld: false, authInvalidated: false, batches: [],
     onFetch: null, violations: [],
+    load: sources => {
+      context = vm.createContext({ ...services, fakeNow: () => world.now });
+      vm.runInContext('Date.now = function () { return fakeNow(); };', context);
+      sources.forEach((source, i) => vm.runInContext(source, context, { filename: `file${i}.gs` }));
+    },
     tick: () => { (context.tick as () => void)(); },
     doGet: () => reply((context.doGet as (e: object) => TextOutput & { mimeType: string })({})),
     doPost: body => reply((context.doPost as (e: object) => TextOutput & { mimeType: string })(
@@ -130,9 +140,6 @@ export async function fakeAppsScript({ world, secret = 'fake-secret-0123456789' 
     },
   };
 
-  const context: Record<string, unknown> = vm.createContext({ ...services, fakeNow: () => world.now });
-  vm.runInContext('Date.now = function () { return fakeNow(); };', context);
-  if (secret !== null) vm.runInContext(secretSource(secret), context, { filename: 'secret.gs' });
-  vm.runInContext(await bundle(), context, { filename: 'worker.gs' });
+  gas.load(files ?? [...secret === null ? [] : [secretSource(secret)], await bundle()]);
   return gas;
 }

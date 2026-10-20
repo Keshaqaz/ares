@@ -42,7 +42,7 @@ test('the launchd agent recognizes a keg laid out by the formula and runs it thr
     [`/opt/homebrew/opt/aures/bin/${bin}`, 'watch']);
 });
 
-test('the release archive carries the CLI, the worker bundle and its dependencies, and runs on its own', async t => {
+test('the release archive carries the CLI, both worker bundles and its dependencies, and runs on its own', async t => {
   const dir = await mkdtemp(join(tmpdir(), 'brew-release-'));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const { file, sha256 } = await packRelease(dir);
@@ -52,7 +52,8 @@ test('the release archive carries the CLI, the worker bundle and its dependencie
   await run('tar', ['-xzf', file, '-C', dir]);
   const root = join(dir, 'package');
   assert.deepEqual((await readdir(root)).sort(), ['LICENSE', 'README.md', 'dist', 'node_modules', 'package.json', 'src']);
-  assert.deepEqual(await readdir(join(root, 'dist')), ['worker.mjs']);
+  assert.deepEqual((await readdir(join(root, 'dist'))).sort(), ['apps-script', 'worker.mjs']);
+  assert.deepEqual(await readdir(join(root, 'dist/apps-script')), ['worker.js']);
   assert.deepEqual((await readdir(join(root, 'node_modules'))).sort(), ['libsodium', 'libsodium-wrappers']);
   assert.ok((await stat(join(root, 'src/cli/main.ts'))).isFile());
 

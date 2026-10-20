@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ChildProcess } from 'node:child_process';
 import { PassThrough } from 'node:stream';
-import { GitHubTokenKeychain, KeychainUnavailable } from '../src/cli/keychain.ts';
+import { GitHubTokenKeychain, KeychainEntry, KeychainUnavailable, GOOGLE_TOKEN_ACCOUNT, WORKER_SECRET_ACCOUNT } from '../src/cli/keychain.ts';
 import type { Spawn } from '../src/cli/keychain.ts';
 
 const TOKEN = 'gho_synthetic0000000000000000000000000000';
@@ -60,4 +60,19 @@ test('a refusing Keychain is KeychainUnavailable, and values that are not tokens
     await assert.rejects(new GitHubTokenKeychain({ spawnImpl: security.spawnImpl }).write(value), KeychainUnavailable);
   }
   assert.equal(security.calls.length, 0);
+});
+
+test('the Google refresh token and the doPost secret live in entries of their own next to the GitHub token', async () => {
+  const security = fakeSecurity();
+  const github = new GitHubTokenKeychain({ spawnImpl: security.spawnImpl });
+  const google = new KeychainEntry(GOOGLE_TOKEN_ACCOUNT, { spawnImpl: security.spawnImpl });
+  const secret = new KeychainEntry(WORKER_SECRET_ACCOUNT, { spawnImpl: security.spawnImpl });
+  await github.write(TOKEN);
+  await google.write('1//0gSynthetic-refresh_token.0000');
+  await secret.write('c2VjcmV0LXN5bnRoZXRpYw');
+  assert.deepEqual(Object.fromEntries(security.entries), { 'codex-auto-resets/github': TOKEN,
+    'codex-auto-resets/google': '1//0gSynthetic-refresh_token.0000', 'codex-auto-resets/worker-secret': 'c2VjcmV0LXN5bnRoZXRpYw' });
+  await google.remove();
+  assert.equal(await google.read(), null);
+  assert.equal(await github.read(), TOKEN);
 });

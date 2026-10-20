@@ -2,6 +2,8 @@
 // from the CLI and the words the user sees when something fails.
 import { GitHubApi, GitHubFailure, githubDeviceLogin } from '../github/api.ts';
 import type { Dispatched, GitHubFailureReason, Repository, WorkflowRun } from '../github/api.ts';
+import { GoogleFailure } from '../google/api.ts';
+import type { GoogleFailureReason } from '../google/api.ts';
 import { LoginFailed } from '../chatgpt/session.ts';
 import type { DeviceCode } from '../chatgpt/session.ts';
 import { TransientFailure } from '../chatgpt/http.ts';
@@ -330,6 +332,15 @@ export function explain(error: unknown, command: string | null = null): string |
       login_timeout: t(`The time to enter the GitHub code ran out. ${again}.`, `Время на ввод кода GitHub вышло. ${again}.`),
       login_denied: t('The GitHub sign-in was denied.', 'Вход в GitHub отклонён.'),
     } as Partial<Record<GitHubFailureReason, string>>)[error.reason] ?? t(`GitHub error (${error.reason}). ${again}: ${kept}.`, `Ошибка GitHub (${error.reason}). ${again}: ${kept}.`);
+  }
+  if (error instanceof GoogleFailure) {
+    return ({
+      invalid_grant: t(`Google ended the sign-in. ${again} and sign in anew.`, `Google завершил вход. ${again} и войдите заново.`),
+      unauthorized: t(`Google rejected the sign-in. ${again} and sign in anew.`, `Google отклонил вход. ${again} и войдите заново.`),
+      network: t(`Google is unreachable. ${again}: ${kept}.`, `Google недоступен. ${again}: ${kept}.`),
+      login_timeout: t(`The time to sign in to Google ran out. ${again}.`, `Время на вход в Google вышло. ${again}.`),
+      login_denied: t('The Google sign-in was denied.', 'Вход в Google отклонён.'),
+    } as Partial<Record<GoogleFailureReason, string>>)[error.reason] ?? t(`Google error (${error.reason}). ${again}: ${kept}.`, `Ошибка Google (${error.reason}). ${again}: ${kept}.`);
   }
   if (error instanceof LoginFailed) {
     return error.reason === 'timeout' ? t(`The time to enter the ChatGPT code ran out. ${again}.`, `Время на ввод кода ChatGPT вышло. ${again}.`) :

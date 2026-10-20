@@ -27,7 +27,8 @@
   },
   "files": [
     "src",
-    "dist/worker.mjs"
+    "dist/worker.mjs",
+    "dist/apps-script/worker.js"
   ],
   "bundleDependencies": [
     "libsodium-wrappers"

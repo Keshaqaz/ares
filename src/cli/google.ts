@@ -1,0 +1,135 @@
+// The Google sign-in of the CLI and the deploy of the worker to Apps Script: what setup,
+// upgrade, «Починить» and the switch of platform share (ADR-0007).
+import { randomBytes } from 'node:crypto';
+import pkg from '../../package.json' with { type: 'json' };
+import { GoogleApi, GoogleFailure, ScopesMissing, googleLogin } from '../google/api.ts';
+import type { GoogleScope, ScriptFile } from '../google/api.ts';
+import type { Fetch } from '../chatgpt/http.ts';
+import { MANIFEST, PROJECT_FILES, PROJECT_TITLE, secretSource } from '../apps-script/layout.ts';
+import { KeychainUnavailable } from './keychain.ts';
+import type { Keychain } from './keychain.ts';
+import type { OpenUrl } from './browser.ts';
+import { CommandFailed } from './common.ts';
+import type { Io, Printer, Sleep } from './common.ts';
+import { t } from './language.ts';
+
+export const USER_SETTINGS = 'https://script.google.com/home/usersettings';
+// The switch takes effect at once (probe 01); the CLI asks again this often.
+const API_POLL_MS = 5_000;
+
+// The box of the consent page, as the user looks for it.
+const scopeName = (scope: GoogleScope): string => ({
+  projects: t('your Google Apps Script projects', 'проекты Google Apps Script'),
+  deployments: t('deployments of your Google Apps Script projects', 'развёртывания проектов Google Apps Script'),
+})[scope];
+
+export interface ConnectGoogleOptions { fetch: Fetch; keychain: Keychain; io: Printer; open: OpenUrl; now: () => number }
+
+// The Google grant of the CLI. A refresh token from the Keychain is used while Google takes it;
+// a gone one (testing mode keeps it 7 days) opens the sign-in again without a word about it.
+export async function connectGoogle({ fetch, keychain, io, open, now }: ConnectGoogleOptions): Promise<GoogleApi> {
+  let token: string | null = null;
+  try { token = await keychain.read(); } catch (error) { if (!(error instanceof KeychainUnavailable)) throw error; }
+  if (token) {
+    const api = new GoogleApi({ fetch, now, refreshToken: token });
+    try {
+      await api.accessToken();
+      return api;
+    } catch (error) { if (!(error instanceof GoogleFailure && error.reason === 'invalid_grant')) throw error; }
+  }
+  for (;;) {
+    io.print(t('Sign in to Google in the browser. On the consent page tick every box, or press «Select all».',
+      'Вход в Google в браузере. На странице согласия отметьте все галочки или нажмите «Выбрать все».'));
+    try {
+      const grant = await googleLogin({ fetch, now, open: url => {
+        io.print(t(`If the browser did not open: ${url}`, `Если браузер не открылся: ${url}`));
+        return open(url);
+      } });
+      try { await keychain.write(grant.refreshToken); } catch (error) {
+        if (!(error instanceof KeychainUnavailable)) throw error;
+        io.print(t('Could not save the sign-in to the Keychain: Google will ask you to sign in again next time.',
+          'Не удалось сохранить вход в Связку ключей: в следующий раз Google попросит войти снова.'));
+      }
+      io.print(t('Signed in to Google.', 'Вы вошли в Google.'));
+      return new GoogleApi({ fetch, now, refreshToken: grant.refreshToken, access: grant.access });
+    } catch (error) {
+      if (!(error instanceof ScopesMissing)) throw error;
+      io.print(t(`Google did not give access to: ${error.missing.map(scopeName).join(', ')}. aures needs it to install the worker. ` +
+        'Sign in again and tick these boxes.',
+      `Google не дал доступ к: ${error.missing.map(scopeName).join(', ')}. Без него aures не установит воркер. ` +
+        'Войдите снова и отметьте эти галочки.'));
+    }
+  }
+}
+
+// Where the worker is deployed: its project, the deployment and the URL of its web app.
+export interface WorkerDeployment { scriptId: string; deploymentId: string; url: string }
+
+export interface DeployWorkerOptions {
+  api: GoogleApi;
+  // Where the doPost secret goes.
+  secretKeychain: Keychain;
+  io: Io;
+  open: OpenUrl;
+  sleep: Sleep;
+  // The Apps Script bundle.
+  workerSource: string;
+  // The deployment to update, or what an interrupted deploy left: a project without one.
+  deployment: { scriptId: string; deploymentId?: string | null } | null;
+  // Told the project as soon as it exists, so that an interrupted deploy does not make another.
+  onProject?: (scriptId: string) => unknown;
+}
+
+// Puts this version of the worker into the user's script project with a fresh doPost secret:
+// create the project when there is none, replace its files, freeze them as a version and point
+// the deployment at it. An existing deployment is updated, so its web app keeps its URL. The
+// secret reaches the Keychain once the deployment serves it.
+export async function deployWorker({ api, secretKeychain, io, open, sleep, workerSource, deployment, onProject }: DeployWorkerOptions):
+  Promise<WorkerDeployment> {
+  let waiting = false;
+  // The first call to the Apps Script API fails until the user turns it on; there is no API for that.
+  const enabled = async <T>(call: () => Promise<T>): Promise<T> => {
+    for (;;) {
+      try { return await call(); } catch (error) {
+        if (!(error instanceof GoogleFailure && error.reason === 'api_disabled')) throw error;
+      }
+      if (!waiting) {
+        waiting = true;
+        io.print(t(`Turn on the Apps Script API: ${USER_SETTINGS}`, `Включите API скрипта Google Apps: ${USER_SETTINGS}`));
+        io.print(t('On that page close the welcome dialog if it shows, open the line «Google Apps Script API» and click the switch. ' +
+          'aures goes on by itself.',
+        'На этой странице закройте приветствие, если оно появится, откройте строку «API скрипта приложений Google Apps» и нажмите ' +
+          'переключатель. aures продолжит сам.'));
+        await open(USER_SETTINGS);
+        io.wait(t('Waiting for the Apps Script API to be on…', 'Ждём, когда API скрипта Google Apps включится…'));
+      }
+      await sleep(API_POLL_MS);
+    }
+  };
+  try {
+    let scriptId = deployment?.scriptId;
+    if (!scriptId) {
+      scriptId = await enabled(() => api.createProject(PROJECT_TITLE));
+      await onProject?.(scriptId);
+    }
+    const project = scriptId;
+    const secret = randomBytes(24).toString('base64url');
+    const files: ScriptFile[] = [
+      { name: PROJECT_FILES.manifest, type: 'JSON', source: JSON.stringify(MANIFEST, null, 2) },
+      { name: PROJECT_FILES.worker, type: 'SERVER_JS', source: workerSource },
+      { name: PROJECT_FILES.secret, type: 'SERVER_JS', source: secretSource(secret) },
+    ];
+    await enabled(() => api.updateContent(project, files));
+    const description = `aures ${pkg.version}`;
+    const versionNumber = await enabled(() => api.createVersion(project, description));
+    const config = { versionNumber, manifestFileName: PROJECT_FILES.manifest, description };
+    const deploymentId = deployment?.deploymentId;
+    const deployed = await enabled(() => deploymentId ? api.updateDeployment(project, deploymentId, config) : api.createDeployment(project, config));
+    try { await secretKeychain.write(secret); } catch (error) {
+      if (!(error instanceof KeychainUnavailable)) throw error;
+      throw new CommandFailed(t('Could not save the worker secret to the Keychain. Unlock it and try again.',
+        'Не удалось сохранить секрет воркера в Связку ключей. Разблокируйте её и повторите.'));
+    }
+    return { scriptId: project, ...deployed };
+  } finally { if (waiting) io.wait(null); }
+}

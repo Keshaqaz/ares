@@ -7,6 +7,10 @@ export const TICK_MINUTES = 5;
 // The global function the schedule calls.
 export const TICK_FUNCTION = 'tick';
 
+// The project in the user's Drive and its files: updateContent replaces them all.
+export const PROJECT_TITLE = 'aures-worker';
+export const PROJECT_FILES = { manifest: 'appsscript', worker: 'worker', secret: 'secret' } as const;
+
 // The global the secret file declares.
 export const SECRET_GLOBAL = 'AURES_SECRET';
 
