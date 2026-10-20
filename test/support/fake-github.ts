@@ -9,6 +9,7 @@ import { GITHUB_OAUTH_CLIENT_ID } from '../../src/github/oauth-app.ts';
 import { USER_AGENT } from '../../src/chatgpt/http.ts';
 import type { Fetch } from '../../src/chatgpt/http.ts';
 import type { Repository, WorkflowRun, NewRepositoryBody, PutFileBody, PutSecretBody, DispatchBody } from '../../src/github/api.ts';
+import { REVOKE_INPUT, TRIAL_INPUT } from '../../src/worker/layout.ts';
 
 export interface FakeRun extends WorkflowRun {
   inputs: Record<string, string>;
@@ -124,10 +125,19 @@ export async function withGitHub(world: GitHubWorld, { login = 'octo-fake' }: { 
   }
 
   // One run of the workflow: dispatched with inputs, or by the cron (event 'schedule').
+  // The title is what the workflow's run-name makes of the inputs (workflow.ts); the journal
+  // reads the kind of the run from it.
+  const runTitle = (event: string, inputs: Record<string, string>): string =>
+    inputs.apply_now ? `Apply now: ${inputs.apply_now}` :
+      inputs[TRIAL_INPUT] === 'true' ? 'Trial run' :
+      inputs[REVOKE_INPUT] === 'true' ? 'Revoke session' :
+      event === 'workflow_dispatch' ? 'Check from this Mac' : 'Scheduled check';
+
   async function startRun(repo: FakeRepository, event: string, inputs: Record<string, string>): Promise<FakeRun> {
     const at = new Date(world.now).toISOString();
     const run: FakeRun = { id: 9000 + ++serial, event, status: 'queued', conclusion: null, created_at: at, run_started_at: at, updated_at: at,
-      html_url: `https://github.com/${login}/${repo.meta.name}/actions/runs/${9000 + serial}`, inputs, log: '' };
+      html_url: `https://github.com/${login}/${repo.meta.name}/actions/runs/${9000 + serial}`, display_title: runTitle(event, inputs),
+      inputs, log: '' };
     repo.runs.unshift(run);
     if (github.queueMs) run.queuedUntil = world.now + github.queueMs;
     else await execute(repo, run);

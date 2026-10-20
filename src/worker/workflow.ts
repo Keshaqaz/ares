@@ -7,6 +7,10 @@ export function workflowYaml({ minute }: { minute: number }): string {
   // Minute 0 is GitHub's busiest moment for schedules.
   if (!Number.isInteger(minute) || minute < 1 || minute > 59) throw new RangeError('minute must be 1..59');
   return `name: codex-auto-resets
+run-name: >-
+  \${{ inputs.apply_now && format('Apply now: {0}', inputs.apply_now) || inputs.${TRIAL_INPUT} && 'Trial run'
+      || inputs.${REVOKE_INPUT} && 'Revoke session' || (github.event_name == 'workflow_dispatch' && 'Check from this Mac')
+      || 'Scheduled check' }}
 on:
   schedule:
     - cron: '${minute} * * * *'

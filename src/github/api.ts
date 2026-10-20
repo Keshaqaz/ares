@@ -28,6 +28,8 @@ export interface Repository {
 export interface WorkflowRun {
   id: number; event: string; status: string; conclusion: string | null; html_url: string;
   created_at: string; run_started_at: string; updated_at: string;
+  // The run's title, where the workflow's run-name lands: it names what started the run.
+  display_title: string;
 }
 interface Runs { workflow_runs?: WorkflowRun[] }
 
@@ -206,6 +208,12 @@ export class GitHubApi {
   async latestRun(repo: string, workflow: string): Promise<WorkflowRun | null> {
     const { status, value } = await this.expect('runs', `/repos/${repo}/actions/workflows/${workflow}/runs?per_page=1`, [200, 404]);
     return status === 200 ? (value as Runs | null)?.workflow_runs?.[0] ?? null : null;
+  }
+  // The latest runs of the workflow, scheduled and dispatched together, newest first; empty
+  // while GitHub does not know the workflow yet (404). The journal reads this many entries.
+  async runs(repo: string, workflow: string): Promise<WorkflowRun[]> {
+    const { status, value } = await this.expect('runs', `/repos/${repo}/actions/workflows/${workflow}/runs?per_page=30`, [200, 404]);
+    return status === 200 ? (value as Runs | null)?.workflow_runs ?? [] : [];
   }
   // The latest runs the cron started, newest first; empty while GitHub does not know the workflow yet (404).
   async scheduledRuns(repo: string, workflow: string): Promise<WorkflowRun[]> {

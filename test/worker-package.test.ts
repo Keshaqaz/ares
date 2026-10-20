@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildWorker } from '../scripts/build-worker.ts';
 import { workflowYaml } from '../src/worker/workflow.ts';
-import { FILES, STATE_KEY_SECRET, TRIAL_INPUT } from '../src/worker/layout.ts';
+import { FILES, STATE_KEY_SECRET, REVOKE_INPUT, TRIAL_INPUT } from '../src/worker/layout.ts';
 import { generateKey } from '../src/worker/state-file.ts';
 import type { Summary } from '../src/worker/summary.ts';
 import { fakeWorld } from './support/fake-world.ts';
@@ -20,6 +20,11 @@ test('the workflow runs hourly on a static cron at the chosen minute, one run at
   const yaml = workflowYaml({ minute: 17 });
   assert.match(yaml, /^ {2}schedule:\n {4}- cron: '17 \* \* \* \*'\n {2}workflow_dispatch:\n/m);
   assert.equal(yaml.match(/cron:/g)?.length, 1);
+  // The run names its kind (run-name), so the whole history of runs reads by it in the runs API.
+  assert.match(yaml, /^run-name: >-\n {2}\$\{\{ inputs\.apply_now && format\('Apply now: \{0\}', inputs\.apply_now\)/m);
+  assert.match(yaml, new RegExp(`\\|\\| inputs\\.${TRIAL_INPUT} && 'Trial run'`));
+  assert.match(yaml, new RegExp(`\\|\\| inputs\\.${REVOKE_INPUT} && 'Revoke session'`));
+  for (const title of ["'Revoke session'", "'Check from this Mac'", "'Scheduled check'"]) assert.ok(yaml.includes(title), title);
   assert.match(yaml, /^ {6}apply_now:\n/m);
   assert.match(yaml, new RegExp(`^ {6}${TRIAL_INPUT}:\\n(?: {8}.*\\n)* {8}type: boolean\\n`, 'm'));
   assert.match(yaml, new RegExp(`TRIAL_RUN: \\$\\{\\{ inputs\\.${TRIAL_INPUT} \\}\\}`));
