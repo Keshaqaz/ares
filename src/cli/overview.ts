@@ -1,11 +1,17 @@
-import type { GitHubApi, Repository, WorkflowRun } from '../github/api.ts';
+import type { Repository, WorkflowRun } from '../github/api.ts';
 import { FILES, BEFORE_EXPIRY_MS } from '../worker/layout.ts';
-import { readRules, BrokenState } from '../worker/state-file.ts';
+import { BEFORE_EXPIRY_MS as GOOGLE_BEFORE_EXPIRY_MS, TICK_MINUTES } from '../apps-script/layout.ts';
+import type { JournalEntry } from '../apps-script/worker.ts';
+import { readRules, BrokenState, RULES_FORMAT_VERSION } from '../worker/state-file.ts';
 import type { Rules } from '../worker/state-file.ts';
 import type { Summary } from '../worker/summary.ts';
 import { WORKFLOW_FILE, resetName, unfinished, ruleLabel, reasonText, attemptResult, enableUrl, byDeadline, readSummary, loggedOutcome,
   failedRunAdvice } from './common.ts';
 import type { Logged, Rule } from './common.ts';
+import { projectUrl, rulesOf } from './active-worker.ts';
+import { brokenOnGoogle } from './google.ts';
+import type { Worker, GoogleWorker } from './active-worker.ts';
+import type { Platform } from './watch-files.ts';
 import { macCheckStatus, checkAdvice } from './mac-check.ts';
 import type { Mac, MacCheck } from './mac-check.ts';
 import { t, language, LANGUAGES } from './language.ts';
@@ -16,8 +22,11 @@ import pkg from '../../package.json' with { type: 'json' };
 // read and is worded when drawn, so the screen can change the language on the spot.
 
 // The cron asks for every hour, but GitHub runs it every 6–8 hours; the before-expiry rule
-// leaves no more than its window, so a longer silence is worth the user's attention.
-export const STALE_MS = BEFORE_EXPIRY_MS;
+// leaves no more than its window, so a longer silence is worth the user's attention. The same
+// holds on Google, with its window.
+const WINDOW_MS: Record<Platform, number> = { github: BEFORE_EXPIRY_MS, google: GOOGLE_BEFORE_EXPIRY_MS };
+// Runs of the worker on Google that only the user can mend.
+const USER_MENDS: JournalEntry['outcome'][] = ['reauth_required', 'broken_state'];
 export const WIDTH = 72;
 export const RULES: Rule[] = ['beforeExpiry', 'weeklyAutoApply'];
 
@@ -57,10 +66,21 @@ function nextScheduledRun(runs: WorkflowRun[]): number | null {
   return times[0] === undefined || median === undefined ? null : times[0] + median;
 }
 
-// Everything the overview shows, read from the worker repository (what the worker publishes
-// openly: it cannot read the sealed state) and from this Mac.
+// What the overview knows of the worker on its platform. On GitHub: the workflow and its runs;
+// the logged outcome is the one of a failed last run. On Google: the schedule and the journal.
+export type WorkerView =
+  | { platform: 'github'; repo: Repository; workflowState: string | null; lastRun: WorkflowRun | null;
+    // When the cron last started the worker; null before its first run.
+    lastScheduledAt: number | null;
+    // null until the cron has run twice.
+    nextRunAt: number | null;
+    logged: Logged | null }
+  | { platform: 'google'; scriptId: string; schedule: boolean; journal: JournalEntry[] };
+
+// Everything the overview shows, read from the worker (what it publishes openly: on GitHub it
+// cannot read the sealed state) and from this Mac.
 export interface Overview {
-  repo: Repository;
+  worker: WorkerView;
   readAt: number;
   // null before the worker's first read.
   resets: Summary['resets'] | null;
@@ -68,18 +88,12 @@ export interface Overview {
   rules: Rules | null;
   rulesBroken: boolean;
   check: MacCheck;
-  workflowState: string | null;
-  lastRun: WorkflowRun | null;
-  // When the cron last started the worker; null before its first run.
-  lastScheduledAt: number | null;
-  // null until the cron has run twice.
-  nextRunAt: number | null;
-  logged: Logged | null;
   lastApplied: Summary['lastApplied'];
   lastAttempt: Summary['lastAttempt'];
 }
-export async function readOverview({ api, repo, mac, now }: { api: GitHubApi; repo: Repository; mac: Mac; now: () => number }): Promise<Overview> {
-  const name = repo.full_name;
+export async function readOverview({ worker, mac, now }: { worker: Worker; mac: Mac; now: () => number }): Promise<Overview> {
+  if (worker.platform === 'google') return readGoogle({ worker, mac, now });
+  const { api, repo } = worker, name = repo.full_name;
   const [summary, rulesFile, workflowState, lastRun, scheduled] = await Promise.all([readSummary(api, repo), api.file(name, FILES.rules),
     api.workflowState(name, WORKFLOW_FILE), api.latestRun(name, WORKFLOW_FILE), api.scheduledRuns(name, WORKFLOW_FILE)]);
   let rules: Rules | null = null;
@@ -87,13 +101,37 @@ export async function readOverview({ api, repo, mac, now }: { api: GitHubApi; re
   const check = await macCheckStatus({ weekly: rules?.weeklyAutoApply ?? null, mac });
   const failed = lastRun?.status === 'completed' && lastRun.conclusion !== 'success';
   const logged = failed ? loggedOutcome(await api.runLog(name, lastRun.id).catch(() => null)) : null;
-  return { repo, readAt: now(), resets: summary ? byDeadline(summary.resets) : null, rules, rulesBroken: Boolean(rulesFile && !rules),
-    check, workflowState, lastRun, lastScheduledAt: scheduled[0] ? runAt(scheduled[0]) : null, nextRunAt: nextScheduledRun(scheduled), logged, lastApplied: summary?.lastApplied ?? null, lastAttempt: summary?.lastAttempt ?? null };
+  return { worker: { platform: 'github', repo, workflowState, lastRun, lastScheduledAt: scheduled[0] ? runAt(scheduled[0]) : null,
+    nextRunAt: nextScheduledRun(scheduled), logged }, readAt: now(), resets: summary ? byDeadline(summary.resets) : null, rules,
+  rulesBroken: Boolean(rulesFile && !rules), check, lastApplied: summary?.lastApplied ?? null, lastAttempt: summary?.lastAttempt ?? null };
 }
 
+// On Google everything comes in one doPost status. The worker there keeps no rules it cannot read.
+async function readGoogle({ worker, mac, now }: { worker: GoogleWorker; mac: Mac; now: () => number }):
+  Promise<Overview> {
+  const status = await worker.status();
+  const summary = status.summary as Summary | null, rules = rulesOf(status.rules);
+  // The check from this Mac does not wake the worker on Google yet: it is shown as off.
+  const check = await macCheckStatus({ weekly: null, mac });
+  return { worker: { platform: 'google', scriptId: worker.scriptId, schedule: status.schedule === true,
+    journal: Array.isArray(status.journal) ? status.journal as JournalEntry[] : [] }, readAt: now(),
+  resets: summary ? byDeadline(summary.resets) : null, rules, rulesBroken: false, check, lastApplied: summary?.lastApplied ?? null,
+  lastAttempt: summary?.lastAttempt ?? null };
+}
+
+type WorkerState = { tone: Tone; text: string; warning?: string };
+const nextRun = (nextRunAt: number | null, readAt: number): WorkerState => {
+  if (nextRunAt === null) return { tone: 'ok', text: t('worker works · waiting for a scheduled run', 'воркер работает · ждёт запуска по расписанию') };
+  if (nextRunAt <= readAt) return { tone: 'ok', text: t('worker works · next run due any moment', 'воркер работает · следующий запуск ожидается в любой момент') };
+  return { tone: 'ok', text: t(`worker works · next run expected ${timeLeft(nextRunAt - readAt)}`,
+    `воркер работает · следующий запуск ожидается ${timeLeft(nextRunAt - readAt)}`) };
+};
+const executions = (scriptId: string): string => `${projectUrl(scriptId)}/executions`;
+
 // The worker in one line, and what the user should do about it.
-function workerState({ repo, workflowState, lastRun, lastScheduledAt, nextRunAt, readAt }: Overview, timeZone?: string):
-  { tone: Tone; text: string; warning?: string } {
+function workerState({ worker, readAt }: Overview, timeZone?: string): WorkerState {
+  if (worker.platform === 'google') return googleState(worker, readAt, timeZone);
+  const { repo, workflowState, lastRun, lastScheduledAt, nextRunAt } = worker;
   if (!workflowState) return { tone: 'warn', text: t('setup is not finished', 'установка не завершена'), warning: unfinished() };
   if (workflowState !== 'active') {
     return { tone: 'bad', text: t('worker is disabled in GitHub', 'воркер выключен в GitHub'),
@@ -105,22 +143,57 @@ function workerState({ repo, workflowState, lastRun, lastScheduledAt, nextRunAt,
   const at = shortTime(runAt(lastRun), timeZone);
   if (lastRun.conclusion !== 'success') return { tone: 'bad', text: t(`last run failed · ${at}`, `последний запуск с ошибкой · ${at}`) };
   const hours = Math.floor((readAt - runAt(lastRun)) / 3600_000);
-  if (readAt - runAt(lastRun) > STALE_MS) {
+  if (readAt - runAt(lastRun) > WINDOW_MS.github) {
     return { tone: 'warn', text: t(`worker silent for ${hours}h`, `воркер молчит ${hours} ч`),
       warning: t(`The worker has not run for ${hours}h. Check: ${repo.html_url}/actions`,
         `Воркер не запускался уже ${hours} ч. Проверьте: ${repo.html_url}/actions`) };
   }
   // Runs from this Mac or apply-now do not stand in for the cron: the before-expiry rule rests on it.
-  if (lastScheduledAt !== null && readAt - lastScheduledAt > STALE_MS) {
+  if (lastScheduledAt !== null && readAt - lastScheduledAt > WINDOW_MS.github) {
     const silent = Math.floor((readAt - lastScheduledAt) / 3600_000);
     return { tone: 'warn', text: t(`no scheduled run for ${silent}h`, `нет запуска по расписанию ${silent} ч`),
       warning: t(`GitHub has not run the worker on schedule for ${silent}h, and the before-expiry rule depends on it. Check: ${repo.html_url}/actions`,
         `GitHub не запускал воркер по расписанию уже ${silent} ч, а правило перед истечением зависит от этих запусков. Проверьте: ${repo.html_url}/actions`) };
   }
-  if (nextRunAt === null) return { tone: 'ok', text: t('worker works · waiting for a scheduled run', 'воркер работает · ждёт запуска по расписанию') };
-  if (nextRunAt <= readAt) return { tone: 'ok', text: t('worker works · next run due any moment', 'воркер работает · следующий запуск ожидается в любой момент') };
-  return { tone: 'ok', text: t(`worker works · next run expected ${timeLeft(nextRunAt - readAt)}`,
-    `воркер работает · следующий запуск ожидается ${timeLeft(nextRunAt - readAt)}`) };
+  return nextRun(nextRunAt, readAt);
+}
+
+// On Google by the schedule and the journal: the latest run of any kind, and the latest scheduled one.
+function googleState({ scriptId, schedule, journal }: Extract<WorkerView, { platform: 'google' }>, readAt: number, timeZone?: string):
+  WorkerState {
+  if (!schedule) {
+    return { tone: 'bad', text: t('worker has no schedule', 'у воркера нет расписания'),
+      warning: t('Resets are not applied. Repair the worker: `aures setup` puts the schedule back.',
+        'Сбросы не применяются. Почините воркер: `aures setup` вернёт расписание.') };
+  }
+  const last = journal.at(-1);
+  if (!last) return { tone: 'warn', text: t('worker has not run yet', 'воркер ещё не запускался') };
+  if (USER_MENDS.includes(last.outcome)) {
+    const at = shortTime(Date.parse(last.at), timeZone);
+    return { tone: 'bad', text: t(`last run failed · ${at}`, `последний запуск с ошибкой · ${at}`) };
+  }
+  const scheduled = journal.findLast(entry => entry.kind === 'scheduled');
+  const scheduledAt = scheduled ? Date.parse(scheduled.at) : null;
+  if (scheduledAt !== null && readAt - scheduledAt > WINDOW_MS.google) {
+    const silent = Math.floor((readAt - scheduledAt) / 3600_000);
+    return { tone: 'warn', text: t(`no scheduled run for ${silent}h`, `нет запуска по расписанию ${silent} ч`),
+      warning: t(`Google has not run the worker on schedule for ${silent}h, and the before-expiry rule depends on it. Check: ${executions(scriptId)}`,
+        `Google не запускал воркер по расписанию уже ${silent} ч, а правило перед истечением зависит от этих запусков. Проверьте: ${executions(scriptId)}`) };
+  }
+  return nextRun(scheduledAt === null ? null : scheduledAt + TICK_MINUTES * 60_000, readAt);
+}
+
+// What the user does about a failed last run, with where to see it.
+function failedRun({ worker }: Overview): string | null {
+  const details = t('Details', 'Подробности');
+  if (worker.platform === 'github') {
+    const { lastRun, logged } = worker;
+    return lastRun?.status === 'completed' && lastRun.conclusion !== 'success' ? `${failedRunAdvice(logged ?? {})} ${details}: ${lastRun.html_url}` : null;
+  }
+  const last = worker.journal.at(-1);
+  if (!last || !USER_MENDS.includes(last.outcome)) return null;
+  const advice = last.outcome === 'broken_state' ? brokenOnGoogle(last.reason) : failedRunAdvice({ outcome: last.outcome });
+  return `${advice} ${details}: ${executions(worker.scriptId)}`;
 }
 
 // The latest application, or a later attempt that did not apply.
@@ -171,7 +244,7 @@ export function renderOverview(model: Overview, { now, timeZone, width = WIDTH, 
     const selected = at({ kind: 'reset', creditId: reset.creditId });
     const expiresAt = reset.expiresAt ? Date.parse(reset.expiresAt) : null;
     const status: Segment = expiresAt === null ? ['', ''] : expiresAt <= now() ? [t('expired', 'срок вышел'), S.dim] :
-      model.rules?.beforeExpiry && expiresAt - now() <= BEFORE_EXPIRY_MS ? [t('applies soon', 'скоро применится'), S.yellow] :
+      model.rules?.beforeExpiry && expiresAt - now() <= WINDOW_MS[model.worker.platform] ? [t('applies soon', 'скоро применится'), S.yellow] :
         [timeLeft(expiresAt - now()), S.dim];
     lines.push(spread([[selected ? '▸ ' : '  ', S.cyan], [resetName(reset.creditId).padEnd(idWidth + 3), selected ? S.cyan : ''], status],
       [[expiresAt === null ? t('no expiry', 'без срока') : shortTime(expiresAt, timeZone), selected ? S.cyan : S.dim]], width));
@@ -186,19 +259,17 @@ export function renderOverview(model: Overview, { now, timeZone, width = WIDTH, 
     const check: Segment = rule !== 'weeklyAutoApply' || !on || model.check.state === 'off' ? ['', ''] : model.check.state === 'working' ?
       [t(' · Mac check works', ' · проверка с Mac работает'), S.dim] : [t(' · Mac check is not working', ' · проверка с Mac не работает'), S.yellow];
     lines.push([[selected ? '▸ ' : '  ', S.cyan], [on ? '☑ ' : '☐ ', on ? S.green : S.dim],
-      [ruleLabel(rule), selected ? S.cyan : on ? '' : S.dim], check]);
+      [ruleLabel(rule, model.worker.platform), selected ? S.cyan : on ? '' : S.dim], check]);
   }
 
   const worker = workerState(model, timeZone), last = lastEvent(model, timeZone);
   lines.push([], [['● ', TONES[worker.tone]], [worker.text, '']]);
   if (last) lines.push([[`  ${last}`, S.dim]]);
-  lines.push([[`  ${model.repo.html_url}`, S.dim]]);
-  const warnings = [worker.warning];
+  lines.push([[`  ${model.worker.platform === 'github' ? model.worker.repo.html_url : projectUrl(model.worker.scriptId)}`, S.dim]]);
+  const warnings: (string | null | undefined)[] = [worker.warning];
   if (model.rulesBroken) warnings.push(t('The rules do not read. Choose them again: `aures rules`.',
     'Правила не читаются. Выберите их заново: `aures rules`.'));
-  if (model.lastRun?.status === 'completed' && model.lastRun.conclusion !== 'success') {
-    warnings.push(`${failedRunAdvice(model.logged ?? {})} ${t('Details', 'Подробности')}: ${model.lastRun.html_url}`);
-  }
+  warnings.push(failedRun(model));
   if (model.check.problem) warnings.push(checkAdvice(model.check.problem));
   for (const warning of warnings.filter((w): w is string => Boolean(w))) lines.push([['! ', S.yellow], [warning, S.yellow]]);
   return lines;

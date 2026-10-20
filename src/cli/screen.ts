@@ -1,14 +1,13 @@
 import { emitKeypressEvents } from 'node:readline';
 import type { Key } from 'node:readline';
-import type { GitHubApi, Repository } from '../github/api.ts';
 import type { Fetch } from '../chatgpt/http.ts';
-import type { Rules } from '../worker/state-file.ts';
-import { FILES } from '../worker/layout.ts';
-import { readRules, BrokenState, RULES_FORMAT_VERSION } from '../worker/state-file.ts';
-import { CommandFailed, resetName, unfinished, connectGitHub, installedWorker, runnableWorkflow, readSummary, explain, command } from './common.ts';
-import { applyReset } from './apply-now.ts';
-import { saveRules } from './rules.ts';
-import type { CommandOptions, Printer, Rule, Sleep } from './common.ts';
+import { RULES_FORMAT_VERSION } from '../worker/state-file.ts';
+import { CommandFailed, resetName, explain, command } from './common.ts';
+import { applyReset, readyToApply } from './apply-now.ts';
+import { saveRules, storedRules } from './rules.ts';
+import { openWorker } from './active-worker.ts';
+import type { Worker, OpenWorkerOptions } from './active-worker.ts';
+import type { Rule, Sleep } from './common.ts';
 import { readOverview, renderOverview, overviewItems, sameItem, paint, S, WIDTH } from './overview.ts';
 import type { Overview, Tone as OverviewTone } from './overview.ts';
 import type { Mac } from './mac-check.ts';
@@ -30,8 +29,7 @@ const RUSSIAN: Record<string, string> = { н: 'y', й: 'q', к: 'r', о: 'j', л
 // What an action says: a line of a note, or of its message, in its tone.
 export type Note = (text: string, tone?: Tone) => void;
 export interface ScreenOptions {
-  api: GitHubApi;
-  repo: Repository;
+  worker: Worker;
   mac: Mac;
   fetch: Fetch;
   now: () => number;
@@ -41,8 +39,7 @@ export interface ScreenOptions {
 
 // The screen without the terminal: keys in, frames out.
 export class Screen {
-  api: GitHubApi;
-  repo: Repository;
+  worker: Worker;
   mac: Mac;
   fetch: Fetch;
   now: () => number;
@@ -55,9 +52,8 @@ export class Screen {
   notes: { text: string; tone: Tone | undefined }[] = []; // what the last action said
   tick = 0;
   changed: () => void = () => {};
-  constructor({ api, repo, mac, fetch, now, sleep, timeZone }: ScreenOptions) {
-    this.api = api;
-    this.repo = repo;
+  constructor({ worker, mac, fetch, now, sleep, timeZone }: ScreenOptions) {
+    this.worker = worker;
     this.mac = mac;
     this.fetch = fetch;
     this.now = now;
@@ -101,8 +97,10 @@ export class Screen {
       const creditId = this.confirm;
       this.confirm = null;
       if (name === 'y') {
-        return this.act(t(`Applying ${resetName(creditId)}… The worker starts on GitHub, this takes a couple of minutes.`,
-          `Применяем ${resetName(creditId)}… Воркер запускается на GitHub, это займёт пару минут.`), note => this.apply(creditId, note));
+        const name = resetName(creditId);
+        return this.act(this.worker.platform === 'google' ? t(`Applying ${name}…`, `Применяем ${name}…`) :
+          t(`Applying ${name}… The worker starts on GitHub, this takes a couple of minutes.`,
+            `Применяем ${name}… Воркер запускается на GitHub, это займёт пару минут.`), note => this.apply(creditId, note));
       }
       this.changed();
       return;
@@ -144,29 +142,26 @@ export class Screen {
   }
 
   async apply(creditId: string, note: Note): Promise<void> {
-    const { api, repo, now, sleep } = this;
-    await runnableWorkflow(api, repo);
-    const before = await readSummary(api, repo);
+    const { worker, now, sleep } = this;
+    const before = await readyToApply(worker);
     // The spinner line says what the run waits for; the reset stays named in it.
     const wait = (text: string | null) => { if (text) { this.busy = `${resetName(creditId)}: ${text}`; this.changed(); } };
-    const { code, message } = await applyReset({ api, repo, creditId, before, now, sleep, wait });
+    const { code, message } = await applyReset({ worker, creditId, before, now, sleep, wait });
     note(message, code === 0 ? 'ok' : 'warn');
   }
 
-  // Switches one rule in the rules file as it is now, not as the screen last read it.
+  // Switches one rule in the rules as they are now, not as the screen last read them.
   async switchRule(rule: Rule, note: Note): Promise<void> {
-    const { api, repo, mac, fetch, now, sleep } = this;
-    const file = await api.file(repo.full_name, FILES.rules);
-    if (!file) throw new CommandFailed(unfinished());
-    let current: Rules;
-    try { current = readRules(file.text); } catch (error) {
-      if (!(error instanceof BrokenState)) throw error;
-      throw new CommandFailed(t(`The rules do not read (${error.reason}). Choose them again: \`aures rules\`.`,
-        `Правила не читаются (${error.reason}). Выберите их заново: \`aures rules\`.`));
+    const { worker, mac, fetch, now, sleep } = this;
+    const stored = await storedRules(worker), { current, broken } = stored;
+    if (!current) {
+      throw new CommandFailed(broken ? t(`The rules do not read (${broken}). Choose them again: \`aures rules\`.`,
+        `Правила не читаются (${broken}). Выберите их заново: \`aures rules\`.`) :
+        t('The rules are not set. Choose them: `aures rules`.', 'Правила не заданы. Выберите их: `aures rules`.'));
     }
     const chosen = { formatVersion: RULES_FORMAT_VERSION, beforeExpiry: current.beforeExpiry, weeklyAutoApply: current.weeklyAutoApply,
       [rule]: !current[rule] };
-    await saveRules({ api, repo, sha: file.sha, current, chosen, mac, fetch, io: { print: line => note(line) }, now, sleep });
+    await saveRules({ worker, stored, chosen, mac, fetch, io: { print: line => note(line) }, now, sleep });
   }
 
   // The other language at once; it is kept for the next start, if this Mac lets it be written.
@@ -177,13 +172,14 @@ export class Screen {
   }
 }
 
-// The screen of an installed worker, read once.
-export type ScreenCommandOptions = Omit<CommandOptions, 'io'> & { io: Printer };
-export async function openScreen({ fetch, keychain, io, mac, now = Date.now,
-  sleep = ms => new Promise(resolve => setTimeout(resolve, ms)), timeZone }: ScreenCommandOptions): Promise<Screen> {
-  const { api, login } = await connectGitHub({ fetch, keychain, io, now, sleep });
-  const repo = await installedWorker({ api, login });
-  const screen = new Screen({ api, repo, mac, fetch, now, sleep, timeZone });
+// The screen of an installed worker, read once. Before the screen opens the user may be asked
+// where the worker runs.
+export type ScreenCommandOptions = OpenWorkerOptions;
+export async function openScreen(options: ScreenCommandOptions): Promise<Screen> {
+  const { fetch, mac, now = Date.now, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)), timeZone } = options;
+  // Its doPost failures are told on the screen, where the user repeats the action.
+  const worker = await openWorker(options, null);
+  const screen = new Screen({ worker, mac, fetch, now, sleep, timeZone });
   await screen.load();
   return screen;
 }

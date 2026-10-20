@@ -20,8 +20,8 @@ const EXPIRY_MARGIN_MS = 60_000;
 const LOGIN_TIMEOUT_MS = 10 * 60_000;
 
 // What a call was for; a refusal names it in its reason.
-type Purpose = 'token' | 'refresh' | 'create_project' | 'update_content' | 'create_version' | 'create_deployment' |
-  'update_deployment' | 'web_app';
+type Purpose = 'token' | 'refresh' | 'create_project' | 'get_project' | 'get_content' | 'update_content' | 'create_version' |
+  'create_deployment' | 'update_deployment' | 'list_deployments' | 'web_app';
 // api_disabled: the user has not turned on the Apps Script API in script.google.com/home/usersettings.
 // invalid_grant: the refresh token is gone (revoked, or 7 days old in testing mode).
 export type GoogleFailureReason = 'network' | 'unauthorized' | 'invalid_grant' | 'api_disabled' | `${Purpose}_${number}` |
@@ -135,7 +135,8 @@ export interface ScriptFile { name: string; type: 'JSON' | 'SERVER_JS'; source: 
 export interface Deployment { deploymentId: string; url: string }
 // The JSON bodies the client sends.
 export interface DeploymentConfig { versionNumber: number; manifestFileName: string; description: string }
-interface DeploymentReply { deploymentId?: unknown; entryPoints?: { entryPointType?: unknown; webApp?: { url?: unknown } }[] }
+interface DeploymentReply { deploymentId?: unknown; deploymentConfig?: { versionNumber?: unknown };
+  entryPoints?: { entryPointType?: unknown; webApp?: { url?: unknown } }[] }
 
 export interface GoogleApiOptions { fetch: Fetch; now: () => number; refreshToken: string; access?: AccessToken }
 
@@ -177,6 +178,12 @@ export class GoogleApi {
     return reply.value;
   }
 
+  // The project's title; throws get_project_404 when there is no such project.
+  async projectTitle(scriptId: string): Promise<string> {
+    const project = await this.expect('get_project', `/projects/${encodeURIComponent(scriptId)}`, 'GET') as { title?: unknown } | null;
+    if (typeof project?.title !== 'string') throw new GoogleFailure('get_project_invalid');
+    return project.title;
+  }
   async createProject(title: string): Promise<string> {
     const project = await this.expect('create_project', '/projects', 'POST', { title }) as { scriptId?: unknown } | null;
     if (typeof project?.scriptId !== 'string') throw new GoogleFailure('create_project_invalid');
@@ -185,6 +192,12 @@ export class GoogleApi {
   // Replaces every file of the project.
   async updateContent(scriptId: string, files: ScriptFile[]): Promise<void> {
     await this.expect('update_content', `/projects/${encodeURIComponent(scriptId)}/content`, 'PUT', { files });
+  }
+  // The project's files as they are now, not as a deployment serves them.
+  async content(scriptId: string): Promise<ScriptFile[]> {
+    const content = await this.expect('get_content', `/projects/${encodeURIComponent(scriptId)}/content`, 'GET') as { files?: unknown } | null;
+    if (!Array.isArray(content?.files)) throw new GoogleFailure('get_content_invalid');
+    return content.files as ScriptFile[];
   }
   // A version is a frozen copy of the content; a deployment serves one.
   async createVersion(scriptId: string, description: string): Promise<number> {
@@ -202,9 +215,18 @@ export class GoogleApi {
     return deployment('update_deployment', await this.expect('update_deployment',
       `/projects/${encodeURIComponent(scriptId)}/deployments/${encodeURIComponent(deploymentId)}`, 'PUT', { deploymentConfig: config }));
   }
+  // The deployments that serve a version as a web app; the head deployment of the editor is not one of them.
+  async deployments(scriptId: string): Promise<Deployment[]> {
+    const reply = await this.expect('list_deployments', `/projects/${encodeURIComponent(scriptId)}/deployments`, 'GET') as
+      { deployments?: unknown } | null;
+    const all = Array.isArray(reply?.deployments) ? reply.deployments as DeploymentReply[] : [];
+    return all.filter(one => typeof one.deploymentConfig?.versionNumber === 'number').flatMap(one => {
+      try { return [deployment('list_deployments', one)]; } catch { return []; }
+    });
+  }
 }
 
-function deployment(what: 'create_deployment' | 'update_deployment', value: unknown): Deployment {
+function deployment(what: 'create_deployment' | 'update_deployment' | 'list_deployments', value: unknown): Deployment {
   const reply = value as DeploymentReply | null;
   const url = reply?.entryPoints?.find(entry => entry.entryPointType === 'WEB_APP')?.webApp?.url;
   if (typeof reply?.deploymentId !== 'string' || typeof url !== 'string') throw new GoogleFailure(`${what}_invalid`);

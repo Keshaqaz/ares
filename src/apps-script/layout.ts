@@ -7,7 +7,9 @@ export const TICK_MINUTES = 5;
 // The global function the schedule calls.
 export const TICK_FUNCTION = 'tick';
 
-// The project in the user's Drive and its files: updateContent replaces them all.
+// The project in the user's Drive and its files: updateContent replaces them all; the CLI finds
+// the project by the link to it on SCRIPT_HOME.
+export const SCRIPT_HOME = 'https://script.google.com/home';
 export const PROJECT_TITLE = 'aures-worker';
 export const PROJECT_FILES = { manifest: 'appsscript', worker: 'worker', secret: 'secret' } as const;
 
@@ -23,3 +25,8 @@ export const MANIFEST = {
 };
 
 export const secretSource = (secret: string): string => `var ${SECRET_GLOBAL} = ${JSON.stringify(secret)};\n`;
+// The secret back from the file secretSource wrote; null for another text.
+export const secretOf = (source: string): string | null => {
+  const match = /^\s*var (\w+) = ("[^"\\]*");?\s*$/.exec(source);
+  return match?.[1] === SECRET_GLOBAL && match[2] ? JSON.parse(match[2]) as string : null;
+};

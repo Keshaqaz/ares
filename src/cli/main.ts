@@ -15,7 +15,6 @@ import { WatchFiles } from './watch-files.ts';
 import { LaunchAgent } from './launch-agent.ts';
 import { GitHubTokenKeychain, KeychainEntry, GOOGLE_TOKEN_ACCOUNT, WORKER_SECRET_ACCOUNT } from './keychain.ts';
 import { openInBrowser } from './browser.ts';
-import type { OpenUrl } from './browser.ts';
 import { liveLine } from './live-line.ts';
 import type { CommandOptions } from './common.ts';
 import { t, setLanguage, isLanguage } from './language.ts';
@@ -26,19 +25,19 @@ const WORKER_BUNDLE = new URL('../../dist/worker.mjs', import.meta.url);
 const APPS_SCRIPT_BUNDLE = new URL('../../dist/apps-script/worker.js', import.meta.url);
 type Command = (options: CommandOptions) => Promise<number>;
 interface Bundles { workerSource: string; appsScriptSource: string }
-// What setup and upgrade take beside CommandOptions: the bundles, the Google Keychain entries and the browser.
-type Deploying = CommandOptions & Bundles & { googleKeychain: KeychainEntry; secretKeychain: KeychainEntry; open: OpenUrl };
 // Without the bundles setup and upgrade do not start.
-const withBundle = (command: (options: Deploying) => Promise<number>): Command => async options => {
+const withBundle = (command: (options: CommandOptions & Bundles) => Promise<number>): Command => async options => {
   const [workerSource, appsScriptSource] = await Promise.all([WORKER_BUNDLE, APPS_SCRIPT_BUNDLE].map(url => readFile(url, 'utf8').catch(() => null)));
   if (workerSource == null || appsScriptSource == null) {
     console.error(t('There is no worker build in dist/. Build it: npm run build:worker',
       'Нет сборки воркера в dist/. Соберите её: npm run build:worker'));
     return 1;
   }
-  return command({ ...options, workerSource, appsScriptSource, googleKeychain: new KeychainEntry(GOOGLE_TOKEN_ACCOUNT),
-    secretKeychain: new KeychainEntry(WORKER_SECRET_ACCOUNT), open: openInBrowser });
+  return command({ ...options, workerSource, appsScriptSource });
 };
+// The Keychain entries and the browser every command gets.
+const access = () => ({ keychain: new GitHubTokenKeychain(), googleKeychain: new KeychainEntry(GOOGLE_TOKEN_ACCOUNT),
+  secretKeychain: new KeychainEntry(WORKER_SECRET_ACCOUNT), open: openInBrowser });
 // «2026-10-20T05:02:21+07:00»: the Mac's time with its offset, as the screen shows times.
 function localStamp(date = new Date()): string {
   const offset = -date.getTimezoneOffset(), pad = (n: number) => String(n).padStart(2, '0');
@@ -104,16 +103,21 @@ async function main(): Promise<number> {
   }
   const color = Boolean(process.stdout.isTTY) && !process.env.NO_COLOR;
   if (run === 'screen') {
-    const io = { print: (line: string) => console.log(line), color };
+    // A question before the screen opens (where the worker is) gets a line of its own.
+    const prompt = async (question: string) => {
+      const line = createInterface({ input: process.stdin, output: process.stdout });
+      try { return await line.question(question); } finally { line.close(); }
+    };
+    const io = { print: (line: string) => console.log(line), prompt, color };
     // An action that Ctrl-C left unfinished must not keep the process alive.
-    process.exit(await screen({ fetch: globalThis.fetch, keychain: new GitHubTokenKeychain(), io,
+    process.exit(await screen({ fetch: globalThis.fetch, ...access(), io,
       mac: { files, agent: new LaunchAgent() }, terminal: { input: process.stdin, output: process.stdout } }));
   }
   const terminal = createInterface({ input: process.stdin, output: process.stdout });
   const { print, wait } = liveLine(process.stdout, { color });
   const io = { print, wait, prompt: (question: string) => terminal.question(question), color };
   try {
-    return await run({ fetch: globalThis.fetch, keychain: new GitHubTokenKeychain(), io, mac: { files, agent: new LaunchAgent() } });
+    return await run({ fetch: globalThis.fetch, ...access(), io, mac: { files, agent: new LaunchAgent() } });
   } finally { terminal.close(); }
 }
 

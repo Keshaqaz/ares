@@ -137,6 +137,15 @@ export async function deployWorker({ api, secretKeychain, io, open, sleep, worke
 // What doPost answered: { ok: true, … } or { ok: false, error }; null while the script is not authorized.
 export type WorkerReply = Record<string, unknown>;
 
+// The doPost secret of this Mac; null when there is none or the Keychain is locked.
+export const readSecret = async (keychain: Keychain): Promise<string | null> => {
+  try { return await keychain.read(); } catch (error) { if (error instanceof KeychainUnavailable) return null; throw error; }
+};
+
+// What the user learns of a worker on Google whose data does not read.
+export const brokenOnGoogle = (reason: unknown): string => t(`The worker data in the Google project does not read (${reason}).`,
+  `Данные воркера в проекте Google не читаются (${reason}).`);
+
 // One doPost of the worker with the secret from the Keychain.
 export async function askWorker({ fetch, url, secret }: { fetch: Fetch; url: string; secret: string }, action: string,
   extra: Record<string, unknown> = {}): Promise<WorkerReply | null> {
@@ -144,9 +153,10 @@ export async function askWorker({ fetch, url, secret }: { fetch: Fetch; url: str
 }
 
 // The reply of an authorized worker that did what it was asked; otherwise the failure, explained.
-export function workerDid(reply: WorkerReply | null, command: string): WorkerReply {
+// command names what to repeat, null an action on the screen, as in explain.
+export function workerDid(reply: WorkerReply | null, command: string | null): WorkerReply {
   if (reply?.ok === true) return reply;
-  const again = t(`Run \`aures ${command}\` again`, `Повторите \`aures ${command}\``);
+  const again = command === null ? t('Try again', 'Повторите') : t(`Run \`aures ${command}\` again`, `Повторите \`aures ${command}\``);
   const error = reply === null ? 'unauthorized' : String(reply.error);
   throw new CommandFailed(({
     busy: t(`The worker is busy with another run. ${again}.`, `Воркер занят другим запуском. ${again}.`),

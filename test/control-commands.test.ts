@@ -138,12 +138,14 @@ test('status explains a failed last run', async () => {
 });
 
 test('control commands ask for setup when there is no worker', async () => {
-  const { run } = await cliWorld();
+  const { run, mac } = await cliWorld();
   for (const command of [status, applyNow, rules, login]) {
-    const { code, io } = await run(command);
+    // This Mac has no install record: the user says to look on GitHub.
+    const { code, io } = await run(command, { answers: ['1'] });
     assert.equal(code, 1);
     assert.equal(io.lines.at(-1), 'Воркер не установлен. Запустите `aures setup`.');
   }
+  assert.equal(await mac.files.readInstall(), null, 'a worker that is not found is not recorded');
 });
 
 test('apply-now applies the chosen reset in a dispatched run and shows the result', async () => {

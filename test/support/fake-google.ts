@@ -15,6 +15,7 @@ import type { FakeAppsScript } from './fake-apps-script.ts';
 import type { FakeWorld } from './fake-world.ts';
 
 export const USER_SETTINGS = 'https://script.google.com/home/usersettings';
+export const SCRIPT_HOME = 'https://script.google.com/home';
 // Probe 01, the reply to the first projects.create.
 const API_DISABLED = 'User has not enabled the Apps Script API. Enable it by visiting https://script.google.com/home/usersettings ' +
   'then retry. If you enabled this API recently, wait a few minutes for the action to propagate to our systems and retry.';
@@ -87,6 +88,7 @@ export function withGoogle(world: FakeWorld & { google?: FakeGoogle }): FakeGoog
     open: async href => {
       google.opened.push(href);
       const url = new URL(href);
+      if (href === SCRIPT_HOME) return;
       if (href === USER_SETTINGS) {
         if (google.enableAfterMs !== null) enableAt ??= world.now + google.enableAfterMs;
         return;
@@ -167,6 +169,7 @@ export function withGoogle(world: FakeWorld & { google?: FakeGoogle }): FakeGoog
   });
 
   const callOf = (method: string, path: string): ApiCall | null => {
+    if (method === 'GET') return null;
     if (path === '/v1/projects') return 'create_project';
     const what = path.match(/\/(content|versions|deployments)(\/[^/]+)?$/);
     if (what?.[1] === 'content') return 'update_content';
@@ -190,10 +193,21 @@ export function withGoogle(world: FakeWorld & { google?: FakeGoogle }): FakeGoog
         gas: null, loaded: null });
       return json(200, { scriptId, title: body.title });
     }
-    const match = path.match(/^\/v1\/projects\/([^/]+)\/(content|versions|deployments)(?:\/([^/]+))?$/);
+    const match = path.match(/^\/v1\/projects\/([^/]+)(?:\/(content|versions|deployments)(?:\/([^/]+))?)?$/);
     const project = match && google.projects.get(decodeURIComponent(match[1] ?? ''));
     if (!match || !project) return apiError(404, 'NOT_FOUND', 'Requested entity was not found.');
     const [, , what, id] = match;
+    if (method === 'GET') {
+      if (!can('projects') && what !== 'deployments' || what === 'deployments' && !can('deployments')) return insufficient();
+      if (what === undefined) return json(200, { scriptId: project.scriptId, title: project.title });
+      if (what === 'content') return json(200, { scriptId: project.scriptId, files: project.files });
+      if (what === 'deployments' && id === undefined) {
+        // The editor's head deployment has no version and no web app here.
+        return json(200, { deployments: [{ deploymentId: `AKfycbHead${project.scriptId}`, deploymentConfig: { scriptId: project.scriptId,
+          manifestFileName: 'appsscript' } }, ...[...project.deployments].map(([deploymentId, versionNumber]) =>
+          deploymentView(project, deploymentId, { versionNumber, manifestFileName: 'appsscript' }))] });
+      }
+    }
     if (what === 'content' && method === 'PUT') {
       if (!can('projects')) return insufficient();
       const files = body.files as ScriptFile[] | undefined;

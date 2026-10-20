@@ -17,6 +17,7 @@ import type { WouldApply } from '../worker/tick.ts';
 import { KeychainUnavailable } from './keychain.ts';
 import type { Keychain } from './keychain.ts';
 import type { Mac } from './mac-check.ts';
+import type { OpenUrl } from './browser.ts';
 import type { Platform } from './watch-files.ts';
 import { t } from './language.ts';
 
@@ -44,7 +45,12 @@ export interface Io extends Printer {
 // What main hands every command; now, sleep and timeZone are the real ones unless a test sets them.
 export interface CommandOptions {
   fetch: Fetch;
+  // The GitHub token; the Google sign-in and the doPost secret of the worker on Apps Script.
   keychain: Keychain;
+  googleKeychain: Keychain;
+  secretKeychain: Keychain;
+  // Opens a page in the browser.
+  open: OpenUrl;
   io: Io;
   mac: Mac;
   now?: () => number;

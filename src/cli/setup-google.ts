@@ -7,8 +7,9 @@ import { randomUUID } from 'node:crypto';
 import { deviceLogin } from '../chatgpt/session.ts';
 import type { Summary } from '../worker/summary.ts';
 import type { WouldApply } from '../worker/tick.ts';
-import { connectGoogle, deployWorker, askWorker, workerDid } from './google.ts';
-import type { WorkerReply } from './google.ts';
+import { GoogleFailure } from '../google/api.ts';
+import { connectGoogle, deployWorker, askWorker, workerDid, brokenOnGoogle, readSecret } from './google.ts';
+import type { WorkerReply, WorkerDeployment } from './google.ts';
 import { CommandFailed, chatgptLogin, showCode, chooseRules, failedRunAdvice, workingLine, trialVerdict, notReadYet } from './common.ts';
 import type { Io, Sleep } from './common.ts';
 import { KeychainUnavailable } from './keychain.ts';
@@ -31,16 +32,11 @@ const warnings = (): string[] => [
   t('To go on, click «Advanced», then «Go to … (unsafe)».', 'Чтобы пройти, нажмите «Дополнительные настройки», затем «Перейти… (небезопасно)».'),
 ];
 
-const readSecret = async (keychain: Keychain): Promise<string | null> => {
-  try { return await keychain.read(); } catch (error) { if (error instanceof KeychainUnavailable) return null; throw error; }
-};
-
 // What the trial run tells, by the reply of doPost trial.
 interface Trial { outcome: RunOutcome; reason?: string; wouldApply: WouldApply | null; summary: Summary | null }
 function trialLine({ outcome, reason, wouldApply, summary }: Trial, timeZone: string | undefined): string {
   if (outcome === 'broken_state') {
-    throw new CommandFailed(t(`The worker data in the Google project does not read (${reason}).`,
-      `Данные воркера в проекте Google не читаются (${reason}).`));
+    throw new CommandFailed(brokenOnGoogle(reason));
   }
   if (outcome === 'reauth_required') throw new CommandFailed(failedRunAdvice({ outcome }));
   const verdict = trialVerdict({ outcome, wouldApply: wouldApply ?? undefined });
@@ -58,15 +54,32 @@ export async function setupGoogle({ fetch, io, mac: { files }, open, googleKeych
     return askWorker({ fetch, url: google.url, secret }, action, extra);
   };
 
-  // A deployed worker answers to the secret in the Keychain; one that does not know it gets a new one.
+  // A deployed worker answers to the secret in the Keychain; one that does not know it gets a new
+  // one. A deployment the user deleted is made anew in the same project, under another URL.
   const known = Boolean(google?.url && google.deploymentId && secret);
-  let status: WorkerReply | null = known ? await ask('status') : null;
-  const deployed = known && status?.error !== 'forbidden';
+  let status: WorkerReply | null = null, deployed = known;
+  if (known) {
+    try {
+      status = await ask('status');
+      deployed = status?.error !== 'forbidden';
+    } catch (error) {
+      if (!(error instanceof GoogleFailure && error.reason === 'web_app_404' && google)) throw error;
+      google = { scriptId: google.scriptId };
+      deployed = false;
+    }
+  }
   if (!deployed || status === null) for (const line of warnings()) io.print(line);
   if (!deployed) {
     const api = await connectGoogle({ fetch, keychain: googleKeychain, io, open, now });
-    const result = await deployWorker({ api, secretKeychain, io, open, sleep, workerSource: appsScriptSource, deployment: google,
-      onProject: scriptId => remember(google = { scriptId }) });
+    const deploy = (deployment: GoogleWorker | null) => deployWorker({ api, secretKeychain, io, open, sleep, workerSource: appsScriptSource,
+      deployment, onProject: scriptId => remember(google = { scriptId }) });
+    let result: WorkerDeployment;
+    try { result = await deploy(google); } catch (error) {
+      // The user deleted the project: the worker starts over in a new one.
+      if (!(error instanceof GoogleFailure && error.reason === 'update_content_404' && google)) throw error;
+      io.print(t('The worker project is gone from Google, creating a new one.', 'Проекта воркера в Google больше нет, создаём новый.'));
+      result = await deploy(google = null);
+    }
     await remember(google = result);
     secret = await readSecret(secretKeychain);
     io.print(t(`The worker is deployed: ${result.url}`, `Воркер развёрнут: ${result.url}`));

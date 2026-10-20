@@ -5,8 +5,6 @@ import { workflowYaml } from '../worker/workflow.ts';
 import { CommandFailed, WORKER_REPOSITORY, WORKER_DESCRIPTION, chatgptLogin, showCode, workingLine, connectGitHub, workerRepository,
   chooseRules, readSummary, failedRunAdvice, runWorkerNow, command, trialVerdict, notReadYet } from './common.ts';
 import { setupGoogle } from './setup-google.ts';
-import type { OpenUrl } from './browser.ts';
-import type { Keychain } from './keychain.ts';
 import type { Platform, WatchFiles } from './watch-files.ts';
 import { followWeeklyRule } from './mac-check.ts';
 import type { CommandOptions, GitHub, Io, Sleep } from './common.ts';
@@ -66,10 +64,6 @@ async function choosePlatform(io: Io, files: WatchFiles): Promise<Platform> {
 export interface SetupOptions extends CommandOptions {
   workerSource: string;
   appsScriptSource: string;
-  // The Keychain entries of the Google sign-in and of the worker's doPost secret.
-  googleKeychain: Keychain;
-  secretKeychain: Keychain;
-  open: OpenUrl;
   random?: () => number;
 }
 export async function setup(options: SetupOptions): Promise<number> {
