@@ -17,6 +17,7 @@ import type { WouldApply } from '../worker/tick.ts';
 import { KeychainUnavailable } from './keychain.ts';
 import type { Keychain } from './keychain.ts';
 import type { Mac } from './mac-check.ts';
+import type { Platform } from './watch-files.ts';
 import { t } from './language.ts';
 
 export const WORKER_REPOSITORY = 'codex-auto-resets-worker';
@@ -75,9 +76,11 @@ export const showCode = (io: Printer) => ({ userCode, verificationUrl }: DeviceC
 export const formatTime = (ms: number, timeZone?: string): string => new Intl.DateTimeFormat(t('en-GB', 'ru-RU'), { day: 'numeric', month: 'long', year: 'numeric',
   hour: '2-digit', minute: '2-digit', timeZone, timeZoneName: 'short' }).format(ms);
 
-// The two general rules as the user reads them in rules, status and the screen.
-export const ruleLabel = (rule: Rule): string => ({
-  beforeExpiry: t('Before expiry (in the last 8 hours)', 'Перед истечением (в последние 8 часов)'),
+// The two general rules as the user reads them in rules, status and the screen. The
+// before-expiry window is the platform's (ADR-0007).
+export const ruleLabel = (rule: Rule, platform: Platform = 'github'): string => ({
+  beforeExpiry: platform === 'google' ? t('Before expiry (in the last hour)', 'Перед истечением (в последний час)') :
+    t('Before expiry (in the last 8 hours)', 'Перед истечением (в последние 8 часов)'),
   weeklyAutoApply: t('When the weekly limit runs out', 'Когда кончится недельный лимит'),
 })[rule];
 // Why a reset was applied.
@@ -166,12 +169,13 @@ export async function runnableWorkflow(api: GitHubApi, repo: Repository): Promis
   }
 }
 
-export async function chooseRules(io: Io, initial: Pick<Rules, Rule> = { beforeExpiry: true, weeklyAutoApply: false }): Promise<Rules> {
+export async function chooseRules(io: Io, initial: Pick<Rules, Rule> = { beforeExpiry: true, weeklyAutoApply: false },
+  platform: Platform = 'github'): Promise<Rules> {
   const rules = { beforeExpiry: initial.beforeExpiry, weeklyAutoApply: initial.weeklyAutoApply };
   for (;;) {
     io.print(t('When to apply resets:', 'Когда применять сбросы:'));
-    io.print(`  1. ${ruleLabel('beforeExpiry')} — ${onOff(rules.beforeExpiry)}`);
-    io.print(`  2. ${ruleLabel('weeklyAutoApply')} — ${onOff(rules.weeklyAutoApply)}`);
+    io.print(`  1. ${ruleLabel('beforeExpiry', platform)} — ${onOff(rules.beforeExpiry)}`);
+    io.print(`  2. ${ruleLabel('weeklyAutoApply', platform)} — ${onOff(rules.weeklyAutoApply)}`);
     const answer = (await io.prompt(t('Enter — done, 1 or 2 — switch: ', 'Enter — готово, 1 или 2 — переключить: '))).trim();
     if (!answer) return { formatVersion: RULES_FORMAT_VERSION, ...rules };
     if (answer === '1') rules.beforeExpiry = !rules.beforeExpiry;
@@ -199,6 +203,20 @@ export function workingLine(summary: Summary, timeZone?: string): string {
   return t(`The worker works. Resets: ${resets.length}, the nearest expires ${formatTime(nearest, timeZone)}.`,
     `Воркер работает. Сбросов: ${resets.length}, ближайший истекает ${formatTime(nearest, timeZone)}.`);
 }
+
+// What the rules would do now, by a trial run's outcome; nothing for another outcome.
+export function trialVerdict({ outcome, wouldApply }: Pick<Logged, 'outcome' | 'wouldApply'>): string | null {
+  if (wouldApply) {
+    const name = resetName(wouldApply.creditId), why = reasonText(wouldApply.reason);
+    return t(`Now the rules would apply the reset ${name} (${why}).`, `Сейчас правила применили бы сброс ${name} (${why}).`);
+  }
+  return outcome === 'idle' ? t('Nothing to apply now.', 'Сейчас применять нечего.') : null;
+}
+// A trial run before the worker's first successful read; busy: ChatGPT did not answer it.
+export const notReadYet = (busy: boolean): string =>
+  t(`The worker is installed, but the resets are not read yet${busy ? ': ChatGPT is temporarily unavailable' : ''}. ` +
+    'The worker will try again on its next run.',
+  `Воркер установлен, но сбросы пока не прочитаны${busy ? ': ChatGPT временно недоступен' : ''}. Воркер повторит при следующем запуске.`);
 
 // The last outcome the worker printed into its job log (runLine), e.g. «2026-…Z broken_state: key_invalid»
 // or «2026-…Z would_apply: weekly RateLimitResetCredit_…».

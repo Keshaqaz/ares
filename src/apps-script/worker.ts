@@ -142,17 +142,25 @@ export function appsScriptWorker({ gas, secret }: WorkerOptions): Worker {
   const ACTIONS: Record<string, { locked: boolean; act: Action }> = {
     status: { locked: false, act: g => {
       const props = g.PropertiesService.getScriptProperties();
-      let summary: Summary | null = null;
+      let summary: Summary | null = null, rules: Summary['rules'] | null = null;
       try { summary = openSummary(load(props)); } catch (error) { if (!(error instanceof BrokenState)) throw error; }
-      return { ok: true, version: pkg.version, schedule: scheduled(g), summary, journal: journal(props) };
+      // Without rules there is no summary either; setup asks for them before the first login.
+      const rulesText = props.getProperty(PROPERTIES.rules);
+      try {
+        const read = rulesText === null ? null : readRules(rulesText);
+        rules = read && { beforeExpiry: read.beforeExpiry, weeklyAutoApply: read.weeklyAutoApply };
+      } catch (error) { if (!(error instanceof BrokenState)) throw error; }
+      return { ok: true, version: pkg.version, schedule: scheduled(g), rules, summary, journal: journal(props) };
     } },
     trial: { locked: true, act: g => view(runTick(g, 'trial', { trial: true })) },
     wake: { locked: true, act: g => view(runTick(g, 'mac')) },
     apply_now: { locked: true, act: (g, { creditId }) =>
       typeof creditId === 'string' && creditId ? view(runTick(g, 'apply_now', { applyNow: creditId })) : null },
+    // A worker without a schedule is not the active one yet (setup, a switch of platform), so
+    // its login spends nothing: it goes as a trial run.
     login: { locked: true, act: (g, request) => {
       const login = readLogin(JSON.stringify(request.login ?? null));
-      return login && view(runTick(g, 'login', { login }));
+      return login && view(runTick(g, 'login', { login, trial: !scheduled(g) }));
     } },
     rules: { locked: true, act: (g, request) => {
       const given = object(request.rules) ? request.rules : {};

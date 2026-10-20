@@ -13,24 +13,31 @@ import { uninstall } from './uninstall.ts';
 import { watch } from './watch.ts';
 import { WatchFiles } from './watch-files.ts';
 import { LaunchAgent } from './launch-agent.ts';
-import { GitHubTokenKeychain } from './keychain.ts';
+import { GitHubTokenKeychain, KeychainEntry, GOOGLE_TOKEN_ACCOUNT, WORKER_SECRET_ACCOUNT } from './keychain.ts';
+import { openInBrowser } from './browser.ts';
+import type { OpenUrl } from './browser.ts';
 import { liveLine } from './live-line.ts';
 import type { CommandOptions } from './common.ts';
 import { t, setLanguage, isLanguage } from './language.ts';
 import pkg from '../../package.json' with { type: 'json' };
 
-// The worker bundle that setup and upgrade put into the repository: `npm run build:worker`.
+// The worker bundles that setup and upgrade deploy: `npm run build:worker`.
 const WORKER_BUNDLE = new URL('../../dist/worker.mjs', import.meta.url);
+const APPS_SCRIPT_BUNDLE = new URL('../../dist/apps-script/worker.js', import.meta.url);
 type Command = (options: CommandOptions) => Promise<number>;
-// Without the bundle setup and upgrade do not start.
-const withBundle = (command: (options: CommandOptions & { workerSource: string }) => Promise<number>): Command => async options => {
-  const workerSource = await readFile(WORKER_BUNDLE, 'utf8').catch(() => null);
-  if (workerSource === null) {
-    console.error(t('There is no worker build dist/worker.mjs. Build it: npm run build:worker',
-      'Нет сборки воркера dist/worker.mjs. Соберите её: npm run build:worker'));
+interface Bundles { workerSource: string; appsScriptSource: string }
+// What setup and upgrade take beside CommandOptions: the bundles, the Google Keychain entries and the browser.
+type Deploying = CommandOptions & Bundles & { googleKeychain: KeychainEntry; secretKeychain: KeychainEntry; open: OpenUrl };
+// Without the bundles setup and upgrade do not start.
+const withBundle = (command: (options: Deploying) => Promise<number>): Command => async options => {
+  const [workerSource, appsScriptSource] = await Promise.all([WORKER_BUNDLE, APPS_SCRIPT_BUNDLE].map(url => readFile(url, 'utf8').catch(() => null)));
+  if (workerSource == null || appsScriptSource == null) {
+    console.error(t('There is no worker build in dist/. Build it: npm run build:worker',
+      'Нет сборки воркера в dist/. Соберите её: npm run build:worker'));
     return 1;
   }
-  return command({ ...options, workerSource });
+  return command({ ...options, workerSource, appsScriptSource, googleKeychain: new KeychainEntry(GOOGLE_TOKEN_ACCOUNT),
+    secretKeychain: new KeychainEntry(WORKER_SECRET_ACCOUNT), open: openInBrowser });
 };
 // «2026-10-20T05:02:21+07:00»: the Mac's time with its offset, as the screen shows times.
 function localStamp(date = new Date()): string {

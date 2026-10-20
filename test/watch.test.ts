@@ -92,7 +92,7 @@ function memoryFiles(session: Session | null = null): MemoryFiles {
 // runs execute.
 async function mac({ session = true, weekly = false } = {}) {
   const env = await cliWorld();
-  const { code, io } = await env.run(setup, { answers: weekly ? ['2', ''] : [''] });
+  const { code, io } = await env.run(setup, { answers: weekly ? ['1', '2', ''] : ['1', ''] });
   assert.equal(code, 0, io.output());
   const { world } = env;
   if (!weekly) world.github.runner = () => null;

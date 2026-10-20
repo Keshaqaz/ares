@@ -16,7 +16,7 @@ const HOUR = 3600_000, DAY = 24 * HOUR;
 
 async function installWorld(options?: Parameters<typeof cliWorld>[0]) {
   const { world, keychain, run } = await cliWorld(options);
-  return { world, keychain, run: ({ answers = [''], ...rest }: RunOptions = {}) => run(setup, { answers, ...rest }) };
+  return { world, keychain, run: ({ answers = ['1', ''], ...rest }: RunOptions = {}) => run(setup, { answers, ...rest }) };
 }
 
 test('setup goes from nothing to a working worker in a private repository', async () => {
@@ -97,7 +97,7 @@ test('the GitHub token stays in the Keychain: never in the repository, its secre
 
 test('a repeated setup finds the repository and keeps the state, rules and cron the worker runs on', async () => {
   const { world, keychain, run } = await installWorld();
-  await run({ answers: ['2', ''] });
+  await run({ answers: ['1', '2', ''] });
   const repo = world.github.repo();
   assert.ok(repo);
   const before = new Map([...repo.files].map(([path, file]) => [path, file.text]));
@@ -302,7 +302,7 @@ test('a revoked token in the Keychain is replaced through a new GitHub login', a
 
 test('the GitHub login waits as GitHub asks and stops when the user denies access', async () => {
   const { world, keychain, run } = await installWorld();
-  const { code, io } = await run({ answers: [], github: 'denied' });
+  const { code, io } = await run({ answers: ['1'], github: 'denied' });
   assert.equal(code, 1);
   assert.equal(io.lines.at(-1), 'Вход в GitHub отклонён.');
   assert.equal(keychain.entries.size, 0);
@@ -312,7 +312,7 @@ test('the GitHub login waits as GitHub asks and stops when the user denies acces
   let polls = 0;
   const slow = await installWorld();
   slow.world.github.fail = (method, path) => { if (path === '/login/oauth/access_token') polls++; return null; };
-  const result = await slow.run({ github: false, answers: [] });
+  const result = await slow.run({ github: false, answers: ['1'] });
   assert.equal(result.code, 1);
   assert.match(result.io.lines.at(-1) ?? '', /Время на ввод кода GitHub вышло/);
   assert.ok(polls > 80 && polls < 92, `${polls} polls in 15 minutes at 10 s`);

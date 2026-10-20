@@ -2,7 +2,7 @@
 // upgrade, «Починить» and the switch of platform share (ADR-0007).
 import { randomBytes } from 'node:crypto';
 import pkg from '../../package.json' with { type: 'json' };
-import { GoogleApi, GoogleFailure, ScopesMissing, googleLogin } from '../google/api.ts';
+import { GoogleApi, GoogleFailure, ScopesMissing, googleLogin, postWorker } from '../google/api.ts';
 import type { GoogleScope, ScriptFile } from '../google/api.ts';
 import type { Fetch } from '../chatgpt/http.ts';
 import { MANIFEST, PROJECT_FILES, PROJECT_TITLE, secretSource } from '../apps-script/layout.ts';
@@ -132,4 +132,24 @@ export async function deployWorker({ api, secretKeychain, io, open, sleep, worke
     }
     return { scriptId: project, ...deployed };
   } finally { if (waiting) io.wait(null); }
+}
+
+// What doPost answered: { ok: true, … } or { ok: false, error }; null while the script is not authorized.
+export type WorkerReply = Record<string, unknown>;
+
+// One doPost of the worker with the secret from the Keychain.
+export async function askWorker({ fetch, url, secret }: { fetch: Fetch; url: string; secret: string }, action: string,
+  extra: Record<string, unknown> = {}): Promise<WorkerReply | null> {
+  return postWorker(fetch, url, { ...extra, secret, action });
+}
+
+// The reply of an authorized worker that did what it was asked; otherwise the failure, explained.
+export function workerDid(reply: WorkerReply | null, command: string): WorkerReply {
+  if (reply?.ok === true) return reply;
+  const again = t(`Run \`aures ${command}\` again`, `Повторите \`aures ${command}\``);
+  const error = reply === null ? 'unauthorized' : String(reply.error);
+  throw new CommandFailed(({
+    busy: t(`The worker is busy with another run. ${again}.`, `Воркер занят другим запуском. ${again}.`),
+    unauthorized: t(`The worker script has no access yet. ${again}.`, `У скрипта воркера ещё нет доступа. ${again}.`),
+  } as Record<string, string>)[error] ?? t(`The worker refused (${error}). ${again}.`, `Воркер отказал (${error}). ${again}.`));
 }

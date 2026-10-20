@@ -19,7 +19,7 @@ const HINT = '↑↓ выбор · Enter применить / переключи
 // 3 hours) and reset-a (in 5 days). Device codes the screen shows are approved at once.
 async function opened({ language = 'ru' }: { language?: Language } = {}) {
   const env = await cliWorld({ language });
-  const { code, io } = await env.run(setup, { answers: [''] });
+  const { code, io } = await env.run(setup, { answers: ['1', ''] });
   assert.equal(code, 0, io.output());
   let screen: Screen | undefined;
   const sleep = async (ms: number) => {

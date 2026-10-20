@@ -46,6 +46,8 @@ export interface FakeGoogle {
   enableAfterMs: number | null;
   // What the user does on each consent, in turn; when none is left, ticks every box.
   consents: Consent[];
+  // Whether the user lets the script run when its web app opens; false: closes the page.
+  allowsScript: boolean;
   // Every URL the CLI opened in the browser.
   opened: string[];
   // refresh token → its scopes; a revoked or expired one is gone.
@@ -80,7 +82,7 @@ export function withGoogle(world: FakeWorld & { google?: FakeGoogle }): FakeGoog
   };
 
   const google: FakeGoogle = {
-    apiEnabled: false, enableAfterMs: 12_000, consents: [], opened: [], refreshTokens: new Map(), accessTokens: new Map(),
+    apiEnabled: false, enableAfterMs: 12_000, consents: [], allowsScript: true, opened: [], refreshTokens: new Map(), accessTokens: new Map(),
     projects: new Map(), failNext: null, requests: [], violations: [],
     open: async href => {
       google.opened.push(href);
@@ -92,7 +94,7 @@ export function withGoogle(world: FakeWorld & { google?: FakeGoogle }): FakeGoog
       const exec = url.host === 'script.google.com' && url.pathname.match(/^\/macros\/s\/([^/]+)\/exec$/);
       if (exec) {
         const project = [...google.projects.values()].find(p => p.deployments.has(exec[1] ?? ''));
-        if (project) project.authorized = true;
+        if (project && google.allowsScript) project.authorized = true;
         return;
       }
       if (url.origin + url.pathname !== 'https://accounts.google.com/o/oauth2/v2/auth') {

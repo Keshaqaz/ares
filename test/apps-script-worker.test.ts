@@ -215,6 +215,29 @@ test('login takes a new session of the same ChatGPT account and rejects another 
   noViolations(world, gas);
 });
 
+test('a login without a schedule spends nothing: the worker is not the active one yet', async () => {
+  const { world, gas } = await installed();
+  world.chatgpt.credits = [credit('reset-due', world.now + 10 * MINUTE)];
+  const idle = post(gas, 'login', { login: { id: 'login-2', session: world.login() } });
+  assert.equal(idle.outcome, 'would_apply');
+  assert.deepEqual(idle.wouldApply, { creditId: 'reset-due', reason: 'before_expiry' });
+  assert.deepEqual(world.consumeCalls(), []);
+  assert.equal(state(gas).pending ?? null, null);
+
+  post(gas, 'schedule', { on: true });
+  const active = post(gas, 'login', { login: { id: 'login-3', session: world.login() } });
+  assert.equal(active.outcome, 'applied');
+  assert.equal(world.consumeCalls().length, 1);
+  noViolations(world, gas);
+});
+
+test('status names the rules apart from the summary, so setup knows what is missing', async () => {
+  const gas = await fakeAppsScript({ world: fakeWorld() });
+  assert.deepEqual([post(gas, 'status').rules, post(gas, 'status').summary], [null, null]);
+  post(gas, 'rules', { rules: RULES });
+  assert.deepEqual([post(gas, 'status').rules, post(gas, 'status').summary], [RULES, null]);
+});
+
 test('wake runs an ordinary tick for the Mac', async () => {
   const { world, gas } = await installed();
   world.chatgpt.credits = [credit('reset-a', world.now + 10 * MINUTE)];

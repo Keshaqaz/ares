@@ -3,9 +3,13 @@ import { FILES, STATE_KEY_SECRET, LOGIN_SECRET, TRIAL_INPUT } from '../worker/la
 import { generateKey, sealState, readRules, BrokenState, STATE_FORMAT_VERSION } from '../worker/state-file.ts';
 import { workflowYaml } from '../worker/workflow.ts';
 import { CommandFailed, WORKER_REPOSITORY, WORKER_DESCRIPTION, chatgptLogin, showCode, workingLine, connectGitHub, workerRepository,
-  chooseRules, readSummary, failedRunAdvice, runWorkerNow, command, resetName, reasonText } from './common.ts';
+  chooseRules, readSummary, failedRunAdvice, runWorkerNow, command, trialVerdict, notReadYet } from './common.ts';
+import { setupGoogle } from './setup-google.ts';
+import type { OpenUrl } from './browser.ts';
+import type { Keychain } from './keychain.ts';
+import type { Platform, WatchFiles } from './watch-files.ts';
 import { followWeeklyRule } from './mac-check.ts';
-import type { CommandOptions, GitHub, Io, Logged, Sleep } from './common.ts';
+import type { CommandOptions, GitHub, Io, Sleep } from './common.ts';
 import type { GitHubApi, Repository } from '../github/api.ts';
 import { t } from './language.ts';
 
@@ -20,15 +24,6 @@ async function ensureRepository({ api, login, io }: GitHub & { io: Io }): Promis
   return created;
 }
 
-// What the rules would do now, by a trial run's outcome; nothing for another outcome.
-function trialVerdict({ outcome, wouldApply }: Logged): string | null {
-  if (wouldApply) {
-    const name = resetName(wouldApply.creditId), why = reasonText(wouldApply.reason);
-    return t(`Now the rules would apply the reset ${name} (${why}).`, `Сейчас правила применили бы сброс ${name} (${why}).`);
-  }
-  return outcome === 'idle' ? t('Nothing to apply now.', 'Сейчас применять нечего.') : null;
-}
-
 // Dispatches a trial run (CONTEXT.md, «Пробный запуск»), waits for it and reads what the
 // worker published and what the rules would do.
 async function trialRun({ api, repo, io, now, sleep, timeZone }:
@@ -40,63 +35,97 @@ async function trialRun({ api, repo, io, now, sleep, timeZone }:
   const verdict = logged && trialVerdict(logged);
   if (summary) return [workingLine(summary, timeZone), verdict].filter(Boolean).join(' ');
   // Before its first successful read the worker publishes nothing.
-  const busy = logged?.outcome === 'transient_error';
-  return t(`The worker is installed, but the resets are not read yet${busy ? ': ChatGPT is temporarily unavailable' : ''}. ` +
-    'The worker will try again on its next run.',
-  `Воркер установлен, но сбросы пока не прочитаны${busy ? ': ChatGPT временно недоступен' : ''}. Воркер повторит при следующем запуске.`);
+  return notReadYet(logged?.outcome === 'transient_error');
 }
 
-// `aures setup`: from nothing to a working worker, or the missing parts of an
-// existing one. Files already in the repository are kept, so a repeated setup never loses
-// state or rules and never rewrites the cron. This Mac follows the weekly rule: the check
-// from it is set up or removed. Returns the process exit code.
-// workerSource is the worker bundle; random picks the cron minute.
-export interface SetupOptions extends CommandOptions { workerSource: string; random?: () => number }
-export async function setup({ fetch, keychain, io, workerSource, mac, now = Date.now,
-  sleep = ms => new Promise(resolve => setTimeout(resolve, ms)), random = Math.random, timeZone }: SetupOptions): Promise<number> {
-  return command('setup', io, async () => {
-    const { api, login } = await connectGitHub({ fetch, keychain, io, now, sleep });
-    const repo = await ensureRepository({ api, login, io });
-    const name = repo.full_name;
-    const [state, rules, worker, workflow, hasKey] = await Promise.all([
-      api.file(name, FILES.state), api.file(name, FILES.rules), api.file(name, FILES.worker), api.file(name, FILES.workflow),
-      api.hasSecret(name, STATE_KEY_SECRET)]);
-    // setup keeps an existing workflow, and one of an older version has no trial run to dispatch.
-    if (workflow && !workflow.text.includes(`\n      ${TRIAL_INPUT}:\n`)) {
-      throw new CommandFailed(t('The worker is of an older version. Run `aures upgrade`, then `aures setup` again.',
-        'Воркер старой версии. Запустите `aures upgrade`, затем снова `aures setup`.'));
+// The platform of the worker (ADR-0007), as the install record keeps it; asked without a
+// recommendation, with what each costs, when there is no record yet.
+async function choosePlatform(io: Io, files: WatchFiles): Promise<Platform> {
+  const install = await files.readInstall();
+  if (install) return install.platform;
+  io.print(t('Where the worker will run:', 'Где будет работать воркер:'));
+  io.print(t('  1. GitHub Actions — runs once an hour, but GitHub skips many runs; the before-expiry rule starts 8 hours ahead.',
+    '  1. GitHub Actions — запуск раз в час, но GitHub пропускает многие запуски; правило перед истечением начинает за 8 часов.'));
+  io.print(t('  2. Google Apps Script — runs every 5 minutes, the before-expiry rule starts 1 hour ahead. Installing it shows two ' +
+    '«unverified app» warnings and needs one switch in the settings; the script project you delete yourself on uninstall.',
+  '  2. Google Apps Script — запуск каждые 5 минут, правило перед истечением начинает за 1 час. При установке Google дважды ' +
+    'предупредит о непроверенном приложении и нужно включить один переключатель; проект скрипта при удалении вы удаляете сами.'));
+  for (;;) {
+    const answer = (await io.prompt(t('Type 1 or 2: ', 'Введите 1 или 2: '))).trim();
+    const platform = answer === '1' ? 'github' : answer === '2' ? 'google' : null;
+    if (platform) {
+      await files.writeInstall({ platform });
+      return platform;
     }
+  }
+}
 
-    // The key cannot be read back, so a state without its key is useless and is replaced.
-    if (state && hasKey) io.print(t('The ChatGPT sign-in is already there.', 'Вход в ChatGPT уже есть.'));
-    else {
-      io.print(chatgptLogin());
-      const session = await deviceLogin({ fetch, now, sleep, onCode: showCode(io) });
-      const key = generateKey();
-      // A login left over from an interrupted `login` must not replace this new session.
-      await api.deleteSecret(name, LOGIN_SECRET);
-      // The key comes first: a state that reaches the repository is always openable.
-      await api.putSecret(name, STATE_KEY_SECRET, key);
-      await api.putFile(name, FILES.state, sealState({ formatVersion: STATE_FORMAT_VERSION, session, pending: null, applied: [] }, key),
-        { message: 'Save the worker session', sha: state?.sha });
-    }
-    let weekly: boolean | null = null;
-    if (!rules) {
-      const chosen = await chooseRules(io);
-      await api.putFile(name, FILES.rules, `${JSON.stringify(chosen, null, 2)}\n`, { message: 'Set the general rules' });
-      weekly = chosen.weeklyAutoApply;
-    } else {
-      // Rules that do not read leave this Mac as it is; the trial run names the fix.
-      try { weekly = readRules(rules.text).weeklyAutoApply; } catch (error) { if (!(error instanceof BrokenState)) throw error; }
-    }
-    if (!worker) await api.putFile(name, FILES.worker, workerSource, { message: 'Add the worker' });
-    // The workflow goes last, so its schedule never meets a half-filled repository.
-    if (!workflow) {
-      const minute = 1 + Math.floor(random() * 59);
-      await api.putFile(name, FILES.workflow, workflowYaml({ minute }), { message: 'Run the worker every hour' });
-    }
-    if (weekly !== null) await followWeeklyRule({ weekly, mac, fetch, io, now, sleep });
-    io.print(await trialRun({ api, repo, io, now, sleep, timeZone }));
-    return 0;
+// `aures setup`: from nothing to a working worker, or the missing parts of an existing one,
+// on the platform the user picks once. Returns the process exit code.
+// workerSource is the GitHub worker bundle, appsScriptSource the Apps Script one; random picks the cron minute.
+export interface SetupOptions extends CommandOptions {
+  workerSource: string;
+  appsScriptSource: string;
+  // The Keychain entries of the Google sign-in and of the worker's doPost secret.
+  googleKeychain: Keychain;
+  secretKeychain: Keychain;
+  open: OpenUrl;
+  random?: () => number;
+}
+export async function setup(options: SetupOptions): Promise<number> {
+  const { io, mac, now = Date.now, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)) } = options;
+  return command('setup', io, async () => {
+    const platform = await choosePlatform(io, mac.files);
+    return platform === 'google' ? setupGoogle({ ...options, now, sleep }) : setupGitHub({ ...options, now, sleep });
   });
+}
+
+// On GitHub. Files already in the repository are kept, so a repeated setup never loses state
+// or rules and never rewrites the cron. This Mac follows the weekly rule: the check from it is
+// set up or removed.
+async function setupGitHub({ fetch, keychain, io, workerSource, mac, now, sleep, random = Math.random, timeZone }:
+  SetupOptions & { now: () => number; sleep: Sleep }): Promise<number> {
+  const { api, login } = await connectGitHub({ fetch, keychain, io, now, sleep });
+  const repo = await ensureRepository({ api, login, io });
+  const name = repo.full_name;
+  const [state, rules, worker, workflow, hasKey] = await Promise.all([
+    api.file(name, FILES.state), api.file(name, FILES.rules), api.file(name, FILES.worker), api.file(name, FILES.workflow),
+    api.hasSecret(name, STATE_KEY_SECRET)]);
+  // setup keeps an existing workflow, and one of an older version has no trial run to dispatch.
+  if (workflow && !workflow.text.includes(`\n      ${TRIAL_INPUT}:\n`)) {
+    throw new CommandFailed(t('The worker is of an older version. Run `aures upgrade`, then `aures setup` again.',
+      'Воркер старой версии. Запустите `aures upgrade`, затем снова `aures setup`.'));
+  }
+
+  // The key cannot be read back, so a state without its key is useless and is replaced.
+  if (state && hasKey) io.print(t('The ChatGPT sign-in is already there.', 'Вход в ChatGPT уже есть.'));
+  else {
+    io.print(chatgptLogin());
+    const session = await deviceLogin({ fetch, now, sleep, onCode: showCode(io) });
+    const key = generateKey();
+    // A login left over from an interrupted `login` must not replace this new session.
+    await api.deleteSecret(name, LOGIN_SECRET);
+    // The key comes first: a state that reaches the repository is always openable.
+    await api.putSecret(name, STATE_KEY_SECRET, key);
+    await api.putFile(name, FILES.state, sealState({ formatVersion: STATE_FORMAT_VERSION, session, pending: null, applied: [] }, key),
+      { message: 'Save the worker session', sha: state?.sha });
+  }
+  let weekly: boolean | null = null;
+  if (!rules) {
+    const chosen = await chooseRules(io);
+    await api.putFile(name, FILES.rules, `${JSON.stringify(chosen, null, 2)}\n`, { message: 'Set the general rules' });
+    weekly = chosen.weeklyAutoApply;
+  } else {
+    // Rules that do not read leave this Mac as it is; the trial run names the fix.
+    try { weekly = readRules(rules.text).weeklyAutoApply; } catch (error) { if (!(error instanceof BrokenState)) throw error; }
+  }
+  if (!worker) await api.putFile(name, FILES.worker, workerSource, { message: 'Add the worker' });
+  // The workflow goes last, so its schedule never meets a half-filled repository.
+  if (!workflow) {
+    const minute = 1 + Math.floor(random() * 59);
+    await api.putFile(name, FILES.workflow, workflowYaml({ minute }), { message: 'Run the worker every hour' });
+  }
+  if (weekly !== null) await followWeeklyRule({ weekly, mac, fetch, io, now, sleep });
+  io.print(await trialRun({ api, repo, io, now, sleep, timeZone }));
+  return 0;
 }

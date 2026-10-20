@@ -22,7 +22,7 @@ const NEW_WORKER = '// fake worker bundle, next version\n';
 
 async function installed(options?: Parameters<typeof cliWorld>[0]) {
   const env = await cliWorld(options);
-  const { code, io } = await env.run(setup, { answers: [''] });
+  const { code, io } = await env.run(setup, { answers: ['1', ''] });
   assert.equal(code, 0, io.output());
   const repo = env.world.github.repo();
   assert.ok(repo);

@@ -22,7 +22,7 @@ const WEEKLY_OFF = '{"formatVersion":1,"beforeExpiry":true,"weeklyAutoApply":fal
 // A worker installed by setup with the default rules (the weekly rule off).
 async function installed() {
   const env = await cliWorld();
-  const { code, io } = await env.run(setup, { answers: [''] });
+  const { code, io } = await env.run(setup, { answers: ['1', ''] });
   assert.equal(code, 0, io.output());
   const { mac } = env;
   const session = () => mac.files.readSession();
@@ -88,7 +88,7 @@ test('turning the weekly rule off unloads the agent and keeps the Mac session; t
 
 test('setup with the weekly rule chosen asks for the Mac code, and a repeated setup asks nothing', async () => {
   const env = await cliWorld();
-  const first = await env.run(setup, { answers: ['2', ''] });
+  const first = await env.run(setup, { answers: ['1', '2', ''] });
   assert.equal(first.code, 0, first.io.output());
   assert.equal(first.io.lines.filter(line => line === macLogin()).length, 1);
   assert.equal(env.mac.launchctl.loaded.has(AGENT_LABEL), true);
