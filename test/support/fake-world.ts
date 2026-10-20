@@ -83,6 +83,9 @@ export interface FakeWorld {
     revokeFail: RevokeFailure | null;
   };
   fetch: Fetch;
+  // The same world served synchronously, for a runtime without promises of its own (Apps Script).
+  // A network failure throws.
+  serve(request: ServedRequest): Served;
   advance(ms: number): void;
   login(): Session;
   approve(userCode: string): void;
@@ -93,14 +96,20 @@ export interface FakeWorld {
   spent(): string[];
 }
 
+// A request and its reply as the world serves them; a reply without a body type has a text page.
+export interface ServedRequest { url: string; method: string; headers: Headers; body: string; redirect: string }
+export interface Served { status: number; text: string; contentType: string | null }
+
 const encode = (value: unknown): string => Buffer.from(JSON.stringify(value)).toString('base64url');
 const jwt = (claims: Record<string, unknown>): string => `${encode({ alg: 'none' })}.${encode(claims)}.fake-signature`;
-const json = (status: number, value: unknown): Response =>
-  new Response(JSON.stringify(value), { status, headers: { 'content-type': 'application/json' } });
-const authError = (status: number, code: string): Response =>
+const json = (status: number, value: unknown): Served => ({ status, text: JSON.stringify(value), contentType: 'application/json' });
+const authError = (status: number, code: string): Served =>
   json(status, { error: { message: code, type: 'invalid_request_error', param: null, code } });
 
-export function fakeWorld({ now = Date.parse('2026-10-20T12:00:00Z'), accountId = 'account-fake' }: { now?: number; accountId?: string } = {}): FakeWorld {
+// tokenPadding lengthens the access and id tokens by a claim of that many characters: real ones are
+// kilobytes long, which matters where they are stored with a size limit.
+export function fakeWorld({ now = Date.parse('2026-10-20T12:00:00Z'), accountId = 'account-fake', tokenPadding = 0 }:
+  { now?: number; accountId?: string; tokenPadding?: number } = {}): FakeWorld {
   // The latest session, which the test helpers act on.
   const latest = (): FakeSession => {
     const session = world.auth.current;
@@ -124,22 +133,25 @@ export function fakeWorld({ now = Date.parse('2026-10-20T12:00:00Z'), accountId 
       rotated: new Map(), revoked: [], revokeFail: null,
     },
     fetch: async (input, init = {}) => {
-      const url = new URL(input instanceof Request ? input.url : input);
-      const method = init.method ?? 'GET';
-      const headers = new Headers(init.headers);
-      const body = typeof init.body === 'string' ? init.body : init.body?.toString() ?? '';
+      const { status, text, contentType } = world.serve({ url: input instanceof Request ? input.url : String(input),
+        method: init.method ?? 'GET', headers: new Headers(init.headers),
+        body: typeof init.body === 'string' ? init.body : init.body?.toString() ?? '', redirect: init.redirect ?? 'follow' });
+      return new Response(text, { status, headers: contentType ? { 'content-type': contentType } : {} });
+    },
+    serve: ({ url: href, method, headers, body, redirect }) => {
+      const url = new URL(href);
       const seen: SeenRequest = { host: url.host, method, path: url.pathname, userAgent: headers.get('user-agent') };
       world.requests.push(seen);
       if (headers.get('user-agent') !== USER_AGENT) world.violations.push(`user-agent ${url.pathname}`);
-      if (init.redirect !== 'error') world.violations.push(`redirect ${url.pathname}`);
-      let reply: Response | null = null;
+      if (redirect !== 'error') world.violations.push(`redirect ${url.pathname}`);
+      let reply: Served | null = null;
       if (url.origin === ISSUER && method === 'POST') {
-        if (url.pathname === '/oauth/token') reply = await token(seen, body, headers.get('content-type'));
-        else if (url.pathname === '/oauth/revoke') reply = await revoke(body, headers.get('content-type'));
+        if (url.pathname === '/oauth/token') reply = token(seen, body, headers.get('content-type'));
+        else if (url.pathname === '/oauth/revoke') reply = revoke(body, headers.get('content-type'));
         else if (url.pathname === '/api/accounts/deviceauth/usercode') reply = deviceUsercode(JSON.parse(body));
         else if (url.pathname === '/api/accounts/deviceauth/token') reply = devicePoll(JSON.parse(body));
       } else if (url.origin === 'https://chatgpt.com' && url.pathname.startsWith('/backend-api/wham/')) {
-        reply = await wham(seen, url.pathname.slice('/backend-api/wham'.length), method, headers, body);
+        reply = wham(seen, url.pathname.slice('/backend-api/wham'.length), method, headers, body);
       }
       if (reply) return reply;
       world.violations.push(`${method} ${url.href}`);
@@ -165,9 +177,10 @@ export function fakeWorld({ now = Date.parse('2026-10-20T12:00:00Z'), accountId 
     serial++;
     const iat = Math.floor(world.now / 1000);
     const auth = { chatgpt_account_id: world.accountId, chatgpt_user_id: 'user-fake', chatgpt_plan_type: 'pro' };
+    const pad = tokenPadding ? { pad: 'x'.repeat(tokenPadding) } : {};
     const tokens = {
-      access_token: jwt({ iat, exp: iat + ACCESS_LIFETIME_MS / 1000, serial, [AUTH_CLAIM]: auth }),
-      id_token: jwt({ iat, exp: iat + 3600, email: 'fake@example.invalid', serial, [AUTH_CLAIM]: auth }),
+      access_token: jwt({ iat, exp: iat + ACCESS_LIFETIME_MS / 1000, serial, [AUTH_CLAIM]: auth, ...pad }),
+      id_token: jwt({ iat, exp: iat + 3600, email: 'fake@example.invalid', serial, [AUTH_CLAIM]: auth, ...pad }),
       refresh_token: `fake-refresh-${serial}`,
     };
     if (session) Object.assign(session, { access: tokens.access_token, refresh: tokens.refresh_token });
@@ -177,7 +190,7 @@ export function fakeWorld({ now = Date.parse('2026-10-20T12:00:00Z'), accountId 
   };
 
   // The client sends strings; the fake reads the fields as they come.
-  async function token(seen: SeenRequest, body: string, contentType: string | null): Promise<Response> {
+  function token(seen: SeenRequest, body: string, contentType: string | null): Served {
     const data: Record<string, string> = contentType?.startsWith('application/x-www-form-urlencoded') ?
       Object.fromEntries(new URLSearchParams(body)) : JSON.parse(body || '{}');
     seen.grant = data.grant_type;
@@ -210,7 +223,7 @@ export function fakeWorld({ now = Date.parse('2026-10-20T12:00:00Z'), accountId 
   }
 
   // Live check 01: a refresh after revoking the latest refresh token gets refresh_token_invalidated.
-  async function revoke(body: string, contentType: string | null): Promise<Response> {
+  function revoke(body: string, contentType: string | null): Served {
     if (!contentType?.startsWith('application/json')) return json(400, { error: 'invalid_request' });
     const data: Record<string, unknown> = JSON.parse(body || '{}');
     if (data.client_id !== CODEX_CLIENT_ID) return authError(400, 'invalid_client');
@@ -224,7 +237,7 @@ export function fakeWorld({ now = Date.parse('2026-10-20T12:00:00Z'), accountId 
     return json(200, {});
   }
 
-  function deviceUsercode(data: Record<string, string>): Response {
+  function deviceUsercode(data: Record<string, string>): Served {
     if (data.client_id !== CODEX_CLIENT_ID) return json(400, { error: 'invalid_client' });
     const id = `device-${world.auth.devices.size + 1}`;
     const userCode = `FAKE-${1000 + world.auth.devices.size}`;
@@ -232,7 +245,7 @@ export function fakeWorld({ now = Date.parse('2026-10-20T12:00:00Z'), accountId 
     return json(200, { device_auth_id: id, user_code: userCode, interval: '5',
       expires_at: new Date(world.now + 15 * 60_000).toISOString() });
   }
-  function devicePoll(data: Record<string, string>): Response {
+  function devicePoll(data: Record<string, string>): Served {
     const id = data.device_auth_id ?? '';
     const device = world.auth.devices.get(id);
     if (!device || device.userCode !== data.user_code) return json(404, {});
@@ -248,7 +261,7 @@ export function fakeWorld({ now = Date.parse('2026-10-20T12:00:00Z'), accountId 
 
   // Backend reply shape from the stock App Server parser: { code, windows_reset }.
   // The server is assumed idempotent by redeem_request_id; live check 10 verifies it.
-  async function consume(request: SeenRequest, body: string): Promise<Response> {
+  function consume(request: SeenRequest, body: string): Served {
     const data: Record<string, unknown> = JSON.parse(body || '{}');
     const { chatgpt } = world;
     const { credit_id: creditId, redeem_request_id: key } = data;
@@ -278,7 +291,7 @@ export function fakeWorld({ now = Date.parse('2026-10-20T12:00:00Z'), accountId 
     return json(200, { code: outcome, windows_reset: outcome === 'reset' ? 1 : 0 });
   }
 
-  async function wham(seen: SeenRequest, path: string, method: string, headers: Headers, body: string): Promise<Response | null> {
+  function wham(seen: SeenRequest, path: string, method: string, headers: Headers, body: string): Served | null {
     const bearer = headers.get('authorization')?.replace(/^Bearer /, '');
     const claims = ((): { exp: number } | null => {
       try { return JSON.parse(Buffer.from(bearer?.split('.')[1] ?? '', 'base64url').toString()); } catch { return null; }
@@ -287,7 +300,7 @@ export function fakeWorld({ now = Date.parse('2026-10-20T12:00:00Z'), accountId 
         headers.get('chatgpt-account-id') !== world.accountId) return json(401, { detail: 'Unauthorized' });
     const { fail } = world.chatgpt;
     if (fail === 'network') throw new TypeError('fetch failed');
-    if (fail?.text !== undefined) return new Response(fail.text, { status: fail.status });
+    if (fail?.text !== undefined) return { status: fail.status, text: fail.text, contentType: null };
     if (fail) return json(fail.status, 'body' in fail ? fail.body : { detail: 'fake failure' });
     if (path === '/usage' && method === 'GET') {
       const { primary, secondary, credits } = world.chatgpt;

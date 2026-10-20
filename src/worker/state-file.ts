@@ -19,7 +19,8 @@ export const RULES_FORMAT_VERSION = RULES_MIGRATIONS.length + 1;
 const ENVELOPE_VERSION = 1;
 const CIPHER = 'aes-256-gcm';
 // Binds the ciphertext to its role, so no other file sealed with this key opens as state.
-const AAD = Buffer.from('codex-auto-resets/state');
+// Pure, so that the Apps Script bundle, which never seals, drops it: Buffer is not there.
+const AAD = /* @__PURE__ */ Buffer.from('codex-auto-resets/state');
 
 // Why a reset is applied: a general rule or «Применить сейчас».
 export type ApplyReason = 'weekly' | 'before_expiry' | 'apply_now';
