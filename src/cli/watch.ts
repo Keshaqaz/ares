@@ -2,12 +2,15 @@ import { usage } from '../chatgpt/client.ts';
 import { needsRefresh, refresh } from '../chatgpt/session.ts';
 import { SessionLost, TransientFailure, asObject } from '../chatgpt/http.ts';
 import { GitHubApi, GitHubFailure } from '../github/api.ts';
+import { GoogleFailure } from '../google/api.ts';
 import { SAME_WINDOW_MS } from '../worker/tick.ts';
 import { KeychainUnavailable } from './keychain.ts';
 import type { Keychain } from './keychain.ts';
-import type { WatchFiles, WatchState } from './watch-files.ts';
+import type { WatchFiles, WatchState, GoogleWorker } from './watch-files.ts';
 import type { Quota } from '../chatgpt/client.ts';
 import type { Fetch } from '../chatgpt/http.ts';
+import type { Summary } from '../worker/summary.ts';
+import { askWorker, readSecret } from './google.ts';
 import { CommandFailed, WORKFLOW_FILE, workerRepository } from './common.ts';
 import { FILES } from '../worker/layout.ts';
 
@@ -58,22 +61,26 @@ export function quiet({ read, ...state }: WatchState, now: number): boolean {
 // `aures watch`, run by the launchd agent every 2 minutes: one pass that reads the
 // weekly quota with the computer session (or leaves it unread, see quiet) and, once the quota is
 // exhausted, starts a worker run as the cron does, repeated while the window stays exhausted.
-// The worker decides on its own session whether to apply a reset. The pass
-// never asks the user or logs in anywhere; every outcome is one log line and exit code 0.
+// The worker of this install is woken wherever it runs (ADR-0007): a dispatch on GitHub, a
+// doPost wake on Apps Script; a worker on pause is woken by no pass. The worker decides on its
+// own session whether to apply a reset. The pass never asks the user or logs in anywhere; every
+// outcome is one log line and exit code 0.
 // The watch files a pass reads and writes.
-export type PassFiles = Pick<WatchFiles, 'readSession' | 'writeSession' | 'readState' | 'writeState'>;
+export type PassFiles = Pick<WatchFiles, 'readSession' | 'writeSession' | 'readState' | 'writeState' | 'readInstall'>;
 export interface WatchOptions {
   fetch: Fetch;
   keychain: Pick<Keychain, 'read'>;
+  // The doPost secret of the worker on Apps Script, read only.
+  secretKeychain: Pick<Keychain, 'read'>;
   files: PassFiles;
   log: (line: string) => void;
   now?: () => number;
 }
-export async function watch({ fetch, keychain, files, log, now = Date.now }: WatchOptions): Promise<number> {
+export async function watch({ fetch, keychain, secretKeychain, files, log, now = Date.now }: WatchOptions): Promise<number> {
   let state: WatchState = {}, outcome: string;
   try {
     state = await files.readState();
-    ({ state, outcome } = await pass({ fetch, keychain, files, state, now: now() }));
+    ({ state, outcome } = await pass({ fetch, keychain, secretKeychain, files, state, now: now() }));
   } catch (error) { outcome = `error: ${errorName(error) ?? 'unknown'}`; }
   try { await files.writeState({ ...state, lastPass: { at: now(), outcome } }); } catch { outcome += ' (watch.json not saved)'; }
   log(outcome);
@@ -83,10 +90,14 @@ export async function watch({ fetch, keychain, files, log, now = Date.now }: Wat
 const errorName = (error: unknown): unknown => typeof error === 'object' && error !== null && 'name' in error ? error.name : undefined;
 
 interface Pass { state: WatchState; outcome: string }
-async function pass({ fetch, keychain, files, state, now }:
-  { fetch: Fetch; keychain: Pick<Keychain, 'read'>; files: PassFiles; state: WatchState; now: number }): Promise<Pass> {
+async function pass({ fetch, keychain, secretKeychain, files, state, now }:
+  { fetch: Fetch; keychain: Pick<Keychain, 'read'>; secretKeychain: Pick<Keychain, 'read'>; files: PassFiles; state: WatchState; now: number }): Promise<Pass> {
   // A lost session stays lost until setup opens a new one and clears the mark.
   if (state.sessionLost) return { state, outcome: 'reauth_required' };
+  // The install record names the worker to wake: a paused worker has no schedule, so the
+  // out-of-schedule check rests too — no quota read, no run (ADR-0007).
+  const install = await files.readInstall();
+  if (install?.paused) return { state, outcome: 'paused' };
   let session = await files.readSession();
   if (!session) return { state, outcome: 'no_session' };
   if (quiet(state, now)) return { state, outcome: 'quiet' };
@@ -107,9 +118,11 @@ async function pass({ fetch, keychain, files, state, now }:
   const read = { ...state, read: { at: now, usedPercent: weeklyQuota?.usedPercent ?? null, renewsAt: weeklyQuota?.renewsAt ?? null } };
   const { dispatch, nextState } = decide(weeklyQuota, read, now);
   if (!dispatch || !weeklyQuota) return { state: read, outcome: 'idle' };
-  // The window is recorded only after GitHub took the dispatch, so a failed one is retried.
-  const failure = await dispatchWorker({ fetch, keychain, repeat: dispatch === 'repeat' });
-  // Without a reset to apply, more runs for this window would only spend Actions minutes.
+  // The window is recorded only after the worker took the run, so a failed one is retried.
+  const failure = install?.platform === 'google'
+    ? await wakeGoogle({ fetch, keychain: secretKeychain, google: install.google, repeat: dispatch === 'repeat' })
+    : await dispatchWorker({ fetch, keychain, repeat: dispatch === 'repeat' });
+  // Without a reset to apply, more runs for this window would only spend the platform's minutes.
   if (failure === 'no_resets') return { state: { ...read, dispatched: { renewsAt: weeklyQuota.renewsAt, at: now, count: DISPATCHES } }, outcome: failure };
   if (failure) return { state: read, outcome: failure };
   const count = nextState.dispatched?.count ?? 1;
@@ -122,6 +135,37 @@ async function noResets(api: GitHubApi, repo: string): Promise<boolean> {
   let resets: unknown;
   try { resets = file && asObject(JSON.parse(file.text))?.resets; } catch { return false; }
   return Array.isArray(resets) && resets.length === 0;
+}
+
+// What a doPost reply that is not ok tells the log; null is the page of a script that has no
+// access yet. A wrong secret is answered 'forbidden' with no detail, whoever asks.
+const refused = (reply: Record<string, unknown> | null): string =>
+  reply === null ? 'no_access' : reply.error === 'forbidden' ? 'forbidden' : `refused: ${String(reply.error)}`;
+
+// One run of the worker on Google (ADR-0007): doPost wake, a run as the schedule makes, with
+// the secret from the Keychain and the web app from the install record. Returns why the run did
+// not start, or null. As on GitHub, a repeat is not asked for when the worker's summary lists no
+// resets: 'no_resets'.
+async function wakeGoogle({ fetch, keychain, google, repeat }:
+  { fetch: Fetch; keychain: Pick<Keychain, 'read'>; google: GoogleWorker | undefined; repeat: boolean }): Promise<string | null> {
+  const { url, deploymentId } = google ?? {};
+  if (!url || !deploymentId) return 'no_worker';
+  const secret = await readSecret(keychain);
+  if (!secret) return 'no_secret';
+  const ask = (action: string, extra?: Record<string, unknown>) => askWorker({ fetch, url, secret }, action, extra);
+  try {
+    if (repeat) {
+      const status = await ask('status');
+      if (status?.ok !== true) return refused(status);
+      const resets = (status.summary as Summary | null | undefined)?.resets;
+      if (resets !== undefined && resets.length === 0) return 'no_resets';
+    }
+    const woken = await ask('wake');
+    return woken?.ok === true ? null : refused(woken);
+  } catch (error) {
+    if (error instanceof GoogleFailure) return `google_error: ${error.reason}`;
+    throw error;
+  }
 }
 
 // One worker run with empty inputs, like a scheduled tick. Returns why it did not start, or

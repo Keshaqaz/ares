@@ -99,6 +99,7 @@ async function main(): Promise<number> {
   }
   if (run === 'watch') {
     return watch({ fetch: globalThis.fetch, keychain: new GitHubTokenKeychain({ timeoutMs: WATCH_KEYCHAIN_MS }),
+      secretKeychain: new KeychainEntry(WORKER_SECRET_ACCOUNT, { timeoutMs: WATCH_KEYCHAIN_MS }),
       files, log: line => console.log(`${localStamp()} ${line}`) });
   }
   const color = Boolean(process.stdout.isTTY) && !process.env.NO_COLOR;

@@ -41,7 +41,7 @@ async function watching() {
 }
 
 test('turning the weekly rule on logs this Mac into ChatGPT and starts the agent; the worker keeps its own session', async () => {
-  const { world, repo, mac, keychain, run, session, loaded } = await installed();
+  const { world, repo, mac, keychain, secretKeychain, run, session, loaded } = await installed();
   const { code, io } = await run(rules, { answers: ['2', ''] });
   assert.equal(code, 0, io.output());
   assert.deepEqual(io.lines.slice(-4), ['Правила сохранены и заработают со следующего запуска воркера.', macLogin(),
@@ -58,8 +58,8 @@ test('turning the weekly rule on logs this Mac into ChatGPT and starts the agent
   world.chatgpt.secondary = window(604800, 100, world.now + 2 * DAY);
   world.advance(10 * MINUTE);
   const lines: string[] = [];
-  await watch({ fetch: world.fetch, keychain, files: mac.files, log: line => lines.push(line),
-    now: () => world.now });
+  await watch({ fetch: world.fetch, keychain, secretKeychain, files: mac.files,
+    log: line => lines.push(line), now: () => world.now });
   assert.deepEqual(lines, ['dispatched']);
   assert.deepEqual(world.spent(), ['reset-b']);
   assert.equal(repo.runs[0]?.event, 'workflow_dispatch');
@@ -121,7 +121,8 @@ test('setup after the Mac session is lost asks for the code again and clears ses
 
   // The next pass reads the quota with the new session.
   const lines: string[] = [];
-  await watch({ fetch: world.fetch, keychain: { read: async () => null }, files: mac.files, log: line => lines.push(line), now: () => world.now });
+  await watch({ fetch: world.fetch, keychain: { read: async () => null }, secretKeychain: { read: async () => null },
+    files: mac.files, log: line => lines.push(line), now: () => world.now });
   assert.deepEqual(lines, ['idle']);
 });
 

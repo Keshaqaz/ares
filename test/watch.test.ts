@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { decide, quiet, watch, DISPATCHES, NEAR_PERCENT, QUIET_MS } from '../src/cli/watch.ts';
 import type { PassFiles } from '../src/cli/watch.ts';
 import { WatchFiles } from '../src/cli/watch-files.ts';
-import type { WatchState } from '../src/cli/watch-files.ts';
+import type { WatchState, Install } from '../src/cli/watch-files.ts';
 import type { Quota } from '../src/chatgpt/client.ts';
 import type { Session } from '../src/chatgpt/session.ts';
 import { setup } from '../src/cli/setup.ts';
@@ -75,22 +75,30 @@ test('quiet leaves the quota unread for ten minutes far from its end and after t
 });
 
 // Watch files in memory; events lists the writes in order. state is watch.json as it is on
-// disk, of any shape.
-interface MemoryFiles extends PassFiles { session: Session | null; state: WatchState | Record<string, unknown>; events: string[] }
-function memoryFiles(session: Session | null = null): MemoryFiles {
-  const files: Omit<MemoryFiles, keyof PassFiles> = { session, state: {}, events: [] };
+// disk, of any shape, install the install record the pass reads (null: none, and a Mac without
+// one wakes the GitHub worker by its token, as before ADR-0007).
+interface MemoryFiles extends PassFiles {
+  session: Session | null;
+  state: WatchState | Record<string, unknown>;
+  install: Install | null;
+  events: string[];
+}
+function memoryFiles(session: Session | null = null, install: Install | null = null): MemoryFiles {
+  const files: Omit<MemoryFiles, keyof PassFiles> = { session, state: {}, install, events: [] };
   return Object.assign(files, {
     readSession: async () => files.session,
     writeSession: async (next: Session) => { files.events.push('session'); files.session = next; },
     readState: async () => files.state,
     writeState: async (next: WatchState) => { files.events.push('state'); files.state = next; },
+    readInstall: async () => files.install,
   });
 }
 
 // An installed worker whose runs stay queued, and this Mac with its own computer session.
 // With weekly, setup turns the weekly rule on and logs this Mac in itself, and the worker's
-// runs execute.
-async function mac({ session = true, weekly = false } = {}) {
+// runs execute. install is the install record the passes read when they do not go through this
+// Mac's own files.
+async function mac({ session = true, weekly = false, install = null }: { session?: boolean; weekly?: boolean; install?: Install | null } = {}) {
   const env = await cliWorld();
   const { code, io } = await env.run(setup, { answers: weekly ? ['1', '2', ''] : ['1', ''] });
   assert.equal(code, 0, io.output());
@@ -99,16 +107,39 @@ async function mac({ session = true, weekly = false } = {}) {
   const repo = world.github.repo();
   assert.ok(repo);
   // With weekly the passes go through this Mac's own watch files, and files stay unused.
-  const files = memoryFiles(session && !weekly ? world.login() : null);
+  const files = memoryFiles(session && !weekly ? world.login() : null, install);
   const lines: string[] = [], trial = repo.runs.length;
-  const pass = () => watch({ fetch: world.fetch, keychain: env.keychain, files: weekly ? env.mac.files : files,
-    log: line => lines.push(line), now: () => world.now });
+  const pass = () => watch({ fetch: world.fetch, keychain: env.keychain, secretKeychain: env.secretKeychain,
+    files: weekly ? env.mac.files : files, log: line => lines.push(line), now: () => world.now });
   // The runs after setup's trial run.
   const dispatches = () => repo.runs.slice(0, repo.runs.length - trial).filter(run => run.event === 'workflow_dispatch');
   return { ...env, repo, files, lines, pass, dispatches };
 }
 
 const exhaust = (world: FakeWorld, renewsAt = world.now + 2 * DAY) => { world.chatgpt.secondary = window(604800, 100, renewsAt); };
+
+// A worker installed on Google Apps Script by setup with the weekly rule on, and this Mac with
+// its own computer session (which setup on Google does not open yet): the install record names
+// Google, and the wake of a pass is one doPost (ADR-0007). The passes go through this Mac's own
+// watch files; wakes lists the journal runs the worker owes to the Mac.
+async function googleMac() {
+  const env = await cliWorld();
+  const { code, io } = await env.run(setup, { answers: ['2', '2', ''] });
+  assert.equal(code, 0, io.output());
+  const { world } = env;
+  const project = world.google.project();
+  assert.ok(project?.gas);
+  const gas = project.gas;
+  const install = await env.mac.files.readInstall();
+  assert.ok(install?.platform === 'google' && install.google?.url && install.google.deploymentId);
+  await env.mac.files.writeSession(world.login());
+  const lines: string[] = [];
+  const wakes = () => (JSON.parse(gas.properties.get('journal') ?? '[]') as { at: string; kind: string; outcome: string }[])
+    .filter(entry => entry.kind === 'mac');
+  const pass = () => watch({ fetch: world.fetch, keychain: env.keychain, secretKeychain: env.secretKeychain, files: env.mac.files,
+    log: line => lines.push(line), now: () => world.now });
+  return { ...env, project, lines, wakes, pass };
+}
 
 test('watch starts one worker run per exhausted window and none while the quota lasts', async () => {
   const { world, files, lines, pass, dispatches } = await mac();
@@ -359,4 +390,101 @@ test('no repeat run when the worker summary lists no resets, and the window is l
   assert.equal(dispatches().length, 1);
   assert.equal(lines.filter(line => line === 'no_resets').length, 1);
   assert.partialDeepStrictEqual(files.state, { dispatched: { count: DISPATCHES } });
+});
+
+// ADR-0007: the pass wakes the worker wherever it runs. On Google the wake is one doPost that
+// runs a tick as the schedule does; the quota reading and the deadline stay as on GitHub
+// (ADR-0005): the wake lands no later than the pass after the refusal, and the run it starts
+// applies the reset on the worker's own session.
+test('on Google the pass wakes the worker within minutes of the weekly quota running out, and the wake applies the reset', async () => {
+  const { world, lines, pass, wakes } = await googleMac();
+  const renewsAt = world.now + 2 * DAY, refusedAt = world.now + 20 * MINUTE, start = world.now;
+  for (let n = 0; wakes().length === 0; n++) {
+    assert.ok(n < 30, 'the wake never came');
+    world.advance(2 * MINUTE);
+    // The weekly quota climbs through the morning towards its end.
+    world.chatgpt.secondary = world.now >= refusedAt ? window(604800, 100, renewsAt)
+      : window(604800, Math.min(99, 81 + Math.floor(18 * (world.now - start) / (refusedAt - start))), renewsAt);
+    assert.equal(await pass(), 0);
+  }
+  const [wake] = wakes();
+  assert.ok(wake);
+  assert.ok(Date.parse(wake.at) - refusedAt <= 4 * MINUTE, `wake ${(Date.parse(wake.at) - refusedAt) / MINUTE} min after the refusal`);
+  assert.equal(wake.outcome, 'applied');
+  assert.equal(world.chatgpt.redemptions.length, 1);
+  assert.equal(world.chatgpt.secondary?.used_percent, 0, 'the wake renewed the weekly window');
+  assert.equal(lines.at(-1), 'dispatched');
+  // The window is new again: no second wake is asked for.
+  world.advance(2 * MINUTE);
+  await pass();
+  assert.equal(wakes().length, 1);
+  assert.equal(lines.filter(line => line === 'dispatched').length, 1);
+  assert.deepEqual(world.violations, []);
+  assert.deepEqual(world.google.violations, []);
+});
+
+// ADR-0007: a worker on pause is woken by no pass — no doPost wake on Google, no dispatch on
+// GitHub — and its passes read no quota either.
+test('a paused worker is never woken: no wake, no dispatch, no quota read', async () => {
+  const env = await googleMac();
+  const { world, lines, pass, wakes } = env;
+  const install = await env.mac.files.readInstall();
+  assert.ok(install?.google);
+  await env.mac.files.writeInstall({ ...install, paused: true });
+  exhaust(world);
+  const requests = world.requests.length;
+  for (let n = 0; n < 3; n++) {
+    world.advance(2 * MINUTE);
+    assert.equal(await pass(), 0);
+  }
+  assert.equal(wakes().length, 0);
+  assert.equal(world.requests.length, requests, 'no quota read either');
+  assert.equal(world.github.requests.length, 0);
+  assert.deepEqual(lines, ['paused', 'paused', 'paused']);
+  assert.equal((await env.mac.files.readState()).dispatched, undefined);
+
+  const github = await mac({ install: { platform: 'github', paused: true } });
+  exhaust(github.world);
+  const reads = github.world.requests.length;
+  assert.equal(await github.pass(), 0);
+  assert.equal(github.dispatches().length, 0);
+  assert.equal(github.world.requests.length, reads);
+  assert.deepEqual(github.lines, ['paused']);
+});
+
+// A wake that cannot even be asked for skips the pass with one line: no secret in the Keychain,
+// a secret the worker does not take, a web app that is gone. The window is not recorded, so the
+// next pass tries again (ADR-0007, ADR-0005's retry).
+test('on Google a missing or wrong secret or an unreachable web app skips the pass with one line, and the next pass retries', async () => {
+  const env = await googleMac();
+  const { world, project, mac, secretKeychain, lines, pass, wakes } = env;
+  exhaust(world);
+  const { deploymentId } = (await mac.files.readInstall())?.google ?? {};
+  assert.ok(deploymentId);
+
+  secretKeychain.entries.delete('worker-secret');
+  assert.equal(await pass(), 0);
+  assert.deepEqual(lines, ['no_secret']);
+
+  secretKeychain.entries.set('worker-secret', 'aures-wrong-secret');
+  world.advance(2 * MINUTE);
+  assert.equal(await pass(), 0);
+  assert.deepEqual(lines, ['no_secret', 'forbidden']);
+
+  secretKeychain.entries.set('worker-secret', world.google.deployedSecret(project) ?? '');
+  const version = project.deployments.get(deploymentId);
+  assert.ok(version !== undefined);
+  project.deployments.delete(deploymentId);
+  world.advance(2 * MINUTE);
+  assert.equal(await pass(), 0);
+  assert.deepEqual(lines, ['no_secret', 'forbidden', 'google_error: web_app_404']);
+  assert.equal(wakes().length, 0);
+  assert.equal((await mac.files.readState()).dispatched, undefined, 'the window is not recorded');
+
+  project.deployments.set(deploymentId, version);
+  world.advance(2 * MINUTE);
+  assert.equal(await pass(), 0);
+  assert.deepEqual(lines, ['no_secret', 'forbidden', 'google_error: web_app_404', 'dispatched']);
+  assert.equal(wakes().length, 1);
+  assert.equal(world.chatgpt.redemptions.length, 1, 'the retried wake applied the reset');
 });

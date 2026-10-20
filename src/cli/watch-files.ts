@@ -34,7 +34,9 @@ export type Platform = 'github' | 'google';
 // Where the worker of this install lives (ADR-0007). On Google: its project as soon as it exists,
 // then the deployment and the URL of its web app.
 export interface GoogleWorker { scriptId: string; deploymentId?: string; url?: string }
-export interface Install { platform: Platform; google?: GoogleWorker }
+// paused is written only while it holds: the worker's schedule is off, so it is woken by no
+// check from this Mac; unpause drops the field.
+export interface Install { platform: Platform; paused?: true; google?: GoogleWorker }
 const isGoogleWorker = (value: unknown): value is GoogleWorker => object(value) && typeof value.scriptId === 'string' &&
   ['deploymentId', 'url'].every(key => value[key] === undefined || typeof value[key] === 'string');
 
@@ -80,7 +82,8 @@ export class WatchFiles {
   async readInstall(): Promise<Install | null> {
     const install = await this.read(INSTALL);
     if (!object(install) || (install.platform !== 'github' && install.platform !== 'google')) return null;
-    return { platform: install.platform, ...isGoogleWorker(install.google) ? { google: install.google } : {} };
+    return { platform: install.platform, ...install.paused === true ? { paused: true } : {},
+      ...isGoogleWorker(install.google) ? { google: install.google } : {} };
   }
   async writeInstall(install: Install): Promise<void> { await this.write(INSTALL, install); }
   // The folder with everything in it, for uninstall.

@@ -138,7 +138,7 @@ export async function deployWorker({ api, secretKeychain, io, open, sleep, worke
 export type WorkerReply = Record<string, unknown>;
 
 // The doPost secret of this Mac; null when there is none or the Keychain is locked.
-export const readSecret = async (keychain: Keychain): Promise<string | null> => {
+export const readSecret = async (keychain: Pick<Keychain, 'read'>): Promise<string | null> => {
   try { return await keychain.read(); } catch (error) { if (error instanceof KeychainUnavailable) return null; throw error; }
 };
 
