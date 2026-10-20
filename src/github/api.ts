@@ -40,6 +40,8 @@ export interface NewRepositoryBody {
 export interface PutFileBody { message: string; content: string; sha?: string }
 export interface PutSecretBody { key_id: string; encrypted_value: string }
 export interface DispatchBody { ref: string; inputs: Record<string, string>; return_run_details: boolean }
+// The run a dispatch started; runId is null when GitHub does not name it (204).
+export interface Dispatched { runId: number | null }
 // A file on the default branch; sha names this version of it.
 export interface RepositoryFile { text: string; sha: string }
 
@@ -185,16 +187,15 @@ export class GitHubApi {
   async deleteSecret(repo: string, secret: string): Promise<void> {
     await this.expect('delete_secret', `/repos/${repo}/actions/secrets/${secret}`, [204, 404], { method: 'DELETE' });
   }
-  // The run it started: id is null when GitHub does not name it (204). null while GitHub does
-  // not know the workflow yet: right after its push a dispatch gets 404, or 422 while the
-  // workflow_dispatch trigger is not registered.
+  // null while GitHub does not know the workflow yet: right after its push a dispatch gets
+  // 404, or 422 while the workflow_dispatch trigger is not registered.
   async dispatch(repo: string, workflow: string, { ref, inputs }: { ref: string; inputs: Record<string, string> }):
-    Promise<{ id: number | null } | null> {
+    Promise<Dispatched | null> {
     const reply = await this.expect('dispatch', `/repos/${repo}/actions/workflows/${workflow}/dispatches`, [200, 204, 404, 422],
       { method: 'POST', body: { ref, inputs, return_run_details: true } satisfies DispatchBody });
     if (reply.status === 404 || reply.status === 422) return null;
     const id = (reply.value as { workflow_run_id?: unknown } | null)?.workflow_run_id;
-    return { id: reply.status === 200 && typeof id === 'number' ? id : null };
+    return { runId: reply.status === 200 && typeof id === 'number' ? id : null };
   }
   // active, disabled_manually, disabled_inactivity…; null while GitHub does not know the workflow.
   async workflowState(repo: string, workflow: string): Promise<string | null> {

@@ -167,6 +167,7 @@ test('apply-now follows its own run when the Mac dispatches another one meanwhil
   let dispatched = false, foreign = false;
   world.github.fail = (method, path) => {
     if (method === 'POST' && path.endsWith('/dispatches')) dispatched = true;
+    // The first poll after our dispatch: the Mac's run is newer than ours, as the first new one.
     else if (dispatched && !foreign && method === 'GET') {
       foreign = true;
       world.github.queueMs = 0;

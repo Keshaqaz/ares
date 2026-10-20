@@ -13,7 +13,8 @@ export const BEFORE_EXPIRY_MS = 8 * 3600_000;
 // differ by seconds at most.
 export const SAME_WINDOW_MS = 3600_000;
 // An attempt the server keeps calling already redeemed while it still lists the reset is let
-// go after this long, so that it does not hold back every later application.
+// go after this long, so that it does not hold back every later application: a boundary that
+// ends the cycle of attempts (CONTEXT.md, «Цикл попыток применения»).
 export const ALREADY_REDEEMED_LIMIT_MS = 24 * 3600_000;
 
 // Group of matching deadlines: resets whose deadline falls on one calendar minute.
@@ -98,7 +99,7 @@ export async function tick({ state, rules, now, fetch, applyNow = null, login = 
     if (pending) {
       if (resets.some(r => r.id === pending.creditId)) return await attempt(fetch, { ...next, pending }, now);
       if (pending.expiresAt !== null && pending.expiresAt <= now) {
-        return { state: { ...next, pending: null, lastAttempt: lastAttempt(pending, now, 'unknown') }, outcome: 'idle' };
+        return unsettled(next, pending, now);
       }
       return { state: recordApplied({ ...next, pending: null }, pending, now), outcome: 'applied' };
     }
@@ -135,7 +136,7 @@ async function attempt(fetch: Fetch, state: Ticked & { pending: Pending }, now: 
   }
   if (result === 'already_redeemed') {
     if (now - pending.at < ALREADY_REDEEMED_LIMIT_MS) return { state, outcome: 'pending' };
-    return { state: { ...state, pending: null, lastAttempt: lastAttempt(pending, now, 'unknown') }, outcome: 'idle' };
+    return unsettled(state, pending, now);
   }
   const done = { ...state, pending: null, lastAttempt: lastAttempt(pending, now, result) };
   if (result !== 'reset') return { state: done, outcome: 'idle' };
@@ -144,6 +145,9 @@ async function attempt(fetch: Fetch, state: Ticked & { pending: Pending }, now: 
 
 const lastAttempt = ({ creditId, reason }: { creditId: string; reason: ApplyReason }, at: number,
   result: AttemptResult): LastAttempt => ({ creditId, reason, at, result });
+// Lets the attempt go without knowing whether it applied the reset.
+const unsettled = (state: Ticked, pending: Pending, now: number): TickResult =>
+  ({ state: { ...state, pending: null, lastAttempt: lastAttempt(pending, now, 'unknown') }, outcome: 'idle' });
 
 // Keeps the latest application and those that still matter for a rule: a deadline whose
 // group could still be applied, or a weekly window not yet renewed. recovers is the

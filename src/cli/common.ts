@@ -1,7 +1,7 @@
 // What every command shares: the GitHub login, the worker repository, a worker run started
 // from the CLI and the words the user sees when something fails.
 import { GitHubApi, GitHubFailure, githubDeviceLogin } from '../github/api.ts';
-import type { GitHubFailureReason, Repository, WorkflowRun } from '../github/api.ts';
+import type { Dispatched, GitHubFailureReason, Repository, WorkflowRun } from '../github/api.ts';
 import { LoginFailed } from '../chatgpt/session.ts';
 import type { DeviceCode } from '../chatgpt/session.ts';
 import { TransientFailure } from '../chatgpt/http.ts';
@@ -261,8 +261,10 @@ export async function runWorkerNow({ api, repo, inputs, now, sleep, wait = () =>
     const deadline = now() + RUN_TIMEOUT_MS;
     show('starting');
     // GitHub learns about a freshly pushed workflow with a delay.
-    let dispatched;
-    while (!(dispatched = await api.dispatch(name, WORKFLOW_FILE, { ref: repo.default_branch, inputs: { apply_now: '', ...inputs } }))) {
+    let dispatched: Dispatched | null;
+    for (;;) {
+      dispatched = await api.dispatch(name, WORKFLOW_FILE, { ref: repo.default_branch, inputs: { apply_now: '', ...inputs } });
+      if (dispatched) break;
       if (now() >= deadline) {
         throw new CommandFailed(t('GitHub is not ready to start the worker yet. Try again in a few minutes.',
           'GitHub ещё не готов запустить воркер. Повторите через несколько минут.'));
@@ -271,12 +273,16 @@ export async function runWorkerNow({ api, repo, inputs, now, sleep, wait = () =>
     }
     // Follow the run GitHub named. Without its id, take the first new run, which may be
     // another dispatch, such as one from the check on this Mac.
-    const own = dispatched.id;
+    const { runId } = dispatched;
+    const poll = async (run: WorkflowRun | null): Promise<WorkflowRun | null> => {
+      if (run) return await api.run(name, run.id) ?? run;
+      if (runId !== null) return api.run(name, runId);
+      return (await api.dispatchRuns(name, WORKFLOW_FILE)).find(r => !known.has(r.id)) ?? null;
+    };
     let run: WorkflowRun | null = null;
     for (;;) {
       try {
-        run = run ? await api.run(name, run.id) ?? run : own !== null ? await api.run(name, own) :
-          (await api.dispatchRuns(name, WORKFLOW_FILE)).find(r => !known.has(r.id)) ?? null;
+        run = await poll(run);
         show(!run ? 'starting' : run.status === 'in_progress' ? 'running' : 'queued');
       } catch (error) {
         if (!passing(error)) throw error;
@@ -284,13 +290,15 @@ export async function runWorkerNow({ api, repo, inputs, now, sleep, wait = () =>
       }
       if (run?.status === 'completed') break;
       if (now() >= deadline) {
-        throw new (run?.status === 'in_progress' ? CommandFailed : RunNotStarted)(!run ?
+        if (run?.status === 'in_progress') {
+          throw new CommandFailed(t(`The worker has been running for over 10 minutes. Check later: ${run.html_url}`,
+            `Воркер работает дольше 10 минут. Проверьте позже: ${run.html_url}`));
+        }
+        throw new RunNotStarted(!run ?
           t(`GitHub did not start the worker in 10 minutes. Check: ${repo.html_url}/actions`,
             `GitHub не запустил воркер за 10 минут. Проверьте: ${repo.html_url}/actions`) :
-          run.status === 'in_progress' ?
-            t(`The worker has been running for over 10 minutes. Check later: ${run.html_url}`, `Воркер работает дольше 10 минут. Проверьте позже: ${run.html_url}`) :
-            t(`The worker has been waiting in the GitHub queue for over 10 minutes; it will run by itself. Check later: ${run.html_url}`,
-              `Воркер ждёт в очереди GitHub дольше 10 минут и запустится сам. Проверьте позже: ${run.html_url}`));
+          t(`The worker has been waiting in the GitHub queue for over 10 minutes; it will run by itself. Check later: ${run.html_url}`,
+            `Воркер ждёт в очереди GitHub дольше 10 минут и запустится сам. Проверьте позже: ${run.html_url}`));
       }
       await sleep(POLL_MS);
     }
