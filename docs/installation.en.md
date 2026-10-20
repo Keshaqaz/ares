@@ -6,8 +6,8 @@ The CLI speaks English. For Russian press `l` on the screen or run `aures langua
 
 ## What you need
 
-- A Mac. The worker itself runs on GitHub; the Mac is for commands and, if you want it, for watching the weekly limit (see [The Mac check](#the-mac-check)).
-- A GitHub account. The free plan is enough.
+- A Mac. The worker itself runs in the cloud — on GitHub Actions or in Google Apps Script; the Mac is for commands and, if you want it, for watching the weekly limit (see [The Mac check](#the-mac-check)).
+- A GitHub or Google account — the worker lives there. The free GitHub plan is enough; any Google account works.
 - A paid ChatGPT subscription that issues rate-limit resets.
 
 ## Install
@@ -31,6 +31,19 @@ The last line sets up the `aures` command this guide uses. Without it, run `node
 ```sh
 aures setup
 ```
+
+`setup` starts by asking where the worker will run:
+
+```
+Where the worker will run:
+  1. GitHub Actions — runs once an hour, but GitHub skips many runs; the before-expiry rule starts 8 hours ahead.
+  2. Google Apps Script — runs every 5 minutes, the before-expiry rule starts 1 hour ahead. Installing it shows two «unverified app» warnings and needs one switch in the settings; the script project you delete yourself on uninstall.
+Type 1 or 2: 
+```
+
+Both platforms are clouds in your own account, with no servers and nothing to pay. What else differs between them is in [What it costs](#what-it-costs). The choice is kept on this Mac; the commands work with the worker the same way wherever it runs.
+
+### Installing on GitHub
 
 <img src="assets/setup-en.png" alt="aures setup: GitHub and ChatGPT sign-in, rules, the Mac check and a trial run">
 
@@ -56,20 +69,42 @@ aures setup
 
 If `setup` is interrupted, run it again: it picks up where it stopped and loses nothing.
 
+### Installing on Google Apps Script
+
+The CLI installs the worker right into your Google account: a script project `aures-worker` appears in it. The CLI opens every page that is needed and goes on by itself once you are done — there is nothing to copy. Before it starts, it warns about what Google will show:
+
+```
+Google will show «Google hasn't verified this app» twice: when aures signs in to Google and when you let the worker script run. Both the app and the script are yours, Google has just not reviewed them.
+To go on, click «Advanced», then «Go to … (unsafe)».
+```
+
+1. **Google sign-in.** The CLI prints "Sign in to Google in the browser. On the consent page tick every box, or press «Select all»." and opens the sign-in page. Pick your account and pass the first «Google hasn't verified this app» screen: «Advanced» → «Go to … (unsafe)». On the consent page tick both boxes — "your Google Apps Script projects" and "deployments of your Google Apps Script projects" — or press «Select all». The browser shows "aures: signed in to Google, go back to the terminal", and the CLI goes on by itself. If a box is left unticked, the CLI names the access that is missing and repeats the sign-in.
+2. **The Apps Script API switch.** While the API is off, Google refuses to deploy the worker. The CLI prints "Turn on the Apps Script API: https://script.google.com/home/usersettings", opens that page and explains: "On that page close the welcome dialog if it shows, open the line «Google Apps Script API» and click the switch. aures goes on by itself." You need the switch once; the CLI checks it every 5 seconds and continues by itself.
+3. **The project and the web app.** The project `aures-worker` appears in your account; the CLI deploys its web app and prints "The worker is deployed: …". The web app's URL is kept on this Mac.
+4. **The script's consent.** The CLI prints "Let the worker script run: …", opens the web app's URL and asks: "Pick your account, pass «Google hasn't verified this app» through «Advanced» and click «Allow». aures goes on by itself." This is the second «unverified app» screen. Pick the same account and allow — the page shows "done, go back to the terminal", and the CLI goes on by itself.
+5. **Rules.** The same two rules as on GitHub, only the before-expiry window is the last hour: "1. Before expiry (in the last hour) — on".
+6. **ChatGPT sign-in.** As on GitHub: open the link, enter the code and sign in to the account with the resets. This sign-in belongs to the worker alone; Codex on your computer keeps working as before.
+7. **The schedule.** "The worker runs every 5 minutes."
+8. **The check.** "Checking the worker…" — a trial run, as on GitHub: the worker reads the quotas and resets and tells what the rules would do, but applies no reset.
+
+An interrupted `setup` can simply be run again: it goes on in the same project and adds only what is missing. If you deleted the project in Google, the CLI creates a new one.
+
 ## Rules
 
 | Rule | Default | What it does |
 | --- | --- | --- |
-| Before expiry (last 8 hours) | on | Applies a reset when less than 8 hours are left before it expires. |
-| When the weekly limit runs out | off | As soon as the worker sees the weekly limit is used up, applies the reset that expires first. While the Mac is awake, the Mac check notices the end of the limit, and the reset comes within minutes. |
+| Before expiry (on GitHub — the last 8 hours, on Google — the last hour) | on | Applies a reset when less than 8 hours are left before it expires on GitHub, or less than one hour on Google. |
+| When the weekly limit runs out | off | As soon as the worker sees the weekly limit is used up, applies the reset that expires first. On Google the worker itself notices the end of the limit every 5 minutes, even with the Mac off; on GitHub, while the Mac is awake, the Mac check notices the end of the limit, and the reset comes within minutes. |
 
-The rules cover all resets at once and work independently. Change them any time on the `aures` screen or with `aures rules`; new rules take effect from the next worker run. Turning the weekly rule on asks for a ChatGPT code for this Mac, as in step 5 of setup. Turning it off removes the Mac check but keeps the Mac's ChatGPT sign-in, so turning it on again asks for no code.
+The rules cover all resets at once and work independently. Change them any time on the `aures` screen or with `aures rules`; new rules take effect from the next worker run. On GitHub, turning the weekly rule on asks for a ChatGPT code for this Mac, as in step 5 of setup; turning it off removes the Mac check but keeps the Mac's ChatGPT sign-in, so turning it on again asks for no code. On Google no Mac check is installed: the worker watches the limit itself.
 
-The worker runs about once an hour, but GitHub sometimes delays runs by several hours, so the rules don't fire at an exact minute.
+On GitHub the worker runs about once an hour, but GitHub sometimes delays runs by several hours, so the rules don't fire at an exact minute. On Google the worker runs every 5 minutes, and the rules fire more precisely.
 
 ## The Mac check
 
-While the rule "When the weekly limit runs out" is on, a launchd agent runs `aures watch` every 2 minutes. It is a short pass with no windows and no questions:
+The Mac check belongs to the worker on GitHub: the agent is installed when the worker runs there. On Google it is not needed — the worker itself reads the limit every 5 minutes, even with the Mac off.
+
+While the rule "When the weekly limit runs out" is on (on GitHub), a launchd agent runs `aures watch` every 2 minutes. It is a short pass with no windows and no questions:
 
 1. It reads the weekly limit with the Mac's own ChatGPT sign-in. This spends neither the limit nor tokens. While less than 80% is used, the limit is read every 10 minutes; closer to the end, on every pass.
 2. If the limit has run out, it starts the worker through GitHub with the same GitHub sign-in from the Keychain that the commands use. If the limit is still out 15 minutes later, it starts the worker again, and once more an hour after that: at most three runs per weekly window. It does not repeat when the worker sees no resets at all.
@@ -109,21 +144,28 @@ aures
 
 <img src="assets/status-en.png" alt="The aures screen: resets on top, rules below">
 
-The resets and their deadlines are on top, the general rules below, and under them a line about the worker: when it last ran and what it last applied. "applies soon" next to a reset means it is in its last 8 hours and the before-expiry rule will apply it.
+The resets and their deadlines are on top, the general rules below, and under them a line about the worker: when it last ran and what it last applied. "applies soon" next to a reset means it is in its last 8 hours on GitHub or its last hour on Google, and the before-expiry rule will apply it.
 
 - `↑` `↓` — pick a reset or a rule.
-- `Enter` on a reset — apply it now. The screen asks to confirm; `y` is yes. The CLI waits for the worker and reports the result; this can take a few minutes. A reset is single-use, and applying it cannot be undone.
-- `Enter` on a rule — switch it on or off. Turning the weekly rule on shows a ChatGPT code for this Mac, as in step 5 of setup.
+- `Enter` on a reset — apply it now. The screen asks to confirm; `y` is yes. The CLI waits for the worker and reports the result; on GitHub this can take a few minutes, on Google it takes seconds. A reset is single-use, and applying it cannot be undone.
+- `Enter` on a rule — switch it on or off. On GitHub, turning the weekly rule on shows a ChatGPT code for this Mac, as in step 5 of setup.
 - `l` — switch the language (EN · RU in the header); the choice is kept.
 - `r` — refresh, `q` — quit.
 
-If something is wrong, a line starting with `!` at the bottom says what to do. The weekly rule shows whether the Mac check works: "Mac check works" or "Mac check is not working". In the latter case the agent is not running or the Mac's ChatGPT sign-in is lost, and the `!` line says what to do.
+If something is wrong, a line starting with `!` at the bottom says what to do. On GitHub, the weekly rule shows whether the Mac check works: "Mac check works" or "Mac check is not working". In the latter case the agent is not running or the Mac's ChatGPT sign-in is lost, and the `!` line says what to do.
 
 `aures status` prints the same once, without the controls. `apply-now` and `rules` do what `Enter` on the screen does, with questions in the terminal.
 
+With the worker on Google, the screen and the commands are the same, with a few differences:
+
+- The worker line shows the next run ("worker works · next run expected in 3m"), and the bottom holds the link to the script project.
+- The commands talk to the worker directly at its web app's URL with the secret from the Keychain — no Google sign-in is needed for them.
+- If the worker lost its ChatGPT sign-in, `aures status` says so ("The worker lost its ChatGPT sign-in. Sign in again: `aures login`."), and Google also emails you about the failed trigger.
+- On a new Mac (or with the CLI's files deleted) any command asks where the worker is: "This Mac does not know where the worker runs" and "Where to look? Type 1 or 2". Pick Google, open the project `aures-worker` on script.google.com and paste the link from the address bar.
+
 ## When something breaks
 
-When a worker run fails, GitHub emails you. Run `aures status`: it shows the cause and the fix. Common cases:
+When a worker run fails, the platform emails you: GitHub about an Actions failure, Google about a failed trigger. Run `aures status`: it shows the cause and the fix. Common cases:
 
 | Message | What to do |
 | --- | --- |
@@ -131,6 +173,10 @@ When a worker run fails, GitHub emails you. Run `aures status`: it shows the cau
 | The worker is disabled in GitHub | Open the link in the message and click **Enable workflow**. |
 | The worker has not run for N h | Open the link in the message and check that GitHub Actions is working. Runs usually resume on their own. |
 | GitHub has not run the worker on schedule for N h | Runs from the Mac and apply-now go through, but scheduled ones do not, and the before-expiry rule depends on them. Check GitHub Actions at the link in the message. |
+| Google has not run the worker on schedule for N h | The same on Google: check the script's executions at the link in the message. |
+| The worker has no schedule | Resets are not applied. Repair the worker: `aures setup` puts the schedule back. |
+| The worker on Google does not answer (the script has no access, its web app is gone, this Mac's secret does not fit) | `aures setup` deploys the worker again. |
+| The worker data in the Google project does not read (…) | `aures status` shows the reason. A reinstall helps: `aures uninstall`, then `aures setup`. |
 | This is another ChatGPT account | Sign in to the account the worker was set up for. Switching accounts takes a reinstall: `uninstall`, then `setup`. |
 | Setup is not finished | `aures setup`. |
 | The worker is out of date | `aures upgrade`. |
@@ -155,6 +201,8 @@ aures upgrade
 
 `aures upgrade` updates the worker in your repository; without it, the old version keeps running there. Rules, history and the ChatGPT sign-in are kept. With the weekly rule on, `upgrade` also reloads the Mac check agent when its plist changed.
 
+With the worker on Google, `aures upgrade` puts the new version into the same project and the same deployment, so the web app keeps its URL; the rules, the worker's state and the run journal stay as they are. The upgrade needs the Google sign-in from the Keychain. Until aures' OAuth client is verified, a Google sign-in lives 7 days, so upgrade may open the sign-in again — pass it as in setup: tick every box, and on the «Google hasn't verified this app» screen click «Advanced» → «Go to … (unsafe)». The messages "The worker is updated, but the script has to be allowed to run again" and "The worker project or its deployment is gone from Google" mean the same thing: run `aures setup`, it deploys the worker anew.
+
 Installed from source, the agent runs the `node` and the `src/cli/main.ts` you last ran `setup`, `rules` or `upgrade` with. If you move the folder or change Node, run `setup` again.
 
 Installed with Homebrew, the agent runs the program through the link `$(brew --prefix)/opt/aures`, so after `brew upgrade` it runs the new version right away.
@@ -177,7 +225,17 @@ aures uninstall
 
 Then remove the program: `brew uninstall aures`. Installed from source, delete the project folder and the `alias aures=…` line in `~/.zshrc`.
 
-`uninstall` asks you to sign in to GitHub once more: deleting a repository needs a separate permission, which the CLI does not keep. It then revokes the worker's ChatGPT sign-in and deletes the repository. Next it removes the Mac check agent, revokes the Mac's ChatGPT sign-in and deletes its files and log, and finally removes the GitHub sign-in from the Keychain. Open the GitHub page it links and click **Revoke** to close access completely.
+`uninstall` asks you to confirm and removes the worker from the platform it runs on, together with everything of it on this Mac.
+
+**On GitHub** `uninstall` asks you to sign in to GitHub once more: deleting a repository needs a separate permission, which the CLI does not keep. It then revokes the worker's ChatGPT sign-in and deletes the repository. Next it removes the Mac check agent, revokes the Mac's ChatGPT sign-in and deletes its files and log, and finally removes the GitHub sign-in from the Keychain. Open the GitHub page it links and click **Revoke** to close access completely.
+
+**On Google** `uninstall` stops the worker — takes off its schedule, revokes its ChatGPT sign-in and the script's own access — deletes the web app, revokes aures' Google sign-in and removes the Google sign-in and the worker secret from the Keychain. The script project itself the CLI cannot delete: the Apps Script API has no call for it. So the last thing it prints are the manual steps:
+
+```
+Left to do by hand:
+  1. Delete the project aures-worker on https://script.google.com/home/projects/…
+  2. If https://myaccount.google.com/connections still lists aures-worker, remove its access.
+```
 
 If the program is already gone and the agent is still there, it's best to install the program again and run `uninstall`: only it revokes the Mac's ChatGPT sign-in. To remove the agent and the files by hand, without revoking the sign-in:
 
@@ -191,9 +249,11 @@ rm -r ~/Library/Application\ Support/codex-auto-resets ~/Library/Logs/codex-auto
 
 | Where | What |
 | --- | --- |
-| Keychain on your Mac | the GitHub sign-in (entry `codex-auto-resets`) |
-| Repository `codex-auto-resets-worker` | the worker code, schedule, rules, an open summary (resets and their deadlines, no sign-in or account data) and the worker's encrypted ChatGPT sign-in |
-| Secret `STATE_KEY` in the repository settings | the key that encrypts the worker's sign-in |
+| Keychain on your Mac | the GitHub sign-in; with the worker on Google, also the Google sign-in and the web app secret (entries of service `codex-auto-resets`: `github`, `google`, `worker-secret`) |
+| Repository `codex-auto-resets-worker` (GitHub) | the worker code, schedule, rules, an open summary (resets and their deadlines, no sign-in or account data) and the worker's encrypted ChatGPT sign-in |
+| Secret `STATE_KEY` in the repository settings | the key that encrypts the worker's sign-in (GitHub) |
+| Script project `aures-worker` (Google) | the worker code, schedule, the worker's ChatGPT sign-in, rules and the journal of the last 30 runs — all in the project's Script Properties |
+| `~/Library/Application Support/codex-auto-resets/install.json` | the worker's platform, and on Google the URL of its web app |
 | `~/Library/LaunchAgents/com.github.keshaqaz.codex-auto-resets.watch.plist` | the Mac check agent, while the weekly rule is on |
 | `~/Library/Application Support/codex-auto-resets/chatgpt-session.json` | this Mac's ChatGPT sign-in, while the weekly rule is on |
 | `~/Library/Application Support/codex-auto-resets/watch.json` | the weekly window the worker was already started for, and the outcome of the last check |
@@ -201,8 +261,16 @@ rm -r ~/Library/Application\ Support/codex-auto-resets ~/Library/Logs/codex-auto
 
 The GitHub sign-in gives the CLI access to all your repositories, like `gh`. The worker repository must stay private: if you make it public, the CLI refuses to work with it.
 
+On Google the worker's ChatGPT sign-in lives in Script Properties unencrypted: a key would have to sit right next to it ([ADR-0007](adr/0007-two-worker-platforms.md)). The worker's web app is open at its URL, but it answers only requests with the secret from your Mac's Keychain and never returns tokens. The Google sign-in is needed by the CLI only to deploy or upgrade the worker.
+
 The Mac's ChatGPT sign-in is kept in a `0600` file, not in the Keychain: it is longer than the CLI can safely pass to the Keychain (details in [ADR-0005](adr/0005-weekly-check-from-mac.md)). Any program running as your macOS user can read the file; that is the same level of access as the Codex sign-in. The sign-in is used only to read the limit, and `uninstall` revokes it.
 
 ## What it costs
 
-Nothing. GitHub Actions bills each worker run as at least one minute, which adds up to ~750 minutes a month. The Mac check adds at most one run per weekly window. The GitHub Free plan includes 2,000 minutes a month for private repositories. If your other private repositories use Actions too, keep the total in mind.
+Nothing — on either platform.
+
+**GitHub.** GitHub Actions bills each worker run as at least one minute, which adds up to ~750 minutes a month. The Mac check adds at most one run per weekly window. The GitHub Free plan includes 2,000 minutes a month for private repositories. If your other private repositories use Actions too, keep the total in mind.
+
+**Google.** The worker runs on Apps Script triggers. Google gives 90 minutes of total trigger runtime a day across all the scripts of your account; the aures worker takes about 5–10 of them. If your other scripts use Apps Script too, keep the total in mind.
+
+Money is not the only price. On GitHub it is delayed scheduled runs, sometimes by hours, which is why the before-expiry window is 8 hours. On Google it is two «Google hasn't verified this app» screens, the API switch at install time and the script project you have to delete by hand on uninstall.
