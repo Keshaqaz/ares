@@ -304,6 +304,14 @@ test('a trial run says which reset the rules would apply, spends none and keeps 
   assert.deepEqual(world.spent(), ['reset-a']);
 });
 
+test('the GitHub worker starts the before-expiry rule 8 hours before the deadline', async () => {
+  const { world, run } = await workerWorld();
+  world.chatgpt.credits = [credit('reset-a', world.now + 8 * HOUR + 60_000)];
+  assert.equal((await run({ trial: true })).outcome, 'idle');
+  world.advance(60_000);
+  assert.deepEqual((await run({ trial: true })).wouldApply, { creditId: 'reset-a', reason: 'before_expiry' });
+});
+
 test('a trial run with nothing due says so, and a failed read in it is not retried', async () => {
   const { world, repo, run, pauses } = await workerWorld();
   assert.deepEqual(await run({ trial: true }), { outcome: 'idle', exitCode: 0 });

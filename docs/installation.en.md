@@ -46,11 +46,13 @@ aures setup
    The check from this Mac is on.
    ```
 
-6. **Check.** The CLI runs the worker once and shows the result:
+6. **Check.** The CLI makes a trial run of the worker: it reads the quotas and resets and tells what the rules would do, but applies no reset. The result:
 
    ```
-   The worker works. Resets: 2, the nearest expires 22 October 2026 at 15:00 UTC.
+   The worker works. Resets: 2, the nearest expires 22 October 2026 at 15:00 UTC. Nothing to apply now.
    ```
+
+   If the rules want a reset applied right away, the line ends with «Now the rules would apply the reset RES67F8 (before expiry).» instead; the next scheduled run applies it.
 
 If `setup` is interrupted, run it again: it picks up where it stopped and loses nothing.
 
