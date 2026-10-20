@@ -38,7 +38,7 @@ export interface FakeProject {
 // What the user does on the consent page: ticks these boxes, or refuses.
 export type Consent = GoogleScope[] | 'denied';
 
-export type ApiCall = 'create_project' | 'update_content' | 'create_version' | 'create_deployment' | 'update_deployment';
+export type ApiCall = 'create_project' | 'update_content' | 'create_version' | 'create_deployment' | 'update_deployment' | 'delete_deployment';
 
 export interface FakeGoogle {
   // The switch in script.google.com/home/usersettings.
@@ -57,6 +57,8 @@ export interface FakeGoogle {
   projects: Map<string, FakeProject>;
   // The next Apps Script API call of this kind answers 500, as an outage mid-deploy.
   failNext: ApiCall | null;
+  // The status the token revocation answers with instead of ending the grant; null: it ends it.
+  revokeFail: number | null;
   requests: { method: string; url: string }[];
   violations: string[];
   open(url: string): Promise<void>;
@@ -84,7 +86,7 @@ export function withGoogle(world: FakeWorld & { google?: FakeGoogle }): FakeGoog
 
   const google: FakeGoogle = {
     apiEnabled: false, enableAfterMs: 12_000, consents: [], allowsScript: true, opened: [], refreshTokens: new Map(), accessTokens: new Map(),
-    projects: new Map(), failNext: null, requests: [], violations: [],
+    projects: new Map(), failNext: null, revokeFail: null, requests: [], violations: [],
     open: async href => {
       google.opened.push(href);
       const url = new URL(href);
@@ -161,6 +163,14 @@ export function withGoogle(world: FakeWorld & { google?: FakeGoogle }): FakeGoog
     return json(400, { error: 'unsupported_grant_type' });
   }
 
+  // Revoking the refresh token ends the grant: the token and the access tokens it gave stop working.
+  function revoke(form: Record<string, string>): Response {
+    if (google.revokeFail !== null) return json(google.revokeFail, { error: 'backend_error' });
+    if (!google.refreshTokens.delete(form.token ?? '')) return json(400, { error: 'invalid_token', error_description: 'Token expired or revoked' });
+    google.accessTokens.clear();
+    return json(200, {});
+  }
+
   const insufficient = () => apiError(403, 'PERMISSION_DENIED', 'Request had insufficient authentication scopes.');
   const deploymentView = (project: FakeProject, deploymentId: string, config: Partial<DeploymentConfig>) => ({
     deploymentId, deploymentConfig: { scriptId: project.scriptId, ...config },
@@ -174,7 +184,7 @@ export function withGoogle(world: FakeWorld & { google?: FakeGoogle }): FakeGoog
     const what = path.match(/\/(content|versions|deployments)(\/[^/]+)?$/);
     if (what?.[1] === 'content') return 'update_content';
     if (what?.[1] === 'versions') return 'create_version';
-    if (what?.[1] === 'deployments') return method === 'PUT' ? 'update_deployment' : 'create_deployment';
+    if (what?.[1] === 'deployments') return method === 'PUT' ? 'update_deployment' : method === 'DELETE' ? 'delete_deployment' : 'create_deployment';
     return null;
   };
 
@@ -223,6 +233,7 @@ export function withGoogle(world: FakeWorld & { google?: FakeGoogle }): FakeGoog
     }
     if (what === 'deployments') {
       if (!can('deployments')) return insufficient();
+      if (method === 'DELETE' && id !== undefined && project.deployments.delete(id)) return json(200, {});
       const config = (method === 'PUT' ? body.deploymentConfig : body) as Partial<DeploymentConfig> | undefined;
       const version = config?.versionNumber;
       if (config?.manifestFileName !== 'appsscript') google.violations.push(`manifestFileName ${config?.manifestFileName}`);
@@ -270,6 +281,10 @@ export function withGoogle(world: FakeWorld & { google?: FakeGoogle }): FakeGoog
     if (url.host === 'oauth2.googleapis.com' && url.pathname === '/token' && method === 'POST') {
       if (headers.get('content-type') !== 'application/x-www-form-urlencoded') google.violations.push('token form');
       return token(Object.fromEntries(new URLSearchParams(text)));
+    }
+    if (url.host === 'oauth2.googleapis.com' && url.pathname === '/revoke' && method === 'POST') {
+      if (headers.get('content-type') !== 'application/x-www-form-urlencoded') google.violations.push('revoke form');
+      return revoke(Object.fromEntries(new URLSearchParams(text)));
     }
     if (url.host === 'script.googleapis.com') {
       const access = google.accessTokens.get(headers.get('authorization')?.replace(/^Bearer /, '') ?? '');

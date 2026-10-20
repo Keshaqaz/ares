@@ -8,6 +8,7 @@ import { t } from '../cli/language.ts';
 
 const AUTHORIZE = 'https://accounts.google.com/o/oauth2/v2/auth';
 const TOKEN = 'https://oauth2.googleapis.com/token';
+const REVOKE = 'https://oauth2.googleapis.com/revoke';
 const SCRIPT_API = 'https://script.googleapis.com/v1';
 // What the CLI deploys with; the consent screen shows each with a box the user may leave unticked.
 export const GOOGLE_SCOPES = {
@@ -21,7 +22,7 @@ const LOGIN_TIMEOUT_MS = 10 * 60_000;
 
 // What a call was for; a refusal names it in its reason.
 type Purpose = 'token' | 'refresh' | 'create_project' | 'get_project' | 'get_content' | 'update_content' | 'create_version' |
-  'create_deployment' | 'update_deployment' | 'list_deployments' | 'web_app';
+  'create_deployment' | 'update_deployment' | 'delete_deployment' | 'list_deployments' | 'web_app' | 'revoke';
 // api_disabled: the user has not turned on the Apps Script API in script.google.com/home/usersettings.
 // invalid_grant: the refresh token is gone (revoked, or 7 days old in testing mode).
 export type GoogleFailureReason = 'network' | 'unauthorized' | 'invalid_grant' | 'api_disabled' | `${Purpose}_${number}` |
@@ -215,6 +216,12 @@ export class GoogleApi {
     return deployment('update_deployment', await this.expect('update_deployment',
       `/projects/${encodeURIComponent(scriptId)}/deployments/${encodeURIComponent(deploymentId)}`, 'PUT', { deploymentConfig: config }));
   }
+  // Its web app stops answering; a deployment already gone counts as deleted.
+  async deleteDeployment(scriptId: string, deploymentId: string): Promise<void> {
+    try {
+      await this.expect('delete_deployment', `/projects/${encodeURIComponent(scriptId)}/deployments/${encodeURIComponent(deploymentId)}`, 'DELETE');
+    } catch (error) { if (!(error instanceof GoogleFailure && error.reason === 'delete_deployment_404')) throw error; }
+  }
   // The deployments that serve a version as a web app; the head deployment of the editor is not one of them.
   async deployments(scriptId: string): Promise<Deployment[]> {
     const reply = await this.expect('list_deployments', `/projects/${encodeURIComponent(scriptId)}/deployments`, 'GET') as
@@ -231,6 +238,13 @@ function deployment(what: 'create_deployment' | 'update_deployment' | 'list_depl
   const url = reply?.entryPoints?.find(entry => entry.entryPointType === 'WEB_APP')?.webApp?.url;
   if (typeof reply?.deploymentId !== 'string' || typeof url !== 'string') throw new GoogleFailure(`${what}_invalid`);
   return { deploymentId: reply.deploymentId, url };
+}
+
+// Ends the CLI's grant: the refresh token and the access tokens it gave stop working. A token
+// already gone (revoked, or 7 days old in testing mode) counts as ended.
+export async function revokeGoogle(fetch: Fetch, refreshToken: string): Promise<void> {
+  const reply = await send(fetch, REVOKE, { method: 'POST', body: new URLSearchParams({ token: refreshToken }) });
+  if (reply.status !== 200 && (reply.value as { error?: unknown } | null)?.error !== 'invalid_token') throw new GoogleFailure(`revoke_${reply.status}`);
 }
 
 // One doPost of the worker's web app. Apps Script answers the POST with a redirect to

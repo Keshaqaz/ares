@@ -57,7 +57,7 @@ const usage = (): string => t(`Usage: aures [command]
   rules          choose when resets are applied
   login          sign the worker in to ChatGPT again
   upgrade        update the worker after brew upgrade
-  uninstall      remove the worker, the Mac check and the GitHub sign-in
+  uninstall      remove the worker, the Mac check and the sign-ins
   language       en or ru: the language of the CLI
   --version      the program version`, `Использование: aures [команда]
   (без команды)  экран: сбросы и правила; Enter применяет сброс или переключает правило
@@ -67,7 +67,7 @@ const usage = (): string => t(`Usage: aures [command]
   rules          когда применять сбросы
   login          заново войти в ChatGPT
   upgrade        обновить воркер после brew upgrade
-  uninstall      удалить воркер, проверку с Mac и вход в GitHub
+  uninstall      удалить воркер, проверку с Mac и входы
   language       en или ru: язык программы
   --version      версия программы`);
 
