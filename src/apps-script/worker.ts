@@ -25,7 +25,10 @@ const LOCK_WAIT_MS = 30_000;
 export type RunKind = 'scheduled' | 'mac' | 'trial' | 'apply_now' | 'login';
 export type RunOutcome = TickOutcome | 'broken_state';
 // One run in the journal; at is ISO time.
-export interface JournalEntry { at: string; kind: RunKind; outcome: RunOutcome; durationMs: number; reason?: BrokenStateReason }
+// A trial run that found a reset for the rules names it and why: what they would apply.
+export interface JournalEntry {
+  at: string; kind: RunKind; outcome: RunOutcome; durationMs: number; reason?: BrokenStateReason; wouldApply?: WouldApply;
+}
 // What a run tells doPost: never the state itself.
 interface Ran { outcome: RunOutcome; reason?: BrokenStateReason; wouldApply: WouldApply | null; summary: Summary | null }
 
@@ -105,7 +108,7 @@ export function appsScriptWorker({ gas, secret }: WorkerOptions): Worker {
       ran = { outcome: 'broken_state', reason: error.reason, wouldApply: null, summary: null };
     }
     const entry: JournalEntry = { at: iso(started), kind, outcome: ran.outcome, durationMs: Date.now() - started,
-      ...ran.reason ? { reason: ran.reason } : {} };
+      ...ran.reason ? { reason: ran.reason } : {}, ...ran.wouldApply ? { wouldApply: ran.wouldApply } : {} };
     props.setProperty(PROPERTIES.journal, JSON.stringify([...journal(props), entry].slice(-JOURNAL_SIZE)));
     return ran;
   };

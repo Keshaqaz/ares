@@ -1,4 +1,4 @@
-import { deviceLogin } from '../chatgpt/session.ts';
+import { deviceLogin, sessionEmail } from '../chatgpt/session.ts';
 import { FILES, STATE_KEY_SECRET, LOGIN_SECRET, TRIAL_INPUT } from '../worker/layout.ts';
 import { generateKey, sealState, readRules, BrokenState, STATE_FORMAT_VERSION } from '../worker/state-file.ts';
 import { workflowYaml } from '../worker/workflow.ts';
@@ -26,7 +26,7 @@ async function ensureRepository({ api, login, io }: GitHub & { io: Io }): Promis
 // Dispatches a trial run (CONTEXT.md, «Пробный запуск»), waits for it and reads what the
 // worker published and what the rules would do. A worker on pause runs it with the schedule
 // briefly on and off again after, so the pause stays (ADR-0007).
-async function trialRun({ api, repo, io, now, sleep, timeZone, paused }:
+export async function trialRun({ api, repo, io, now, sleep, timeZone, paused }:
   { api: GitHubApi; repo: Repository; io: Io; now: () => number; sleep: Sleep; timeZone: string | undefined; paused: boolean }): Promise<string> {
   io.print(t('Checking the worker…', 'Проверяем воркер…'));
   const one = () => runWorkerNow({ api, repo, inputs: { [TRIAL_INPUT]: 'true' }, now, sleep, wait: io.wait });
@@ -111,6 +111,7 @@ async function setupGitHub({ fetch, keychain, io, workerSource, mac, now, sleep,
     await api.putSecret(name, STATE_KEY_SECRET, key);
     await api.putFile(name, FILES.state, sealState({ formatVersion: STATE_FORMAT_VERSION, session, pending: null, applied: [] }, key),
       { message: 'Save the worker session', sha: state?.sha });
+    await mac.files.rememberAccount('chatgpt', sessionEmail(session));
   }
   let weekly: boolean | null = null;
   if (!rules) {

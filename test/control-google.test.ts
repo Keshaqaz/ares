@@ -113,7 +113,8 @@ test('apply-now on Google with a lost worker session spends nothing and asks for
 
 test('a link of another signed-in Google account finds the project too', async () => {
   const { mac, keychain, project, run } = await installed();
-  const install = await mac.files.readInstall();
+  // Another Mac knows the emails of the accounts only from its own sign-ins.
+  const { accounts: _accounts, ...install } = await mac.files.readInstall() ?? {};
   await mac.files.removeAll();
   keychain.entries.clear();
   const { code, io } = await run(status, { answers: ['2', `https://script.google.com/u/1/home/projects/${project.scriptId}/edit`] });
@@ -136,8 +137,8 @@ test('rules on Google switch a rule in the worker and leave this Mac as it is', 
 
 test('a Mac without the install record asks where the worker is and finds it on Google by the link to its project', async () => {
   const { world, mac, keychain, project, run } = await installed();
-  const install = await mac.files.readInstall();
-  // Another Mac: no files of the CLI and nothing in the Keychain.
+  // Another Mac: no files of the CLI and nothing in the Keychain, nor the emails of the accounts.
+  const { accounts: _accounts, ...install } = await mac.files.readInstall() ?? {};
   await mac.files.removeAll();
   keychain.entries.clear();
   world.google.projects.set('fake-other', { scriptId: 'fake-other', title: 'Мой проект', files: [], versions: [], deployments: new Map(),

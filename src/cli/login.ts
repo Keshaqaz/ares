@@ -1,11 +1,12 @@
 import { randomUUID } from 'node:crypto';
-import { deviceLogin } from '../chatgpt/session.ts';
+import { deviceLogin, sessionEmail } from '../chatgpt/session.ts';
 import { FILES, STATE_KEY_SECRET, LOGIN_SECRET } from '../worker/layout.ts';
 import { CommandFailed, RunNotStarted, unfinished, chatgptLogin, showCode, workingLine, runnableWorkflow, readSummary, failedRunAdvice,
   runWorkerNow, command } from './common.ts';
 import type { CommandOptions, Io, Sleep } from './common.ts';
 import { openWorker } from './active-worker.ts';
-import type { GitHubWorker, GoogleWorker } from './active-worker.ts';
+import type { Worker, GitHubWorker, GoogleWorker } from './active-worker.ts';
+import type { WatchFiles } from './watch-files.ts';
 import { brokenOnGoogle } from './google.ts';
 import type { Fetch } from '../chatgpt/http.ts';
 import type { Summary } from '../worker/summary.ts';
@@ -16,24 +17,26 @@ const otherAccount = (): string => t('This is another ChatGPT account, the sign-
 'Это другой аккаунт ChatGPT, вход отклонён. Войдите в тот, для которого установлен воркер. ' +
   'Чтобы сменить аккаунт, переустановите воркер: `aures uninstall`, затем `aures setup`.');
 
-const renewed = (): string => t('The sign-in is renewed, the rules and history are in place.', 'Вход обновлён, правила и история на месте.');
+export const renewed = (): string => t('The sign-in is renewed, the rules and history are in place.', 'Вход обновлён, правила и история на месте.');
 const unavailable = (): string => t('ChatGPT is temporarily unavailable: the resets will be read on the next run.',
   'ChatGPT временно недоступен: сбросы прочитаются при следующем запуске.');
 
 // `aures login`: a new worker session after the old one is lost. The worker takes it in place
 // of the old one, keeping rules and history, and rejects another ChatGPT account.
 export async function login(options: CommandOptions): Promise<number> {
-  const { fetch, io, now = Date.now, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)), timeZone } = options;
-  return command('login', io, async () => {
-    const worker = await openWorker(options, 'login');
-    const loggingIn = { fetch, io, now, sleep, timeZone };
-    return worker.platform === 'google' ? loginGoogle(worker, loggingIn) : loginGitHub(worker, loggingIn);
-  });
+  const { fetch, io, mac: { files }, now = Date.now, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)), timeZone } = options;
+  return command('login', io, async () => signInAgain(await openWorker(options, 'login'), { fetch, io, files, now, sleep, timeZone }));
 }
-interface LoggingIn { fetch: Fetch; io: Io; now: () => number; sleep: Sleep; timeZone: string | undefined }
+// files keeps the email of the account signed in to.
+export interface LoggingIn { fetch: Fetch; io: Io; files: Pick<WatchFiles, 'rememberAccount'>; now: () => number; sleep: Sleep; timeZone: string | undefined }
+
+// A new worker session on the platform of the worker: what `aures login` and «войти заново» on the screen do.
+export async function signInAgain(worker: Worker, loggingIn: LoggingIn): Promise<number> {
+  return worker.platform === 'google' ? loginGoogle(worker, loggingIn) : loginGitHub(worker, loggingIn);
+}
 
 // On Google the session goes to the worker in doPost login, and the verdict comes back in its reply.
-async function loginGoogle(worker: GoogleWorker, { fetch, io, now, sleep, timeZone }: LoggingIn): Promise<number> {
+async function loginGoogle(worker: GoogleWorker, { fetch, io, files, now, sleep, timeZone }: LoggingIn): Promise<number> {
   io.print(chatgptLogin());
   const session = await deviceLogin({ fetch, now, sleep, onCode: showCode(io) });
   const id = randomUUID();
@@ -46,6 +49,7 @@ async function loginGoogle(worker: GoogleWorker, { fetch, io, now, sleep, timeZo
     throw new CommandFailed(reply.outcome === 'broken_state' ? brokenOnGoogle(reply.reason) :
       t('The worker did not take the new sign-in.', 'Воркер не принял новый вход.'));
   }
+  await files.rememberAccount('chatgpt', sessionEmail(session));
   io.print(renewed());
   io.print(reply.outcome === 'transient_error' ? unavailable() : workingLine(summary, timeZone));
   return 0;
@@ -53,7 +57,7 @@ async function loginGoogle(worker: GoogleWorker, { fetch, io, now, sleep, timeZo
 
 // On GitHub the CLI cannot open the sealed state, so it hands the session to the worker through
 // the login secret. The verdict comes back in the open summary.
-async function loginGitHub({ api, repo }: GitHubWorker, { fetch, io, now, sleep, timeZone }: LoggingIn): Promise<number> {
+async function loginGitHub({ api, repo }: GitHubWorker, { fetch, io, files, now, sleep, timeZone }: LoggingIn): Promise<number> {
   const name = repo.full_name;
   const [state, workflow, hasKey] = await Promise.all([api.file(name, FILES.state), api.file(name, FILES.workflow),
     api.hasSecret(name, STATE_KEY_SECRET)]);
@@ -89,6 +93,7 @@ async function loginGitHub({ api, repo }: GitHubWorker, { fetch, io, now, sleep,
     throw new CommandFailed(`${run.conclusion === 'success' ? t('The worker did not take the new sign-in.', 'Воркер не принял новый вход.') :
       failedRunAdvice(logged ?? {})}\n${t('Details', 'Подробности')}: ${run.html_url}`);
   }
+  await files.rememberAccount('chatgpt', sessionEmail(session));
   io.print(renewed());
   io.print(logged?.outcome === 'transient_error' ? unavailable() : workingLine(summary, timeZone));
   return 0;

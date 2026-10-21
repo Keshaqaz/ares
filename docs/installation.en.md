@@ -174,7 +174,7 @@ When a worker run fails, the platform emails you: GitHub about an Actions failur
 | The worker has not run for N h | Open the link in the message and check that GitHub Actions is working. Runs usually resume on their own. |
 | GitHub has not run the worker on schedule for N h | Runs from the Mac and apply-now go through, but scheduled ones do not, and the before-expiry rule depends on them. Check GitHub Actions at the link in the message. |
 | Google has not run the worker on schedule for N h | The same on Google: check the script's executions at the link in the message. |
-| The worker has no schedule | Resets are not applied. Repair the worker: `aures setup` puts the schedule back. |
+| The worker has no schedule | Resets are not applied. Repair the worker: «Repair» on the «Worker» screen (`Tab` in `aures`) puts the schedule back. |
 | The worker on Google does not answer (the script has no access, its web app is gone, this Mac's secret does not fit) | `aures setup` deploys the worker again. |
 | The worker data in the Google project does not read (…) | `aures status` shows the reason. A reinstall helps: `aures uninstall`, then `aures setup`. |
 | This is another ChatGPT account | Sign in to the account the worker was set up for. Switching accounts takes a reinstall: `uninstall`, then `setup`. |

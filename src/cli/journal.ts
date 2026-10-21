@@ -6,6 +6,7 @@
 // poll comes back with the entries; the screen of the worker shows it as its live line.
 import type { WorkflowRun } from '../github/api.ts';
 import type { RunOutcome } from '../worker/run.ts';
+import type { WouldApply } from '../worker/tick.ts';
 import type { JournalEntry as RingEntry, RunKind } from '../apps-script/worker.ts';
 import type { Worker, GoogleWorker, GitHubWorker } from './active-worker.ts';
 import { loggedOutcome, WORKFLOW_FILE } from './common.ts';
@@ -19,6 +20,8 @@ export interface JournalEntry {
   outcome: RunOutcome | null;
   durationMs: number;
   reason?: string;
+  // What the rules would apply, for a trial run that found a reset for them.
+  wouldApply?: WouldApply;
 }
 
 // The entries, oldest first as the ring buffer on Google keeps them, with the time of the poll.
@@ -36,8 +39,8 @@ async function readGoogle(worker: GoogleWorker, now: () => number): Promise<Jour
   const status = await worker.status();
   const responseMs = now() - readAt;
   const read = Array.isArray(status.journal) ? status.journal as RingEntry[] : [];
-  const entries = read.map(({ at, kind, outcome, durationMs, reason }) =>
-    ({ at, kind, outcome, durationMs, ...(reason !== undefined ? { reason } : {}) }));
+  const entries = read.map(({ at, kind, outcome, durationMs, reason, wouldApply }) =>
+    ({ at, kind, outcome, durationMs, ...(reason !== undefined ? { reason } : {}), ...(wouldApply ? { wouldApply } : {}) }));
   return { entries, readAt, responseMs };
 }
 
@@ -69,7 +72,7 @@ async function readGitHub({ api, repo }: GitHubWorker, now: () => number): Promi
     const at = run.run_started_at || run.created_at;
     return { at, kind, outcome: logged?.outcome ?? null,
       durationMs: Math.max(0, Date.parse(run.updated_at) - Date.parse(at)),
-      ...(logged?.reason ? { reason: logged.reason } : {}) } satisfies JournalEntry;
+      ...(logged?.reason ? { reason: logged.reason } : {}), ...(logged?.wouldApply ? { wouldApply: logged.wouldApply } : {}) } satisfies JournalEntry;
   }))).filter((entry): entry is JournalEntry => entry !== null);
   return { entries: entries.reverse(), readAt, responseMs };
 }

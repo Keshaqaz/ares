@@ -53,8 +53,8 @@ async function openGitHub({ fetch, keychain, io, now = Date.now, sleep = ms => n
   return { platform: 'github', api: github.api, repo: await installedWorker(github) };
 }
 
-// Why the worker on Google does not answer, and what the user does: «Починить», which setup does
-// until the screen «Воркер» has it.
+// Why the worker on Google does not answer, and what the user does: setup, since the screen
+// with «Починить» opens only for a worker that answers.
 const notAnswering = (why: string): CommandFailed => new CommandFailed(t(`The worker on Google does not answer: ${why}. ` +
   'Repair it: `aures setup` deploys it again.', `Воркер на Google не отвечает: ${why}. Почините его: \`aures setup\` заново зальёт воркер.`));
 

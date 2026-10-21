@@ -34,11 +34,18 @@ export type Platform = 'github' | 'google';
 // Where the worker of this install lives (ADR-0007). On Google: its project as soon as it exists,
 // then the deployment and the URL of its web app.
 export interface GoogleWorker { scriptId: string; deploymentId?: string; url?: string }
+// The accounts the screen «Воркер» names: the email of the Google account the CLI signed in to
+// and of the ChatGPT account of the worker session, as the sign-ins gave them. An email only:
+// never a token.
+export type Account = 'google' | 'chatgpt';
+export type Accounts = Partial<Record<Account, string>>;
 // paused is written only while it holds: the worker's schedule is off, so it is woken by no
 // check from this Mac; unpause drops the field.
-export interface Install { platform: Platform; paused?: true; google?: GoogleWorker }
+export interface Install { platform: Platform; paused?: true; google?: GoogleWorker; accounts?: Accounts }
 const isGoogleWorker = (value: unknown): value is GoogleWorker => object(value) && typeof value.scriptId === 'string' &&
   ['deploymentId', 'url'].every(key => value[key] === undefined || typeof value[key] === 'string');
+const accountsOf = (value: unknown): Accounts => Object.fromEntries((['google', 'chatgpt'] as const)
+  .flatMap(account => object(value) && typeof value[account] === 'string' ? [[account, value[account]]] : []));
 
 export interface WatchFilesOptions { dir?: string }
 
@@ -82,10 +89,16 @@ export class WatchFiles {
   async readInstall(): Promise<Install | null> {
     const install = await this.read(INSTALL);
     if (!object(install) || (install.platform !== 'github' && install.platform !== 'google')) return null;
+    const accounts = accountsOf(install.accounts);
     return { platform: install.platform, ...install.paused === true ? { paused: true } : {},
-      ...isGoogleWorker(install.google) ? { google: install.google } : {} };
+      ...isGoogleWorker(install.google) ? { google: install.google } : {}, ...Object.keys(accounts).length ? { accounts } : {} };
   }
   async writeInstall(install: Install): Promise<void> { await this.write(INSTALL, install); }
+  // Keeps the email of an account just signed in to in the install record; nothing without one.
+  async rememberAccount(account: Account, email: string | null): Promise<void> {
+    const install = await this.readInstall();
+    if (install && email) await this.writeInstall({ ...install, accounts: { ...install.accounts, [account]: email } });
+  }
   // The folder with everything in it, for uninstall.
   async removeAll(): Promise<void> { await rm(this.dir, { recursive: true, force: true }); }
 }

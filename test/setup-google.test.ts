@@ -58,7 +58,8 @@ test('setup on Google goes from nothing to a scheduled worker and ends with a tr
   assert.deepEqual(world.consumeCalls(), []);
   assert.match(io.lines.at(-1) ?? '', /^Воркер работает\. Сбросов: 3, .* Сейчас правила применили бы сброс RES67F8 \(перед истечением\)\.$/);
 
-  assert.deepEqual(await mac.files.readInstall(), { platform: 'google', google: { scriptId: project.scriptId, deploymentId, url } });
+  assert.deepEqual(await mac.files.readInstall(), { platform: 'google', google: { scriptId: project.scriptId, deploymentId, url },
+    accounts: { google: 'owner@example.invalid', chatgpt: 'fake@example.invalid' } });
   assert.equal(world.google.deployedSecret(), await cli.secretKeychain.read());
   assert.equal(world.github.requests.length, 0, 'GitHub is not touched');
   assert.equal(mac.launchctl.calls.length, 0, 'the check from this Mac is left for later');
@@ -126,7 +127,8 @@ test('setup interrupted right after the project is created deploys into that pro
   assert.equal(first.code, 1);
   assert.match(first.io.lines.at(-1) ?? '', /Ошибка Google \(update_content_500\)\. Повторите `aures setup`: сделанное сохранится/);
   const project = deployed(cli);
-  assert.deepEqual(await mac.files.readInstall(), { platform: 'google', google: { scriptId: project.scriptId } });
+  assert.deepEqual(await mac.files.readInstall(), { platform: 'google', google: { scriptId: project.scriptId },
+    accounts: { google: 'owner@example.invalid' } });
 
   const { code, io } = await cli.run({ answers: [''] });
   assert.equal(code, 0, io.output());
@@ -159,7 +161,7 @@ test('the platform asked again until the answer is 1 or 2, and GitHub keeps its 
   const { code, io } = await cli.run({ answers: ['3', '', '1', ''] });
   assert.equal(code, 0, io.output());
   assert.equal(io.asked.filter(question => question === 'Введите 1 или 2: ').length, 3);
-  assert.deepEqual(await cli.mac.files.readInstall(), { platform: 'github' });
+  assert.deepEqual(await cli.mac.files.readInstall(), { platform: 'github', accounts: { chatgpt: 'fake@example.invalid' } });
   assert.ok(cli.world.github.repo());
   assert.equal(cli.world.google.requests.length, 0);
   assert.match(io.output(), /Перед истечением \(в последние 8 часов\)/);

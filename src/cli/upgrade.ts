@@ -81,14 +81,24 @@ async function upgradeGitHub({ fetch, keychain, io, workerSource, mac, now, slee
   return 0;
 }
 
-// On Google: the bundle goes into the same project and deployment, so the web app keeps its URL,
-// and the Script Properties with the state, the rules and the journal stay as they are. The
-// doPost secret is new, as on every deploy. A Google sign-in that ended opens again.
-async function upgradeGoogle({ fetch, googleKeychain, secretKeychain, io, open, appsScriptSource, now, sleep }:
-  UpgradeOptions & { now: () => number; sleep: Sleep }, google: GoogleWorker | undefined): Promise<number> {
+// On Google: the bundle goes into the same project and deployment.
+async function upgradeGoogle(options: UpgradeOptions & { now: () => number; sleep: Sleep }, google: GoogleWorker | undefined): Promise<number> {
+  await redeployGoogle(options, google);
+  options.io.print(updatedLine());
+  return 0;
+}
+
+// Puts this version of the worker on Google into the same project and deployment, so the web
+// app keeps its URL, and the Script Properties with the state, the rules and the journal stay as
+// they are: what `upgrade` and «Починить» do. The doPost secret is new, as on every deploy. A
+// Google sign-in that ended opens again. The schedule is left as it is.
+export type RedeployOptions = Pick<UpgradeOptions, 'fetch' | 'googleKeychain' | 'secretKeychain' | 'io' | 'open' | 'mac' | 'appsScriptSource'> &
+  { now: () => number; sleep: Sleep };
+export async function redeployGoogle({ fetch, googleKeychain, secretKeychain, io, open, mac, appsScriptSource, now, sleep }: RedeployOptions,
+  google: GoogleWorker | undefined): Promise<void> {
   const { deploymentId, url } = google ?? {};
   if (!google || !deploymentId || !url) throw new CommandFailed(unfinished());
-  const api = await connectGoogle({ fetch, keychain: googleKeychain, io, open, now });
+  const api = await connectGoogle({ fetch, keychain: googleKeychain, io, open, now, files: mac.files });
   try {
     await deployWorker({ api, secretKeychain, io, open, sleep, workerSource: appsScriptSource, deployment: { scriptId: google.scriptId, deploymentId } });
   } catch (error) {
@@ -102,6 +112,4 @@ async function upgradeGoogle({ fetch, googleKeychain, secretKeychain, io, open, 
     throw new CommandFailed(t('The worker is updated, but the script has to be allowed to run again: run `aures setup`.',
       'Воркер обновлён, но скрипту нужно снова разрешить работать: запустите `aures setup`.'));
   }
-  io.print(updatedLine());
-  return 0;
 }

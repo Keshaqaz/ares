@@ -82,6 +82,14 @@ export async function deviceLogin({ fetch, onCode, sleep = ms => new Promise(r =
   return { accessToken: access_token, idToken: id_token, refreshToken: refresh_token, accountId };
 }
 
+// The email of the ChatGPT account a session is of, from its id_token: at the top or in the
+// profile claim. null when the token names none. The CLI shows it; the worker never keeps it.
+export function sessionEmail({ idToken }: Pick<Session, 'idToken'>): string | null {
+  const token = asObject(claims(idToken));
+  const email = token?.email ?? asObject(token?.['https://api.openai.com/profile'])?.email;
+  return typeof email === 'string' && email ? email : null;
+}
+
 export function needsRefresh(session: Session, now: number): boolean {
   const exp = asObject(claims(session.accessToken))?.exp;
   return typeof exp !== 'number' || !Number.isSafeInteger(exp) || exp * 1000 - now <= REFRESH_MARGIN_MS;

@@ -25,9 +25,12 @@ const WORKER_BUNDLE = new URL('../../dist/worker.mjs', import.meta.url);
 const APPS_SCRIPT_BUNDLE = new URL('../../dist/apps-script/worker.js', import.meta.url);
 type Command = (options: CommandOptions) => Promise<number>;
 interface Bundles { workerSource: string; appsScriptSource: string }
+// null for a bundle that is not built.
+const readBundles = (): Promise<(string | null)[]> =>
+  Promise.all([WORKER_BUNDLE, APPS_SCRIPT_BUNDLE].map(url => readFile(url, 'utf8').catch(() => null)));
 // Without the bundles setup and upgrade do not start.
 const withBundle = (command: (options: CommandOptions & Bundles) => Promise<number>): Command => async options => {
-  const [workerSource, appsScriptSource] = await Promise.all([WORKER_BUNDLE, APPS_SCRIPT_BUNDLE].map(url => readFile(url, 'utf8').catch(() => null)));
+  const [workerSource, appsScriptSource] = await readBundles();
   if (workerSource == null || appsScriptSource == null) {
     console.error(t('There is no worker build in dist/. Build it: npm run build:worker',
       'Нет сборки воркера в dist/. Соберите её: npm run build:worker'));
@@ -50,7 +53,8 @@ const COMMANDS: Record<string, Command> = { setup: withBundle(setup), status, 'a
 // password in a dialog nobody sees, so the agent waits for it briefly.
 const WATCH_KEYCHAIN_MS = 10_000;
 const usage = (): string => t(`Usage: aures [command]
-  (no command)   the screen: resets and rules; Enter applies a reset or switches a rule
+  (no command)   the screen: resets and rules; Enter applies a reset or switches a rule;
+                 Tab — the screen «Worker»: check now, repair, the journal
   status         the same printed once, without controls
   setup          install, or finish an interrupted install
   apply-now      apply a reset now
@@ -60,7 +64,8 @@ const usage = (): string => t(`Usage: aures [command]
   uninstall      remove the worker, the Mac check and the sign-ins
   language       en or ru: the language of the CLI
   --version      the program version`, `Использование: aures [команда]
-  (без команды)  экран: сбросы и правила; Enter применяет сброс или переключает правило
+  (без команды)  экран: сбросы и правила; Enter применяет сброс или переключает правило;
+                 Tab — экран «Воркер»: проверить сейчас, починить, журнал
   status         то же одним выводом, без управления
   setup          установить или продолжить установку
   apply-now      применить сброс сейчас
@@ -110,8 +115,10 @@ async function main(): Promise<number> {
       try { return await line.question(question); } finally { line.close(); }
     };
     const io = { print: (line: string) => console.log(line), prompt, color };
+    // «Починить» on the screen «Воркер» deploys the bundles; without them it says so.
+    const [workerSource = null, appsScriptSource = null] = await readBundles();
     // An action that Ctrl-C left unfinished must not keep the process alive.
-    process.exit(await screen({ fetch: globalThis.fetch, ...access(), io,
+    process.exit(await screen({ fetch: globalThis.fetch, ...access(), io, workerSource, appsScriptSource,
       mac: { files, agent: new LaunchAgent() }, terminal: { input: process.stdin, output: process.stdout } }));
   }
   const terminal = createInterface({ input: process.stdin, output: process.stdout });

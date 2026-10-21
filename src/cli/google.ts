@@ -9,6 +9,7 @@ import { MANIFEST, PROJECT_FILES, PROJECT_TITLE, secretSource } from '../apps-sc
 import { KeychainUnavailable } from './keychain.ts';
 import type { Keychain } from './keychain.ts';
 import type { OpenUrl } from './browser.ts';
+import type { WatchFiles } from './watch-files.ts';
 import { CommandFailed } from './common.ts';
 import type { Io, Printer, Sleep } from './common.ts';
 import { t } from './language.ts';
@@ -23,13 +24,17 @@ const scopeName = (scope: GoogleScope): string => ({
   deployments: t('deployments of your Google Apps Script projects', 'развёртывания проектов Google Apps Script'),
 })[scope];
 
-export interface ConnectGoogleOptions { fetch: Fetch; keychain: Keychain; io: Printer; open: OpenUrl; now: () => number }
+// files keeps the email of a new sign-in; fresh signs in anew even with a sign-in in the Keychain.
+export interface ConnectGoogleOptions {
+  fetch: Fetch; keychain: Keychain; io: Printer; open: OpenUrl; now: () => number;
+  files?: Pick<WatchFiles, 'rememberAccount'>; fresh?: boolean;
+}
 
 // The Google grant of the CLI. A refresh token from the Keychain is used while Google takes it;
 // a gone one (testing mode keeps it 7 days) opens the sign-in again without a word about it.
-export async function connectGoogle({ fetch, keychain, io, open, now }: ConnectGoogleOptions): Promise<GoogleApi> {
+export async function connectGoogle({ fetch, keychain, io, open, now, files, fresh = false }: ConnectGoogleOptions): Promise<GoogleApi> {
   let token: string | null = null;
-  try { token = await keychain.read(); } catch (error) { if (!(error instanceof KeychainUnavailable)) throw error; }
+  if (!fresh) try { token = await keychain.read(); } catch (error) { if (!(error instanceof KeychainUnavailable)) throw error; }
   if (token) {
     const api = new GoogleApi({ fetch, now, refreshToken: token });
     try {
@@ -50,7 +55,9 @@ export async function connectGoogle({ fetch, keychain, io, open, now }: ConnectG
         io.print(t('Could not save the sign-in to the Keychain: Google will ask you to sign in again next time.',
           'Не удалось сохранить вход в Связку ключей: в следующий раз Google попросит войти снова.'));
       }
-      io.print(t('Signed in to Google.', 'Вы вошли в Google.'));
+      await files?.rememberAccount('google', grant.email);
+      io.print(grant.email ? t(`Signed in to Google as ${grant.email}.`, `Вы вошли в Google как ${grant.email}.`) :
+        t('Signed in to Google.', 'Вы вошли в Google.'));
       return new GoogleApi({ fetch, now, refreshToken: grant.refreshToken, access: grant.access });
     } catch (error) {
       if (!(error instanceof ScopesMissing)) throw error;

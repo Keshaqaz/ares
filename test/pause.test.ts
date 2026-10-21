@@ -14,6 +14,8 @@ import { cliWorld } from './support/cli-world.ts';
 import { bundle } from './support/fake-apps-script.ts';
 
 const NEW_WORKER = '// fake worker bundle, next version\n';
+// The email of the ChatGPT account the setup's sign-in gave, which the install record keeps.
+const ACCOUNTS = { chatgpt: 'fake@example.invalid' };
 
 // A worker installed on GitHub by setup with the default rules: resets reset-a (in 5 days) and
 // reset-b (in 2 days 3 hours).
@@ -57,7 +59,7 @@ test('pause on GitHub takes the schedule off and keeps the worker; unpause bring
   assert.match(paused.io.lines.at(-1) ?? '', /^Воркер на паузе: расписание снято/);
   assert.equal(repo.workflowState, 'disabled_manually');
   assert.equal(await world.github.schedule(), null, 'the cron does not run the worker');
-  assert.deepEqual(await mac.files.readInstall(), { platform: 'github', paused: true });
+  assert.deepEqual(await mac.files.readInstall(), { platform: 'github', paused: true, accounts: ACCOUNTS });
   assert.deepEqual(state().session, session, 'the worker session stays');
   assert.deepEqual(world.auth.revoked, [], 'the session is not revoked');
   assert.equal(repo.runs.length, runs, 'pause runs no worker run');
@@ -66,7 +68,7 @@ test('pause on GitHub takes the schedule off and keeps the worker; unpause bring
   assert.equal(back.code, 0, back.io.output());
   assert.match(back.io.lines.at(-1) ?? '', /^Воркер снят с паузы: расписание вернулось\.$/);
   assert.equal(repo.workflowState, 'active');
-  assert.deepEqual(await mac.files.readInstall(), { platform: 'github' }, 'unpause drops the paused field');
+  assert.deepEqual(await mac.files.readInstall(), { platform: 'github', accounts: ACCOUNTS }, 'unpause drops the paused field');
   assert.ok(await world.github.schedule(), 'the cron runs the worker again');
   assert.deepEqual(world.github.violations, []);
 });
@@ -93,7 +95,7 @@ test('apply-now on pause applies the reset and leaves the schedule off', async (
   assert.deepEqual(world.spent(), ['reset-b']);
   assert.deepEqual(repo.runs[0]?.inputs, { apply_now: 'reset-b' });
   assert.equal(repo.workflowState, 'disabled_manually', 'the run does not bring the schedule back');
-  assert.deepEqual(await mac.files.readInstall(), { platform: 'github', paused: true });
+  assert.deepEqual(await mac.files.readInstall(), { platform: 'github', paused: true, accounts: ACCOUNTS });
 });
 
 test('setup on pause runs the trial run and leaves the schedule off', async () => {
@@ -106,7 +108,7 @@ test('setup on pause runs the trial run and leaves the schedule off', async () =
   assert.equal(repo.runs.length, runs + 1, 'the trial run happened');
   assert.deepEqual(repo.runs[0]?.inputs, { apply_now: '', [TRIAL_INPUT]: 'true' });
   assert.equal(repo.workflowState, 'disabled_manually', 'the trial does not bring the schedule back');
-  assert.deepEqual(await mac.files.readInstall(), { platform: 'github', paused: true });
+  assert.deepEqual(await mac.files.readInstall(), { platform: 'github', paused: true, accounts: ACCOUNTS });
 });
 
 test('upgrade on pause updates the code and leaves the schedule off', async () => {
@@ -117,7 +119,7 @@ test('upgrade on pause updates the code and leaves the schedule off', async () =
   assert.equal(code, 0, io.output());
   assert.equal(world.github.text(repo, FILES.worker), NEW_WORKER);
   assert.equal(repo.workflowState, 'disabled_manually', 'the upgrade does not bring the schedule back');
-  assert.deepEqual(await mac.files.readInstall(), { platform: 'github', paused: true });
+  assert.deepEqual(await mac.files.readInstall(), { platform: 'github', paused: true, accounts: ACCOUNTS });
 });
 
 test('pause on Google takes the trigger off and keeps the worker; unpause brings it back', async () => {

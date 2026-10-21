@@ -181,7 +181,8 @@ export async function withGitHub(world: GitHubWorld, { login = 'octo-fake' }: { 
 
   async function api(method: string, url: URL, body: Sent, scopes: string[]): Promise<Response | null> {
     const path = url.pathname;
-    if (path === '/user' && method === 'GET') return json(200, { login, id: 1 });
+    // The account signed in now: a test sets github.login to sign in to another one.
+    if (path === '/user' && method === 'GET') return json(200, { login: github.login, id: 1 });
     if (path === '/user/repos' && method === 'POST') {
       const name = sent(body, 'name');
       if (github.repos.has(`${login}/${name}`)) return json(422, { message: 'Repository creation failed.' });

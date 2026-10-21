@@ -116,10 +116,11 @@ export const deadline = (reset: Expiring, timeZone?: string): string => reset.ex
 export const byDeadline = <T extends Expiring>(resets: T[]): T[] => [...resets].sort((a, b) =>
   (a.expiresAt ? Date.parse(a.expiresAt) : Infinity) - (b.expiresAt ? Date.parse(b.expiresAt) : Infinity));
 
-export async function connectGitHub({ fetch, keychain, io, now, sleep }:
-  { fetch: Fetch; keychain: Keychain; io: Printer; now: () => number; sleep: Sleep }): Promise<GitHub> {
+// fresh signs in anew even with a sign-in in the Keychain.
+export async function connectGitHub({ fetch, keychain, io, now, sleep, fresh = false }:
+  { fetch: Fetch; keychain: Keychain; io: Printer; now: () => number; sleep: Sleep; fresh?: boolean }): Promise<GitHub> {
   let token: string | null = null;
-  try { token = await keychain.read(); } catch (error) { if (!(error instanceof KeychainUnavailable)) throw error; }
+  if (!fresh) try { token = await keychain.read(); } catch (error) { if (!(error instanceof KeychainUnavailable)) throw error; }
   if (token) {
     const api = new GitHubApi({ fetch, token });
     try { return { api, login: await api.login() }; } catch (error) {

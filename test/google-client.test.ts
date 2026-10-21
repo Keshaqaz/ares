@@ -69,7 +69,8 @@ test('with a box left unticked the CLI names the missing access and signs in aga
   assert.match(io.output(), /Google не дал доступ к: развёртывания проектов Google Apps Script\. /);
   assert.match(io.output(), /Google не дал доступ к: проекты Google Apps Script, развёртывания проектов Google Apps Script\. /);
   assert.deepEqual(cli.world.google.refreshTokens.get(await cli.googleKeychain.read() ?? ''),
-    ['https://www.googleapis.com/auth/script.projects', 'https://www.googleapis.com/auth/script.deployments']);
+    ['https://www.googleapis.com/auth/script.projects', 'https://www.googleapis.com/auth/script.deployments',
+      'https://www.googleapis.com/auth/userinfo.email', 'openid']);
   assert.equal(cli.world.google.projects.size, 1);
   noViolations(cli);
 });

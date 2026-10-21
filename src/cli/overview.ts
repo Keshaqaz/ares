@@ -177,8 +177,8 @@ function googleState({ scriptId, schedule, journal }: Extract<WorkerView, { plat
   WorkerState {
   if (!schedule) {
     return { tone: 'bad', text: t('worker has no schedule', 'у воркера нет расписания'),
-      warning: t('Resets are not applied. Repair the worker: `aures setup` puts the schedule back.',
-        'Сбросы не применяются. Почините воркер: `aures setup` вернёт расписание.') };
+      warning: t('Resets are not applied. Repair the worker: «Repair» on the screen «Worker» (Tab in `aures`) puts the schedule back.',
+        'Сбросы не применяются. Почините воркер: «Починить» на экране «Воркер» (Tab в `aures`) вернёт расписание.') };
   }
   const last = journal.at(-1);
   if (!last) return { tone: 'warn', text: t('worker has not run yet', 'воркер ещё не запускался') };
@@ -238,6 +238,13 @@ const spread = (left: Segment[], right: Segment[], width: number): Segment[] => 
   return [...left, [' '.repeat(Math.max(2, width - used)), ''], ...right];
 };
 
+// The top line: the program, its version, the time and, on the screen, the languages.
+export function headerLine({ now, timeZone, width = WIDTH, toggle = false }: Omit<RenderOptions, 'cursor'>): Segment[] {
+  const languages = toggle ? LANGUAGES.flatMap((code, i): Segment[] => [[i ? ' · ' : '   ', S.dim],
+    [code.toUpperCase(), code === language() ? S.cyan : S.dim]]) : [];
+  return spread([['aures', S.bold], [` ${pkg.version}`, S.dim]], [[shortTime(now(), timeZone), S.dim], ...languages], width);
+}
+
 // Lines of [text, style] segments. cursor is the index in overviewItems, or null without one;
 // toggle shows the languages in the header, for the screen.
 export interface RenderOptions { now: () => number; timeZone?: string; width?: number; cursor?: number | null; toggle?: boolean }
@@ -246,9 +253,7 @@ export function renderOverview(model: Overview, { now, timeZone, width = WIDTH, 
   const at = (item: Item) => cursor !== null && sameItem(item, items[cursor]);
   const heading = (text: string) => lines.push([[text, S.bold]], [['─'.repeat(width), S.dim]]);
 
-  const languages = toggle ? LANGUAGES.flatMap((code, i): Segment[] => [[i ? ' · ' : '   ', S.dim],
-    [code.toUpperCase(), code === language() ? S.cyan : S.dim]]) : [];
-  lines.push(spread([['aures', S.bold], [` ${pkg.version}`, S.dim]], [[shortTime(now(), timeZone), S.dim], ...languages], width), []);
+  lines.push(headerLine({ now, timeZone, width, toggle }), []);
   const resetsTitle = t('RESETS', 'СБРОСЫ');
   heading(model.resets?.length ? `${resetsTitle} · ${model.resets.length}` : resetsTitle);
   if (!model.resets) lines.push([[t('  not read yet — the worker reads them on its next run', '  ещё не прочитаны — воркер прочитает их при следующем запуске'), S.dim]]);

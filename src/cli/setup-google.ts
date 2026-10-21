@@ -4,7 +4,7 @@
 // exists, so a repeated or interrupted setup goes on in the same project and adds only what is
 // missing.
 import { randomUUID } from 'node:crypto';
-import { deviceLogin } from '../chatgpt/session.ts';
+import { deviceLogin, sessionEmail } from '../chatgpt/session.ts';
 import type { Summary } from '../worker/summary.ts';
 import type { WouldApply } from '../worker/tick.ts';
 import { GoogleFailure } from '../google/api.ts';
@@ -33,8 +33,8 @@ const warnings = (): string[] => [
 ];
 
 // What the trial run tells, by the reply of doPost trial.
-interface Trial { outcome: RunOutcome; reason?: string; wouldApply: WouldApply | null; summary: Summary | null }
-function trialLine({ outcome, reason, wouldApply, summary }: Trial, timeZone: string | undefined): string {
+export interface Trial { outcome: RunOutcome; reason?: string; wouldApply: WouldApply | null; summary: Summary | null }
+export function trialLine({ outcome, reason, wouldApply, summary }: Trial, timeZone: string | undefined): string {
   if (outcome === 'broken_state') {
     throw new CommandFailed(brokenOnGoogle(reason));
   }
@@ -48,7 +48,11 @@ export async function setupGoogle({ fetch, io, mac: { files }, open, googleKeych
   paused }: SetupOptions & { now: () => number; sleep: Sleep; paused: boolean }): Promise<number> {
   // The record keeps a pause through the repair: the schedule is not brought back and the
   // passes from this Mac keep not waking the worker.
-  const remember = (google: GoogleWorker) => files.writeInstall({ platform: 'google', google, ...paused ? { paused: true } : {} });
+  // The accounts the sign-ins named stay with it.
+  const remember = async (google: GoogleWorker) => {
+    const accounts = (await files.readInstall())?.accounts;
+    await files.writeInstall({ platform: 'google', google, ...paused ? { paused: true } : {}, ...accounts ? { accounts } : {} });
+  };
   let google = (await files.readInstall())?.google ?? null;
   let secret = await readSecret(secretKeychain);
   const ask = (action: string, extra?: Record<string, unknown>) => {
@@ -72,7 +76,7 @@ export async function setupGoogle({ fetch, io, mac: { files }, open, googleKeych
   }
   if (!deployed || status === null) for (const line of warnings()) io.print(line);
   if (!deployed) {
-    const api = await connectGoogle({ fetch, keychain: googleKeychain, io, open, now });
+    const api = await connectGoogle({ fetch, keychain: googleKeychain, io, open, now, files });
     const deploy = (deployment: GoogleWorker | null) => deployWorker({ api, secretKeychain, io, open, sleep, workerSource: appsScriptSource,
       deployment, onProject: scriptId => remember(google = { scriptId }) });
     let result: WorkerDeployment;
@@ -106,6 +110,7 @@ export async function setupGoogle({ fetch, io, mac: { files }, open, googleKeych
       throw new CommandFailed(t(`The worker did not take the ChatGPT sign-in (${taken.outcome}${taken.reason ? `: ${taken.reason}` : ''}).`,
         `Воркер не принял вход в ChatGPT (${taken.outcome}${taken.reason ? `: ${taken.reason}` : ''}).`));
     }
+    await files.rememberAccount('chatgpt', sessionEmail(session));
   }
   if (status.schedule !== true) {
     if (paused) io.print(t('The worker stays paused: its schedule stays off.', 'Воркер остаётся на паузе: расписание остаётся снятым.'));

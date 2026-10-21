@@ -16,6 +16,9 @@ export const GOOGLE_SCOPES = {
   deployments: 'https://www.googleapis.com/auth/script.deployments',
 } as const;
 export type GoogleScope = keyof typeof GOOGLE_SCOPES;
+// Asked on top, for the email of the account that the screen «Воркер» names. Never required: a
+// grant without them, such as one from before them, is no broken grant, just one without an email.
+export const EMAIL_SCOPES = ['openid', 'email'] as const;
 // An access token is refreshed this long before it expires.
 const EXPIRY_MARGIN_MS = 60_000;
 const LOGIN_TIMEOUT_MS = 10 * 60_000;
@@ -60,9 +63,19 @@ export async function send(fetch: Fetch, url: string, { method = 'GET', headers 
 
 // An access token and when it runs out, in ms.
 export interface AccessToken { token: string; expiresAt: number }
-// What a sign-in gives: the refresh token to keep and a fresh access token.
-export interface GoogleGrant { refreshToken: string; access: AccessToken }
-interface TokenReply { access_token?: unknown; refresh_token?: unknown; expires_in?: unknown; scope?: unknown; error?: unknown }
+// What a sign-in gives: the refresh token to keep, a fresh access token and the account's email
+// from the id_token, null without one.
+export interface GoogleGrant { refreshToken: string; access: AccessToken; email: string | null }
+interface TokenReply { access_token?: unknown; refresh_token?: unknown; expires_in?: unknown; scope?: unknown; id_token?: unknown; error?: unknown }
+
+// The email claim of the id_token the token endpoint gave over TLS: not a credential, so it is read without its signature.
+function emailOf(idToken: unknown): string | null {
+  if (typeof idToken !== 'string') return null;
+  try {
+    const email: unknown = JSON.parse(Buffer.from(idToken.split('.')[1] ?? '', 'base64url').toString('utf8'))?.email;
+    return typeof email === 'string' && email ? email : null;
+  } catch { return null; }
+}
 
 // One call to the token endpoint as the project's client; access is null when the reply has no access token.
 async function requestToken(fetch: Fetch, now: () => number, form: Record<string, string>):
@@ -115,7 +128,7 @@ export async function googleLogin({ fetch, open, now, timeoutMs = LOGIN_TIMEOUT_
     // The browser may come back before open resolves; the failure is read below.
     returned.catch(() => {});
     await open(`${AUTHORIZE}?${new URLSearchParams({ client_id: GOOGLE_OAUTH_CLIENT.id, redirect_uri: redirect, response_type: 'code',
-      scope: Object.values(GOOGLE_SCOPES).join(' '), code_challenge: base64url(createHash('sha256').update(verifier).digest()),
+      scope: [...Object.values(GOOGLE_SCOPES), ...EMAIL_SCOPES].join(' '), code_challenge: base64url(createHash('sha256').update(verifier).digest()),
       code_challenge_method: 'S256', access_type: 'offline', prompt: 'consent', state })}`);
     code = await returned;
   } finally { server.close(); }
@@ -127,7 +140,7 @@ export async function googleLogin({ fetch, open, now, timeoutMs = LOGIN_TIMEOUT_
   const granted = tokens.scope.split(' ');
   const missing = (Object.keys(GOOGLE_SCOPES) as GoogleScope[]).filter(scope => !granted.includes(GOOGLE_SCOPES[scope]));
   if (missing.length) throw new ScopesMissing(missing);
-  return { refreshToken: tokens.refresh_token, access };
+  return { refreshToken: tokens.refresh_token, access, email: emailOf(tokens.id_token) };
 }
 
 // One file of a script project, as updateContent takes it.

@@ -49,6 +49,10 @@ export interface FakeGoogle {
   consents: Consent[];
   // Whether the user lets the script run when its web app opens; false: closes the page.
   allowsScript: boolean;
+  // The account the user signs in with; with grantsEmail false the consent gives no email, as a
+  // grant from before the CLI asked for it.
+  email: string;
+  grantsEmail: boolean;
   // Every URL the CLI opened in the browser.
   opened: string[];
   // refresh token → its scopes; a revoked or expired one is gone.
@@ -72,6 +76,8 @@ export interface FakeGoogle {
 const json = (status: number, value: unknown): Response =>
   new Response(JSON.stringify(value), { status, headers: { 'content-type': 'application/json' } });
 const apiError = (code: number, status: string, message: string): Response => json(code, { error: { code, message, status } });
+const encode = (value: unknown): string => Buffer.from(JSON.stringify(value)).toString('base64url');
+const USERINFO_EMAIL = 'https://www.googleapis.com/auth/userinfo.email';
 const challenge = (verifier: string): string => createHash('sha256').update(verifier).digest('base64url');
 
 export function withGoogle(world: FakeWorld & { google?: FakeGoogle }): FakeGoogle {
@@ -85,7 +91,7 @@ export function withGoogle(world: FakeWorld & { google?: FakeGoogle }): FakeGoog
   };
 
   const google: FakeGoogle = {
-    apiEnabled: false, enableAfterMs: 12_000, consents: [], allowsScript: true, opened: [], refreshTokens: new Map(), accessTokens: new Map(),
+    apiEnabled: false, enableAfterMs: 12_000, consents: [], allowsScript: true, email: 'owner@example.invalid', grantsEmail: true, opened: [], refreshTokens: new Map(), accessTokens: new Map(),
     projects: new Map(), failNext: null, revokeFail: null, requests: [], violations: [],
     open: async href => {
       google.opened.push(href);
@@ -118,7 +124,9 @@ export function withGoogle(world: FakeWorld & { google?: FakeGoogle }): FakeGoog
       if (consent === 'denied') back.searchParams.set('error', 'access_denied');
       else {
         const code = `4/fake-code-${++serial}`;
-        codes.set(code, { scopes: consent.map(scope => GOOGLE_SCOPES[scope]), redirect, challenge: q.get('code_challenge') ?? '' });
+        // openid and email have no box on the consent page: they come with the account itself.
+        const email = google.grantsEmail && requested.includes('openid') && requested.includes('email') ? [USERINFO_EMAIL, 'openid'] : [];
+        codes.set(code, { scopes: [...consent.map(scope => GOOGLE_SCOPES[scope]), ...email], redirect, challenge: q.get('code_challenge') ?? '' });
         back.searchParams.set('code', code);
       }
       // The browser follows Google's redirect to the CLI's own server on this Mac.
@@ -153,7 +161,9 @@ export function withGoogle(world: FakeWorld & { google?: FakeGoogle }): FakeGoog
       }
       const refresh = `1//fake-refresh-${++serial}`;
       google.refreshTokens.set(refresh, grant.scopes);
-      return json(200, { ...issue(grant.scopes), refresh_token: refresh, refresh_token_expires_in: 604799 });
+      const idToken = grant.scopes.includes('openid') ?
+        { id_token: `${encode({ alg: 'RS256' })}.${encode({ iss: 'https://accounts.google.com', sub: '1', email: google.email })}.fake-signature` } : {};
+      return json(200, { ...issue(grant.scopes), refresh_token: refresh, refresh_token_expires_in: 604799, ...idToken });
     }
     if (form.grant_type === 'refresh_token') {
       const scopes = google.refreshTokens.get(form.refresh_token ?? '');
