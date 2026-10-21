@@ -1,13 +1,14 @@
 // The screen «Воркер» (CONTEXT.md; Tab from the overview of the resets): the platform and its
 // state, the accounts with «войти заново», the actions and the live journal. The page keeps what
 // it read and is worded when drawn, as the overview, so the language changes on the spot.
-import type { Platform, Accounts } from './watch-files.ts';
+import type { Platform, Accounts, Switching } from './watch-files.ts';
 import { readJournal } from './journal.ts';
 import type { Journal, JournalEntry, JournalKind } from './journal.ts';
 import { projectUrl } from './active-worker.ts';
 import type { Worker } from './active-worker.ts';
 import type { Mac } from './mac-check.ts';
 import { resetName, reasonText } from './common.ts';
+import { otherPlatform, platformName } from './switch.ts';
 import { shortTime, S, WIDTH } from './overview.ts';
 import type { Segment, Tone } from './overview.ts';
 import { t } from './language.ts';
@@ -27,6 +28,8 @@ export interface WorkerPage {
   platform: Platform;
   link: string;
   paused: boolean;
+  // A switch of platform that has not finished: no worker is active (ADR-0007).
+  switching: Switching | null;
   // The GitHub login; on Google, the email of the Google account if a sign-in gave it.
   account: string | null;
   accounts: Accounts;
@@ -38,18 +41,22 @@ export interface WorkerPage {
 export async function readWorkerPage({ worker, mac, now }: { worker: Worker; mac: Mac; now: () => number }): Promise<WorkerPage> {
   const install = await mac.files.readInstall();
   const accounts = install?.accounts ?? {};
-  const page = { platform: worker.platform, paused: install?.paused === true, accounts,
+  const page = { platform: worker.platform, paused: install?.paused === true, switching: install?.switching ?? null, accounts,
     link: worker.platform === 'github' ? worker.repo.html_url : projectUrl(worker.scriptId),
     account: worker.platform === 'github' ? worker.repo.owner.login : accounts.google ?? null };
   return { ...page, journal: await readJournal(worker, { now }), polledAt: now(), failed: null };
 }
 
-// The cursor stands on the accounts, then on the actions; it opens on «Проверить сейчас».
-export type WorkerItem = 'platformAccount' | 'chatgpt' | 'trial' | 'repair' | 'pause';
-export const WORKER_ITEMS: WorkerItem[] = ['platformAccount', 'chatgpt', 'trial', 'repair', 'pause'];
-export const FIRST_ACTION = WORKER_ITEMS.indexOf('trial');
+// The cursor stands on the accounts, then on the actions; it opens on the first action. A worker
+// on pause is not switched from: it is taken off pause first. While a switch is unfinished the
+// only action is to finish it: everything else would run or schedule a worker that is not active.
+export type WorkerItem = 'platformAccount' | 'chatgpt' | 'trial' | 'repair' | 'pause' | 'switch' | 'retry';
+const ACCOUNT_ITEMS: WorkerItem[] = ['platformAccount', 'chatgpt'];
+export const workerItems = ({ paused, switching }: Pick<WorkerPage, 'paused' | 'switching'>): WorkerItem[] => [...ACCOUNT_ITEMS,
+  ...switching ? ['retry' as const] : paused ? ['trial', 'repair', 'pause'] as const : ['trial', 'repair', 'pause', 'switch'] as const];
+export const FIRST_ACTION = ACCOUNT_ITEMS.length;
 
-export const platformName = (platform: Platform): string => platform === 'github' ? 'GitHub Actions' : 'Google Apps Script';
+export { platformName };
 export const itemLabel = (item: WorkerItem, platform: Platform, paused: boolean): string => ({
   platformAccount: platform === 'github' ? 'GitHub' : 'Google',
   chatgpt: 'ChatGPT',
@@ -57,12 +64,23 @@ export const itemLabel = (item: WorkerItem, platform: Platform, paused: boolean)
   repair: t('Repair', 'Починить'),
   // The one of the two pause actions that applies to the state the page read.
   pause: paused ? t('Unpause', 'Снять с паузы') : t('Pause', 'Пауза'),
+  switch: t(`Switch to ${platformName(otherPlatform(platform))}`, `Переключиться на ${platformName(otherPlatform(platform))}`),
+  retry: t('Retry the switch', 'Повторить переключение'),
 })[item];
 export const repairCaption = (): string => t('Deploy the current version of the worker again and bring its schedule back on this platform. ' +
   'The resets, the rules, the ChatGPT sign-in and the journal are not touched. Helps when the worker stopped running or its files were ' +
   'changed by hand',
 'Заново залить текущую версию воркера и вернуть расписание на этой площадке. Сбросы, правила, вход в ChatGPT и журнал не трогаются. ' +
   'Поможет, если воркер перестал запускаться или его файлы меняли вручную');
+
+export const switchCaption = (platform: Platform): string => t(`The worker on ${platformName(otherPlatform(platform))} is prepared ` +
+  'without a schedule while this one keeps working: you sign it in to ChatGPT, the rules move with it. Then this worker is quenched ' +
+  '(its schedule off, its ChatGPT session revoked, the ' + (platform === 'github' ? 'repository' : 'project') + ' kept) and the new one gets ' +
+  'its schedule. Esc stops the switch until the quench and leaves this worker as it is',
+`Воркер на ${platformName(otherPlatform(platform))} готовится без расписания, пока этот работает: вы входите для него в ChatGPT, ` +
+  'правила переезжают с ним. Затем этот воркер гасится (расписание снято, сессия ChatGPT отозвана, ' +
+  (platform === 'github' ? 'репозиторий' : 'проект') + ' сохранён), и у нового включается расписание. Esc до гашения отменяет ' +
+  'переключение и оставляет этот воркер как есть');
 
 const KINDS = (): Record<JournalKind, string> => ({
   scheduled: t('scheduled', 'по расписанию'), mac: t('from the Mac', 'с Mac'), trial: t('trial', 'пробный'),
@@ -116,12 +134,18 @@ export interface WorkerRenderOptions { timeZone?: string; width?: number; cursor
 export function renderWorker(page: WorkerPage, { timeZone, width = WIDTH, cursor, steps, header }: WorkerRenderOptions): Segment[][] {
   const lines: Segment[][] = [header, []];
   const heading = (text: string) => lines.push([[text, S.bold]], [['─'.repeat(width), S.dim]]);
-  const selected = (item: WorkerItem) => WORKER_ITEMS[cursor] === item;
+  const items = workerItems(page);
+  const selected = (item: WorkerItem) => items[cursor] === item;
   const pointer = (item: WorkerItem): Segment => [selected(item) ? '▸ ' : '  ', S.cyan];
 
   heading(t('WORKER', 'ВОРКЕР'));
-  lines.push([['● ', page.paused ? S.yellow : S.green], [`${platformName(page.platform)} · `, ''],
-    [page.paused ? t('paused', 'на паузе') : t('active', 'активен'), page.paused ? S.yellow : '']]);
+  if (page.switching) {
+    lines.push([['● ', S.red], [`${platformName(page.platform)} · `, ''], [t('no active worker: the switch is not finished',
+      'активного воркера нет: переключение не завершено'), S.red]]);
+  } else {
+    lines.push([['● ', page.paused ? S.yellow : S.green], [`${platformName(page.platform)} · `, ''],
+      [page.paused ? t('paused', 'на паузе') : t('active', 'активен'), page.paused ? S.yellow : '']]);
+  }
   lines.push([[`  ${page.link}`, S.dim]]);
 
   lines.push([]);
@@ -142,10 +166,11 @@ export function renderWorker(page: WorkerPage, { timeZone, width = WIDTH, cursor
 
   lines.push([]);
   heading(t('ACTIONS', 'ДЕЙСТВИЯ'));
-  for (const item of ['trial', 'repair', 'pause'] as const) {
+  for (const item of items.slice(FIRST_ACTION)) {
     const mark: Segment[] = item === 'trial' && page.platform === 'github' ? [[t(' · ~1 min of Actions', ' · ~1 мин Actions'), S.dim]] : [];
     lines.push([pointer(item), [itemLabel(item, page.platform, page.paused), selected(item) ? S.cyan : ''], ...mark]);
-    if (item === 'repair' && selected(item)) for (const line of wrap(repairCaption(), width - 4)) lines.push([[`    ${line}`, S.dim]]);
+    const caption = item === 'repair' ? repairCaption() : item === 'switch' ? switchCaption(page.platform) : null;
+    if (caption && selected(item)) for (const line of wrap(caption, width - 4)) lines.push([[`    ${line}`, S.dim]]);
   }
 
   lines.push([]);

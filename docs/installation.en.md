@@ -163,6 +163,17 @@ With the worker on Google, the screen and the commands are the same, with a few 
 - If the worker lost its ChatGPT sign-in, `aures status` says so ("The worker lost its ChatGPT sign-in. Sign in again: `aures login`."), and Google also emails you about the failed trigger.
 - On a new Mac (or with the CLI's files deleted) any command asks where the worker is: "This Mac does not know where the worker runs" and "Where to look? Type 1 or 2". Pick Google, open the project `aures-worker` on script.google.com and paste the link from the address bar.
 
+### Switching platform
+
+On the screen «Worker» (`Tab`) the action "Switch to …" moves the worker to the other platform without a reinstall. Each step goes into the journal on the screen:
+
+1. If the worker has an application of a reset with an unknown outcome, the switch refuses and says why: a new worker with a clean state could spend a second reset. Wait for the worker's next run.
+2. The new worker is prepared without a schedule while the old one keeps working: the GitHub or Google sign-in, the code of this version, the general rules, and a ChatGPT sign-in for the new worker session (the code shows on the screen).
+3. The old worker is quenched: its ChatGPT session is revoked and its schedule taken off; its repository or project stays for a switch back.
+4. The new worker's schedule goes on, then a trial run.
+
+`Esc` before step 3 stops the switch and leaves the old worker as it was. If the switch stops after step 3 began, no worker is active: `aures status` says so, and the screen «Worker» has one action, "Retry the switch". A paused worker is not switched: take it off pause first.
+
 ## When something breaks
 
 When a worker run fails, the platform emails you: GitHub about an Actions failure, Google about a failed trigger. Run `aures status`: it shows the cause and the fix. Common cases:

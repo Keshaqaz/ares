@@ -3,7 +3,7 @@ import { FILES, STATE_KEY_SECRET, LOGIN_SECRET, TRIAL_INPUT } from '../worker/la
 import { generateKey, sealState, readRules, BrokenState, STATE_FORMAT_VERSION } from '../worker/state-file.ts';
 import { workflowYaml } from '../worker/workflow.ts';
 import { CommandFailed, WORKER_REPOSITORY, WORKER_DESCRIPTION, chatgptLogin, showCode, workingLine, connectGitHub, workerRepository,
-  chooseRules, readSummary, failedRunAdvice, runWorkerNow, command, trialVerdict, notReadYet } from './common.ts';
+  chooseRules, readSummary, failedRunAdvice, runWorkerNow, command, trialVerdict, notReadYet, switchUnfinished } from './common.ts';
 import { setupGoogle } from './setup-google.ts';
 import { runWhileEnabled } from './pause.ts';
 import type { Install, WatchFiles } from './watch-files.ts';
@@ -75,6 +75,8 @@ export async function setup(options: SetupOptions): Promise<number> {
   const { io, mac, now = Date.now, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)) } = options;
   return command('setup', io, async () => {
     const install = await choosePlatform(io, mac.files);
+    // setup would bring the new worker's schedule back before the old one is quenched.
+    if (install.switching) throw new CommandFailed(switchUnfinished());
     const paused = install.paused === true;
     return install.platform === 'google' ?
       setupGoogle({ ...options, now, sleep, paused }) :

@@ -98,6 +98,8 @@ async function pass({ fetch, keychain, secretKeychain, files, state, now }:
   // out-of-schedule check rests too — no quota read, no run (ADR-0007).
   const install = await files.readInstall();
   if (install?.paused) return { state, outcome: 'paused' };
+  // Mid-switch of platform no worker is active: the old one may be quenched, the new one has no schedule yet.
+  if (install?.switching) return { state, outcome: 'switching' };
   let session = await files.readSession();
   if (!session) return { state, outcome: 'no_session' };
   if (quiet(state, now)) return { state, outcome: 'quiet' };

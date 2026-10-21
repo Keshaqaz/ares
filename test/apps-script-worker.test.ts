@@ -320,6 +320,26 @@ test('no reply carries a token or the state', async () => {
   }
 });
 
+test('status names a pending application by its reset only, and drops it once it is settled', async () => {
+  const { world, gas } = await installed();
+  world.chatgpt.credits = [credit('reset-a', world.now + 20 * MINUTE)];
+  post(gas, 'schedule', { on: true });
+  world.chatgpt.lose = 'after';
+  gas.tick();
+  const pending = state(gas).pending;
+  assert.ok(pending?.redeemRequestId);
+  const status = post(gas, 'status');
+  assert.deepEqual((status.summary as { pending: unknown }).pending,
+    { creditId: 'reset-a', reason: 'before_expiry', at: new Date(pending.at).toISOString() });
+  assert.ok(!JSON.stringify(status).includes(pending.redeemRequestId), 'no redeem_request_id');
+
+  world.chatgpt.lose = null;
+  world.advance(5 * MINUTE);
+  gas.tick();
+  assert.equal((post(gas, 'status').summary as { pending: unknown }).pending, null);
+  noViolations(world, gas);
+});
+
 test('a changing action while another run holds the lock answers busy; status still answers', async () => {
   const { world, gas } = await installed();
   let during: Record<string, unknown>[] = [];

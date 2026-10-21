@@ -346,6 +346,10 @@ test('the summary and Actions Summary carry resets and rules but no secrets', as
   assert.ok(!/account|token|session|redeem/i.test(summary));
   const parsed: Summary = JSON.parse(summary);
   assert.equal(parsed.formatVersion, 1);
+  // The lost reply leaves a pending application: the summary names it, without its redeem_request_id.
+  assert.ok(state.pending);
+  assert.deepEqual(parsed.pending, { creditId: state.pending.creditId, reason: state.pending.reason,
+    at: new Date(state.pending.at).toISOString() });
   assert.deepEqual(parsed.resets.map(r => r.creditId), ['reset-a', 'reset-b']);
   assert.deepEqual(parsed.rules, { beforeExpiry: true, weeklyAutoApply: false });
   assert.match(published, /reset-b/);

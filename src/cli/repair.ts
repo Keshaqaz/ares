@@ -6,7 +6,7 @@
 import pkg from '../../package.json' with { type: 'json' };
 import { FILES } from '../worker/layout.ts';
 import { workflowYaml, workflowMinute } from '../worker/workflow.ts';
-import { CommandFailed, WORKFLOW_FILE, unfinished } from './common.ts';
+import { CommandFailed, WORKFLOW_FILE, unfinished, switchUnfinished } from './common.ts';
 import type { Sleep } from './common.ts';
 import { redeployGoogle } from './upgrade.ts';
 import type { RedeployOptions } from './upgrade.ts';
@@ -29,6 +29,8 @@ export async function repairWorker(options: RepairOptions): Promise<{ worker: Wo
   const { worker, mac: { files } } = options;
   const install = await files.readInstall();
   if (!install) throw new CommandFailed(unfinished());
+  // The schedule it brings back waits for the old worker's quench.
+  if (install.switching) throw new CommandFailed(switchUnfinished());
   const paused = install.paused === true;
   const source = worker.platform === 'github' ? options.workerSource : options.appsScriptSource;
   if (source === null) {

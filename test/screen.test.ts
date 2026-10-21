@@ -14,6 +14,8 @@ import { language } from '../src/cli/language.ts';
 import { pauseWorker } from '../src/cli/pause.ts';
 import { login } from '../src/cli/login.ts';
 import type { Language } from '../src/cli/language.ts';
+import { setLanguage } from '../src/cli/language.ts';
+import { switchWorld, TO_SWITCH } from './support/switch-world.ts';
 
 const HINT = '↑↓ выбор · Enter применить · Tab воркер · l язык · r обновить · q выход';
 
@@ -543,4 +545,84 @@ test('«Войти заново» for GitHub takes only the account of the worke
   assert.equal(screen.busy, null);
   assert.match(text(), /aures · GitHub: Это аккаунт GitHub someone-else, а воркер в octo-fake\. Войдите в него\./);
   assert.equal(await keychain.read(), renewed, 'the sign-in before it is back');
+});
+
+// «Переключиться на …» (issue 13): the frames of the switch as it goes, of its refusal and of Esc.
+test('the frames of a switch: the caption, the steps in the journal, Esc offered until the quench and not after', async () => {
+  const env = await switchWorld('github');
+  const { press, text } = env;
+  await press(...TO_SWITCH);
+  assert.match(text(), /\nДЕЙСТВИЯ\n─+\n {2}Проверить сейчас · ~1 мин Actions\n {2}Починить\n {2}Пауза\n▸ Переключиться на Google Apps Script\n/);
+  const switchCaption = env.screen.frame().slice(env.screen.frame().findIndex(line => line.endsWith('Переключиться на Google Apps Script')) + 1)
+    .filter(line => line.startsWith('    ')).map(line => line.trim()).join(' ');
+  assert.equal(switchCaption, 'Воркер на Google Apps Script готовится без расписания, пока этот работает: вы входите для него в ChatGPT, ' +
+    'правила переезжают с ним. Затем этот воркер гасится (расписание снято, сессия ChatGPT отозвана, репозиторий сохранён), и у нового ' +
+    'включается расписание. Esc до гашения отменяет переключение и оставляет этот воркер как есть');
+
+  // A frame while the new worker is signed in to ChatGPT, and one while the old one is quenched.
+  const frames: string[][] = [];
+  env.onRequest = request => {
+    const login = request.method === 'POST' && request.url.pathname.startsWith('/macros/') &&
+      (JSON.parse(request.body) as { action?: string }).action === 'login';
+    if (login || request.url.pathname.endsWith('/dispatches')) frames.push(env.screen.frame());
+  };
+  await press('return');
+  const [signingIn, quenching] = frames.map(frame => frame.join('\n'));
+  assert.match(signingIn ?? '', /\nЖУРНАЛ\n─+\n {2}опрошен [^\n]*\n {2}20 окт 12:\d\d {2}aures · Переключение: Вход в ChatGPT для нового воркера: своя сессия…\n {2}20 окт 12:\d\d {2}aures · Переключение: Общие правила перенесены: перед истечением — включено, когда кончится недельный лимит — выключено\.\n/);
+  assert.match(signingIn ?? '', /\nОткройте https:\/\/auth\.openai\.com\/codex\/device и введите код FAKE-\d+\n/);
+  assert.match(frames[0]?.at(-1) ?? '', /^. Переключаем площадку… Esc — отменить$/);
+  assert.match(quenching ?? '', /aures · Переключение: Отзываем сессию ChatGPT старого воркера…\n/);
+  assert.equal(frames[1]?.at(-1)?.slice(2), 'Запускаем воркер на GitHub…', 'no Esc once the quench began');
+
+  assert.match(text(), /\n● Google Apps Script · активен\n/);
+  assert.match(text(), /\n {2}20 окт 12:\d\d {2}aures · Переключение: Воркер переключён на Google Apps Script\. Старый на GitHub Actions погашен, его репозиторий сохранён для обратного переключения\.\n/);
+  assert.match(text(), /\nДЕЙСТВИЯ\n─+\n▸ Проверить сейчас\n {2}Починить\n {2}Пауза\n {2}Переключиться на GitHub Actions\n/);
+  assert.equal(env.screen.frame().at(-1), WORKER_HINT);
+});
+
+test('the frame of a refused switch: the reason in the journal, the worker active as before', async () => {
+  const env = await switchWorld('google');
+  const { world, press, text } = env;
+  world.chatgpt.credits.push(credit('reset-c', world.now + 20 * MINUTE));
+  world.chatgpt.lose = 'after';
+  env.google().gas?.tick();
+  world.chatgpt.lose = null;
+  await press(...TO_SWITCH, 'return');
+  assert.match(text(), /\n● Google Apps Script · активен\n/);
+  assert.match(text(), /\nЖУРНАЛ\n─+\n {2}опрошен [^\n]*\n {2}20 окт 12:00 {2}aures · Переключение: Переключение отклонено: исход применения reset-c \(перед истечением\) ещё неизвестен\. Новый воркер с чистым состоянием мог бы потратить второй сброс\. Старый воркер уточнит исход при следующем запуске, переключайте после этого\.\n {2}20 окт 12:00 {2}aures · Переключение: Переключаемся на GitHub Actions\. Esc отменяет до гашения старого воркера\.\n {2}20 окт 12:00 {2}по расписанию · исход применения ещё неизвестен/);
+  assert.match(text(), /\n▸ Переключиться на GitHub Actions\n/, 'the cursor stays on the switch');
+  assert.equal(env.screen.frame().at(-1), WORKER_HINT);
+});
+
+test('the frame after Esc: the switch is stopped, the worker active with its session', async () => {
+  const env = await switchWorld('github');
+  const { press, text } = env;
+  env.onRequest = request => {
+    if (env.screen.stopSwitch && request.url.host === 'script.googleapis.com') void env.screen.press({ name: 'escape', sequence: '\x1b' });
+  };
+  await press(...TO_SWITCH, 'return');
+  assert.match(text(), /\n● GitHub Actions · активен\n/);
+  assert.match(text(), /\n {2}20 окт 12:\d\d {2}aures · Переключение: отменено по Esc; воркер остался как был: активен, его сессия жива\.\n {2}20 окт 12:\d\d {2}aures · Переключение: Входим в Google…\n/);
+  assert.match(text(), /\n▸ Переключиться на Google Apps Script\n/);
+  assert.equal(env.screen.frame().at(-1), WORKER_HINT);
+});
+
+test('a paused worker has no «Переключиться на …»: it is taken off pause first', async () => {
+  const env = await switchWorld('github');
+  const { press, text } = env;
+  await press('tab', 'down', 'down', 'return');
+  assert.match(text(), /\n● GitHub Actions · на паузе\n/);
+  assert.match(text(), /\nДЕЙСТВИЯ\n─+\n {2}Проверить сейчас · ~1 мин Actions\n {2}Починить\n▸ Снять с паузы\n\n/);
+  assert.doesNotMatch(text(), /Переключиться/);
+  await press('down');
+  assert.match(text(), /\n▸ GitHub /, 'the cursor goes round past the pause');
+});
+
+test('the screen «Воркер» in English names the switch', async () => {
+  const env = await switchWorld('google');
+  setLanguage('en');
+  try {
+    await env.press(...TO_SWITCH);
+    assert.match(env.text(), /\nACTIONS\n─+\n {2}Check now\n {2}Repair\n {2}Pause\n▸ Switch to GitHub Actions\n/);
+  } finally { setLanguage('ru'); }
 });

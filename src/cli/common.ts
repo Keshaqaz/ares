@@ -70,6 +70,12 @@ export class CommandFailed extends Error {}
 export class RunNotStarted extends CommandFailed {}
 
 export const unfinished = (): string => t('Setup is not finished. Run `aures setup`.', 'Установка не завершена. Запустите `aures setup`.');
+// What the user does about a switch of platform that stopped after the old worker started to be
+// quenched (ADR-0007): no worker is active until it is finished on the screen «Воркер».
+export const switchUnfinished = (): string => t('The switch of platform is not finished: no worker is active and resets are not applied. ' +
+  'Open the screen «Worker» (`aures`, then Tab) and choose «Retry the switch».',
+'Переключение площадки не завершено: активного воркера нет, сбросы не применяются. ' +
+  'Откройте экран «Воркер» (`aures`, затем Tab) и выберите «Повторить переключение».');
 export const enableUrl = (repo: Repository): string => `${repo.html_url}/actions/workflows/${WORKFLOW_FILE}`;
 
 // Answers that confirm a one-way action.

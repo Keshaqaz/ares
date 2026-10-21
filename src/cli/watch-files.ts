@@ -41,9 +41,17 @@ export type Account = 'google' | 'chatgpt';
 export type Accounts = Partial<Record<Account, string>>;
 // paused is written only while it holds: the worker's schedule is off, so it is woken by no
 // check from this Mac; unpause drops the field.
-export interface Install { platform: Platform; paused?: true; google?: GoogleWorker; accounts?: Accounts }
+// switching is written by a switch of platform (ADR-0007) right before it starts quenching the
+// worker on `from`, with platform already the new one, and dropped once the new worker has its
+// schedule: while it is there no worker is active, and the screen «Воркер» offers to finish the
+// switch. quenched says the worker on `from` has no schedule and its session is revoked.
+export interface Switching { from: Platform; quenched?: true }
+export interface Install { platform: Platform; paused?: true; switching?: Switching; google?: GoogleWorker; accounts?: Accounts }
 const isGoogleWorker = (value: unknown): value is GoogleWorker => object(value) && typeof value.scriptId === 'string' &&
   ['deploymentId', 'url'].every(key => value[key] === undefined || typeof value[key] === 'string');
+const isPlatform = (value: unknown): value is Platform => value === 'github' || value === 'google';
+const switchingOf = (value: unknown): Switching | null => object(value) && isPlatform(value.from) ?
+  { from: value.from, ...value.quenched === true ? { quenched: true } : {} } : null;
 const accountsOf = (value: unknown): Accounts => Object.fromEntries((['google', 'chatgpt'] as const)
   .flatMap(account => object(value) && typeof value[account] === 'string' ? [[account, value[account]]] : []));
 
@@ -88,9 +96,9 @@ export class WatchFiles {
   // null when there is no install record or it does not read.
   async readInstall(): Promise<Install | null> {
     const install = await this.read(INSTALL);
-    if (!object(install) || (install.platform !== 'github' && install.platform !== 'google')) return null;
-    const accounts = accountsOf(install.accounts);
-    return { platform: install.platform, ...install.paused === true ? { paused: true } : {},
+    if (!object(install) || !isPlatform(install.platform)) return null;
+    const accounts = accountsOf(install.accounts), switching = switchingOf(install.switching);
+    return { platform: install.platform, ...install.paused === true ? { paused: true } : {}, ...switching ? { switching } : {},
       ...isGoogleWorker(install.google) ? { google: install.google } : {}, ...Object.keys(accounts).length ? { accounts } : {} };
   }
   async writeInstall(install: Install): Promise<void> { await this.write(INSTALL, install); }

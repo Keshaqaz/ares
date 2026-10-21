@@ -3,7 +3,9 @@ import type { RunOutcome, RunResult } from './run.ts';
 import type { WouldApply } from './tick.ts';
 
 // What the worker publishes openly for `status`: never the session, the account id or
-// the pending redeem_request_id. Every field is copied explicitly, nothing is spread.
+// the pending redeem_request_id. Every field is copied explicitly, nothing is spread. pending
+// names the reset whose application has no known outcome yet, so that a switch of platform
+// refuses while it is there (ADR-0007); a summary without the field is from an older worker.
 export const SUMMARY_FORMAT_VERSION = 1;
 function iso(ms: number): string;
 function iso(ms: number | null): string | null;
@@ -17,6 +19,7 @@ export interface Summary {
   lastApplied: { creditId: string; reason: ApplyReason; at: string } | null;
   lastAttempt: { creditId: string; reason: ApplyReason; result: AttemptResult; at: string } | null;
   login: { id: string; result: LoginVerdict['result']; at: string } | null;
+  pending?: { creditId: string; reason: ApplyReason; at: string } | null;
 }
 
 // summary.json. It has no tick time, so a tick that changes nothing commits nothing;
@@ -24,6 +27,7 @@ export interface Summary {
 export function openSummary({ state, rules }: { state: State; rules: Rules }): Summary {
   const applied = state.applied?.at(-1);
   const attempt = state.lastAttempt;
+  const pending = state.pending;
   // The tick reads the list before it applies a reset, so the list still has the one applied.
   const spent = new Set((state.applied ?? []).map(a => a.creditId));
   return {
@@ -35,6 +39,7 @@ export function openSummary({ state, rules }: { state: State; rules: Rules }): S
     lastAttempt: attempt ? { creditId: attempt.creditId, reason: attempt.reason, result: attempt.result, at: iso(attempt.at) } : null,
     // The verdict on the latest `login`, which the CLI matches by id.
     login: state.login ? { id: state.login.id, result: state.login.result, at: iso(state.login.at) } : null,
+    pending: pending ? { creditId: pending.creditId, reason: pending.reason, at: iso(pending.at) } : null,
   };
 }
 

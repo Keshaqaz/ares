@@ -11,7 +11,7 @@ import type { Worker, OpenWorkerOptions } from './active-worker.ts';
 import type { Io, Rule, Sleep } from './common.ts';
 import { readOverview, renderOverview, overviewItems, sameItem, headerLine, paint, S, WIDTH } from './overview.ts';
 import type { Overview, Tone as OverviewTone } from './overview.ts';
-import { readWorkerPage, renderWorker, itemLabel, POLL_MS, WORKER_ITEMS, FIRST_ACTION } from './worker-screen.ts';
+import { readWorkerPage, renderWorker, itemLabel, POLL_MS, workerItems, FIRST_ACTION } from './worker-screen.ts';
 import type { WorkerPage, WorkerItem, Step } from './worker-screen.ts';
 import { trialRun } from './setup.ts';
 import { trialLine } from './setup-google.ts';
@@ -20,6 +20,7 @@ import { repairWorker } from './repair.ts';
 import { setWorkerPause } from './pause.ts';
 import { signInAgain, renewed } from './login.ts';
 import { connectGoogle, readSecret } from './google.ts';
+import { switchPlatform, finishSwitch, SwitchCancelled } from './switch.ts';
 import type { Keychain } from './keychain.ts';
 import type { OpenUrl } from './browser.ts';
 import type { Mac } from './mac-check.ts';
@@ -28,7 +29,8 @@ import { t, language, setLanguage } from './language.ts';
 // `aures` without a command: the overview of `status` with a cursor. Enter on a
 // reset applies it now after a «y», Enter on a rule switches it; both do what `apply-now` and
 // `rules` do. Tab opens the screen «Воркер» and goes back: there Enter signs an account in
-// again, checks the worker with a trial run, repairs it, pauses it or takes it off pause, and
+// again, checks the worker with a trial run, repairs it, pauses it or takes it off pause,
+// switches it to the other platform (Esc stops the switch until the old worker is quenched), and
 // the journal under it is polled while it is shown. l switches the language between English
 // and Russian and keeps the choice. Takes the whole terminal on its alternate screen; q gives
 // the terminal back as it was.
@@ -86,6 +88,7 @@ export class Screen {
   steps: Step[] = []; // what the CLI did on the screen «Воркер», for its journal
   polling: Promise<void> | null = null; // the poll under way
   poller: ReturnType<typeof setInterval> | null = null;
+  stopSwitch: AbortController | null = null; // Esc stops the switch under way, until the old worker is quenched
   constructor(options: ScreenOptions) {
     const { worker, mac, fetch, now, sleep, timeZone } = options;
     this.options = options;
@@ -114,6 +117,8 @@ export class Screen {
       if (!this.page) throw error;
       this.page = { ...this.page, polledAt: this.now(), failed: explain(error) ?? t('unexpected error', 'неожиданная ошибка') };
     }
+    // The actions change with the state the page read.
+    this.workerCursor = Math.min(this.workerCursor, workerItems(this.page).length - 1);
   }
 
   // The worker is polled only while its screen is shown: Tab back to the resets and closing the screen stop it.
@@ -165,7 +170,10 @@ export class Screen {
     const sequence = key.sequence?.toLowerCase();
     const name = (sequence === undefined ? undefined : RUSSIAN[sequence]) ?? key.name;
     if (key.ctrl && name === 'c') return this.close();
-    if (this.busy) return;
+    if (this.busy) {
+      if (name === 'escape') this.stopSwitch?.abort();
+      return;
+    }
     if (this.confirm) {
       const creditId = this.confirm;
       this.confirm = null;
@@ -207,7 +215,8 @@ export class Screen {
   }
 
   async pressOnWorker(name: string | undefined): Promise<undefined> {
-    const count = WORKER_ITEMS.length, item = WORKER_ITEMS[this.workerCursor];
+    const items = this.page ? workerItems(this.page) : [], count = items.length, item = items[this.workerCursor];
+    if (!count) return;
     if (name === 'up' || name === 'k') this.workerCursor = (this.workerCursor + count - 1) % count;
     else if (name === 'down' || name === 'j') this.workerCursor = (this.workerCursor + 1) % count;
     else if ((name === 'return' || name === 'space') && item && this.page) return this.runItem(item);
@@ -216,6 +225,7 @@ export class Screen {
 
   // An action of the screen «Воркер»: its result goes into the journal as a step of the CLI.
   async runItem(item: WorkerItem): Promise<undefined> {
+    if (item === 'switch' || item === 'retry') return this.runSwitch(item);
     const paused = this.page?.paused === true;
     const label = itemLabel(item, this.worker.platform, paused);
     const busy = ({
@@ -225,9 +235,10 @@ export class Screen {
         'Проверяем воркер: пробный запуск на GitHub, около минуты…') : t('Checking the worker…', 'Проверяем воркер…'),
       repair: t('Repairing the worker…', 'Чиним воркер…'),
       pause: paused ? t('Taking the worker off pause…', 'Снимаем воркер с паузы…') : t('Pausing the worker…', 'Ставим воркер на паузу…'),
-    } satisfies Record<WorkerItem, string>)[item];
+    } satisfies Record<Exclude<WorkerItem, 'switch' | 'retry'>, string>)[item];
     const action = ({ platformAccount: io => this.signInPlatform(io), chatgpt: io => this.signInChatGPT(io), trial: io => this.trial(io),
-      repair: io => this.repair(io), pause: () => this.setPause(!paused) } satisfies Record<WorkerItem, (io: Io) => Promise<string>>)[item];
+      repair: io => this.repair(io), pause: () => this.setPause(!paused) } satisfies
+      Record<Exclude<WorkerItem, 'switch' | 'retry'>, (io: Io) => Promise<string>>)[item];
     return this.act(busy, async note => {
       // The lines of the commands are notes while it runs: device codes, what it waits for.
       const io: Io = { print: line => note(line), prompt: async () => { throw new Error('the screen asks no questions'); },
@@ -242,6 +253,59 @@ export class Screen {
       this.notes = [];
       this.steps.push({ at: this.now(), text: `${label}: ${text}`, tone });
     });
+  }
+
+  // «Переключиться на …» and «Повторить переключение» (ADR-0007): each step of the switch goes
+  // into the journal as it happens. Esc stops the switch until the old worker is quenched; from
+  // then on the screen goes on with the worker on the new platform, which the install record names.
+  async runSwitch(item: 'switch' | 'retry'): Promise<undefined> {
+    const label = t('Switch', 'Переключение');
+    const stop = item === 'switch' ? new AbortController() : null;
+    // What the spinner line says: what the switch waits for, and Esc while it still stops the switch.
+    const show = (text: string) => {
+      this.busy = this.stopSwitch ? `${text} ${t('Esc — stop', 'Esc — отменить')}` : text;
+      this.changed();
+    };
+    const busy = stop ? t('Switching the platform…', 'Переключаем площадку…') : t('Finishing the switch…', 'Завершаем переключение…');
+    this.stopSwitch = stop;
+    const step = (text: string, tone: Step['tone'] = 'ok') => {
+      this.steps.push({ at: this.now(), text: `${label}: ${text.split('\n').join(' ')}`, tone });
+      this.changed();
+    };
+    let moved = item === 'retry';
+    try {
+      await this.act(busy, async note => {
+        show(busy);
+        // The lines of the sign-ins are notes while they run: device codes, the pages to open.
+        const io: Io = { print: line => note(line), prompt: async () => { throw new Error('the screen asks no questions'); },
+          wait: text => show(text ?? busy) };
+        const { fetch, now, sleep, timeZone, mac, options: { keychain, googleKeychain, secretKeychain, open, workerSource, appsScriptSource } } = this;
+        const common = { fetch, keychain, googleKeychain, secretKeychain, open, io, mac, now, sleep, timeZone, journal: step };
+        try {
+          step(stop ? await switchPlatform({ ...common, worker: this.worker, workerSource, appsScriptSource, signal: stop.signal,
+            committed: () => {
+              moved = true;
+              this.stopSwitch = null;
+              show(t('Switching the platform: quenching the old worker…', 'Переключаем площадку: гасим старый воркер…'));
+            } }) : await finishSwitch(common));
+        } catch (error) {
+          if (error instanceof SwitchCancelled) step(t('stopped by Esc; the worker stays as it was, active, with its session.',
+            'отменено по Esc; воркер остался как был: активен, его сессия жива.'));
+          else {
+            const message = explain(error);
+            if (message === null) throw error;
+            step(message, 'warn');
+          }
+        }
+        this.notes = [];
+        // The record names the platform the switch got to: the screen goes on with that worker.
+        if (moved) {
+          this.worker = await this.options.reopen();
+          this.workerCursor = FIRST_ACTION;
+        }
+      });
+    } finally { this.stopSwitch = null; }
+    if (moved && this.view === 'worker') this.startPolling();
   }
 
   // «Проверить сейчас»: the trial run, which reads the resets and applies nothing.

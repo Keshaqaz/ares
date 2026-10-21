@@ -3,7 +3,7 @@
 // ChatGPT sign-in. The install record keeps the pause in `paused`, which the check from this Mac
 // already reads (a paused worker is woken by no pass), and the overview shows it as a standing
 // warning and «сгорит» marks. The buttons of the screen «Воркер» call these actions too.
-import { CommandFailed, WORKFLOW_FILE, unfinished, command } from './common.ts';
+import { CommandFailed, WORKFLOW_FILE, unfinished, command, switchUnfinished } from './common.ts';
 import type { CommandOptions } from './common.ts';
 import { openWorker } from './active-worker.ts';
 import type { GitHubWorker, Worker } from './active-worker.ts';
@@ -23,6 +23,8 @@ const withPause = (install: Install, paused: boolean): Install => {
 // buttons of the screen «Воркер» call this with the worker they hold open; it resolves to the
 // message of the state the worker is in now.
 export async function setWorkerPause({ worker, mac, paused }: { worker: Worker; mac: Mac; paused: boolean }): Promise<string> {
+  // Mid-switch the worker is not the active one yet: its schedule waits for the old one's quench.
+  if ((await mac.files.readInstall())?.switching) throw new CommandFailed(switchUnfinished());
   if (worker.platform === 'github') await worker.api.setWorkflow(worker.repo.full_name, WORKFLOW_FILE, !paused);
   else await worker.ask('schedule', { on: !paused });
   // The record follows the platform: a crash before it leaves an ordinary worker with no

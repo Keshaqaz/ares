@@ -54,7 +54,7 @@ const COMMANDS: Record<string, Command> = { setup: withBundle(setup), status, 'a
 const WATCH_KEYCHAIN_MS = 10_000;
 const usage = (): string => t(`Usage: aures [command]
   (no command)   the screen: resets and rules; Enter applies a reset or switches a rule;
-                 Tab — the screen «Worker»: check now, repair, the journal
+                 Tab — the screen «Worker»: check now, repair, pause, switch platform, the journal
   status         the same printed once, without controls
   setup          install, or finish an interrupted install
   apply-now      apply a reset now
@@ -65,7 +65,7 @@ const usage = (): string => t(`Usage: aures [command]
   language       en or ru: the language of the CLI
   --version      the program version`, `Использование: aures [команда]
   (без команды)  экран: сбросы и правила; Enter применяет сброс или переключает правило;
-                 Tab — экран «Воркер»: проверить сейчас, починить, журнал
+                 Tab — экран «Воркер»: проверить сейчас, починить, пауза, смена площадки, журнал
   status         то же одним выводом, без управления
   setup          установить или продолжить установку
   apply-now      применить сброс сейчас
