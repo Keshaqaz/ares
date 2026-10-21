@@ -42,6 +42,11 @@ const made = (world: CliFakeWorld, id: number, over: Partial<FakeRun>): FakeRun 
     display_title: 'Check from this Mac', inputs: {}, log: `${at} idle\n`, ...over };
 };
 
+// How many job log reads the journal has made of GitHub so far: every read of a run's log asks
+// for the run's jobs first.
+const logReads = (world: CliFakeWorld): number =>
+  world.github.requests.filter(r => /\/actions\/runs\/\d+\/jobs$/.test(r.path)).length;
+
 // The shape of one entry, as both platforms must give it: the fields, their kinds and the run kind.
 const shape = ({ at, kind, outcome, durationMs }: JournalEntry): unknown =>
   ({ at: typeof at, kind, outcome, durationMs: typeof durationMs });
@@ -164,4 +169,86 @@ test('GitHub: the journal reads the latest 30 runs and their logs, not the whole
   assert.equal(journal.entries.length, 30);
   assert.equal(journal.entries.filter(entry => entry.kind === 'mac').length, 30);
   assert.equal(world.github.requests.filter(r => /\/actions\/runs\/\d+\/jobs$/.test(r.path)).length - jobs, 30);
+});
+
+test('GitHub: the log of a completed run is read once while the worker stays open, a new run\'s once', async () => {
+  const github = await installed('github');
+  const { world, worker } = github;
+  const repo = world.github.repo();
+  assert.ok(repo);
+  repo.runs.unshift(made(world, 9701, {}));
+
+  let before = logReads(world);
+  const first = await readJournal(worker, { now: () => world.now });
+  assert.equal(logReads(world) - before, 2); // the trial run of setup and the made one, once each
+  assert.deepEqual(first.entries.map(entry => [entry.kind, entry.outcome]), [['trial', 'idle'], ['mac', 'idle']]);
+
+  // The same completed runs again: not one job log read.
+  before = logReads(world);
+  const second = await readJournal(worker, { now: () => world.now });
+  assert.equal(logReads(world) - before, 0);
+  assert.deepEqual(second.entries, first.entries);
+
+  // A new completed run: exactly one read, its own.
+  repo.runs.unshift(made(world, 9702, {}));
+  before = logReads(world);
+  const third = await readJournal(worker, { now: () => world.now });
+  assert.equal(logReads(world) - before, 1);
+  assert.deepEqual(third.entries.map(entry => [entry.kind, entry.outcome]),
+    [['trial', 'idle'], ['mac', 'idle'], ['mac', 'idle']]);
+});
+
+test('GitHub: a log that did not read is kept out of the cache and read again on the next poll', async () => {
+  const github = await installed('github');
+  const { world, worker } = github;
+  // The first job log read after the run completed answers 404, as before the log is ready.
+  world.github.logDelay = 1;
+
+  let before = logReads(world);
+  const failed = await readJournal(worker, { now: () => world.now });
+  assert.equal(logReads(world) - before, 1);
+  assert.deepEqual(failed.entries.map(entry => entry.outcome), [null]); // the log did not read
+
+  before = logReads(world);
+  const read = await readJournal(worker, { now: () => world.now });
+  assert.equal(logReads(world) - before, 1); // the read that failed is repeated
+  assert.deepEqual(read.entries.map(entry => entry.outcome), ['idle']);
+
+  before = logReads(world);
+  const again = await readJournal(worker, { now: () => world.now });
+  assert.equal(logReads(world) - before, 0); // the read that answered is kept
+  assert.deepEqual(again.entries, read.entries);
+});
+
+test('GitHub: a run still going is read on every poll until it completes, with the entries of no cache', async () => {
+  const github = await installed('github');
+  const { world, worker } = github;
+  const repo = world.github.repo();
+  assert.ok(repo);
+  const started = new Date(world.now - 5 * MINUTE).toISOString();
+  const going = made(world, 9703, { status: 'in_progress', conclusion: null, log: '',
+    run_started_at: started, created_at: started });
+  repo.runs.unshift(going);
+
+  let before = logReads(world);
+  const first = await readJournal(worker, { now: () => world.now });
+  assert.equal(logReads(world) - before, 1); // the completed trial run of setup only
+  assert.deepEqual(first.entries.map(entry => entry.outcome), ['idle', null]);
+
+  // The run completes; its log is read once, and no more after that.
+  world.advance(2 * MINUTE);
+  Object.assign(going, { status: 'completed', conclusion: 'success',
+    log: `${new Date(world.now).toISOString()} applied\n`, updated_at: new Date(world.now).toISOString() });
+  before = logReads(world);
+  const second = await readJournal(worker, { now: () => world.now });
+  assert.equal(logReads(world) - before, 1);
+  assert.deepEqual(second.entries.map(entry => entry.outcome), ['idle', 'applied']);
+  before = logReads(world);
+  const third = await readJournal(worker, { now: () => world.now });
+  assert.equal(logReads(world) - before, 0);
+  assert.deepEqual(third.entries, second.entries);
+
+  // A worker opened just now reads with no cache; the entries are the same.
+  const fresh = await readJournal(await opened(github), { now: () => world.now });
+  assert.deepEqual(fresh.entries, third.entries);
 });
