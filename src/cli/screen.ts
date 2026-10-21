@@ -17,6 +17,7 @@ import { trialRun } from './setup.ts';
 import { trialLine } from './setup-google.ts';
 import type { Trial } from './setup-google.ts';
 import { repairWorker } from './repair.ts';
+import { setWorkerPause } from './pause.ts';
 import { signInAgain, renewed } from './login.ts';
 import { connectGoogle, readSecret } from './google.ts';
 import type { Keychain } from './keychain.ts';
@@ -27,9 +28,10 @@ import { t, language, setLanguage } from './language.ts';
 // `aures` without a command: the overview of `status` with a cursor. Enter on a
 // reset applies it now after a «y», Enter on a rule switches it; both do what `apply-now` and
 // `rules` do. Tab opens the screen «Воркер» and goes back: there Enter signs an account in
-// again, checks the worker with a trial run or repairs it, and the journal under it is polled
-// while it is shown. l switches the language between English and Russian and keeps the choice.
-// Takes the whole terminal on its alternate screen; q gives the terminal back as it was.
+// again, checks the worker with a trial run, repairs it, pauses it or takes it off pause, and
+// the journal under it is polled while it is shown. l switches the language between English
+// and Russian and keeps the choice. Takes the whole terminal on its alternate screen; q gives
+// the terminal back as it was.
 const SPINNER = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏';
 const hint = (): string => t('↑↓ select · Enter apply · Tab worker · l language · r refresh · q quit',
   '↑↓ выбор · Enter применить · Tab воркер · l язык · r обновить · q выход');
@@ -214,16 +216,18 @@ export class Screen {
 
   // An action of the screen «Воркер»: its result goes into the journal as a step of the CLI.
   async runItem(item: WorkerItem): Promise<undefined> {
-    const label = itemLabel(item, this.worker.platform);
+    const paused = this.page?.paused === true;
+    const label = itemLabel(item, this.worker.platform, paused);
     const busy = ({
       platformAccount: this.worker.platform === 'github' ? t('Signing in to GitHub…', 'Входим в GitHub…') : t('Signing in to Google…', 'Входим в Google…'),
       chatgpt: t('Signing the worker in to ChatGPT…', 'Входим в ChatGPT для воркера…'),
       trial: this.worker.platform === 'github' ? t('Checking the worker: a trial run on GitHub, about a minute…',
         'Проверяем воркер: пробный запуск на GitHub, около минуты…') : t('Checking the worker…', 'Проверяем воркер…'),
       repair: t('Repairing the worker…', 'Чиним воркер…'),
+      pause: paused ? t('Taking the worker off pause…', 'Снимаем воркер с паузы…') : t('Pausing the worker…', 'Ставим воркер на паузу…'),
     } satisfies Record<WorkerItem, string>)[item];
     const action = ({ platformAccount: io => this.signInPlatform(io), chatgpt: io => this.signInChatGPT(io), trial: io => this.trial(io),
-      repair: io => this.repair(io) } satisfies Record<WorkerItem, (io: Io) => Promise<string>>)[item];
+      repair: io => this.repair(io), pause: () => this.setPause(!paused) } satisfies Record<WorkerItem, (io: Io) => Promise<string>>)[item];
     return this.act(busy, async note => {
       // The lines of the commands are notes while it runs: device codes, what it waits for.
       const io: Io = { print: line => note(line), prompt: async () => { throw new Error('the screen asks no questions'); },
@@ -255,6 +259,13 @@ export class Screen {
       workerSource, appsScriptSource, reopen, now: this.now, sleep: this.sleep });
     this.worker = worker;
     return message;
+  }
+
+  // «Пауза» / «Снять с паузы»: the schedule of the open worker goes off or comes back; the
+  // sign-in and the data stay, so unpausing needs no new ChatGPT sign-in.
+  async setPause(paused: boolean): Promise<string> {
+    const { worker, mac } = this;
+    return setWorkerPause({ worker, mac, paused });
   }
 
   // «Войти заново» for ChatGPT: a new worker session, as `aures login`.

@@ -6,8 +6,9 @@
 import { CommandFailed, WORKFLOW_FILE, unfinished, command } from './common.ts';
 import type { CommandOptions } from './common.ts';
 import { openWorker } from './active-worker.ts';
-import type { GitHubWorker } from './active-worker.ts';
+import type { GitHubWorker, Worker } from './active-worker.ts';
 import type { Install } from './watch-files.ts';
+import type { Mac } from './mac-check.ts';
 import { t } from './language.ts';
 
 // The install record with the pause field set or dropped.
@@ -18,22 +19,27 @@ const withPause = (install: Install, paused: boolean): Install => {
 
 // Takes the worker's schedule off (paused) or brings it back: on GitHub the workflow is
 // disabled and enabled, on Google doPost schedule takes the trigger off and on (ADR-0007).
-// Nothing else is touched: the session is not revoked and the state stays where it is.
+// Nothing else is touched: the session is not revoked and the state stays where it is. The
+// buttons of the screen «Воркер» call this with the worker they hold open; it resolves to the
+// message of the state the worker is in now.
+export async function setWorkerPause({ worker, mac, paused }: { worker: Worker; mac: Mac; paused: boolean }): Promise<string> {
+  if (worker.platform === 'github') await worker.api.setWorkflow(worker.repo.full_name, WORKFLOW_FILE, !paused);
+  else await worker.ask('schedule', { on: !paused });
+  // The record follows the platform: a crash before it leaves an ordinary worker with no
+  // schedule, which the overview names, not a pause that is not there.
+  const install = await mac.files.readInstall();
+  if (!install) throw new CommandFailed(unfinished());
+  await mac.files.writeInstall(withPause(install, paused));
+  return paused ?
+    t('The worker is paused: its schedule is off, the sign-in and the data stay. «Apply now» keeps working.',
+      'Воркер на паузе: расписание снято, вход и данные остаются. «Применить сейчас» продолжает работать.') :
+    t('The worker is off pause: its schedule is back.', 'Воркер снят с паузы: расписание вернулось.');
+}
+
 async function setPaused(options: CommandOptions, paused: boolean): Promise<number> {
-  const { io, mac: { files } } = options;
+  const { io, mac } = options;
   return command(null, io, async () => {
-    const worker = await openWorker(options, null);
-    if (worker.platform === 'github') await worker.api.setWorkflow(worker.repo.full_name, WORKFLOW_FILE, !paused);
-    else await worker.ask('schedule', { on: !paused });
-    // The record follows the platform: a crash before it leaves an ordinary worker with no
-    // schedule, which the overview names, not a pause that is not there.
-    const install = await files.readInstall();
-    if (!install) throw new CommandFailed(unfinished());
-    await files.writeInstall(withPause(install, paused));
-    io.print(paused ?
-      t('The worker is paused: its schedule is off, the sign-in and the data stay. «Apply now» keeps working.',
-        'Воркер на паузе: расписание снято, вход и данные остаются. «Применить сейчас» продолжает работать.') :
-      t('The worker is off pause: its schedule is back.', 'Воркер снят с паузы: расписание вернулось.'));
+    io.print(await setWorkerPause({ worker: await openWorker(options, null), mac, paused }));
     return 0;
   });
 }

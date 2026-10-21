@@ -45,16 +45,18 @@ export async function readWorkerPage({ worker, mac, now }: { worker: Worker; mac
 }
 
 // The cursor stands on the accounts, then on the actions; it opens on «Проверить сейчас».
-export type WorkerItem = 'platformAccount' | 'chatgpt' | 'trial' | 'repair';
-export const WORKER_ITEMS: WorkerItem[] = ['platformAccount', 'chatgpt', 'trial', 'repair'];
+export type WorkerItem = 'platformAccount' | 'chatgpt' | 'trial' | 'repair' | 'pause';
+export const WORKER_ITEMS: WorkerItem[] = ['platformAccount', 'chatgpt', 'trial', 'repair', 'pause'];
 export const FIRST_ACTION = WORKER_ITEMS.indexOf('trial');
 
 export const platformName = (platform: Platform): string => platform === 'github' ? 'GitHub Actions' : 'Google Apps Script';
-export const itemLabel = (item: WorkerItem, platform: Platform): string => ({
+export const itemLabel = (item: WorkerItem, platform: Platform, paused: boolean): string => ({
   platformAccount: platform === 'github' ? 'GitHub' : 'Google',
   chatgpt: 'ChatGPT',
   trial: t('Check now', 'Проверить сейчас'),
   repair: t('Repair', 'Починить'),
+  // The one of the two pause actions that applies to the state the page read.
+  pause: paused ? t('Unpause', 'Снять с паузы') : t('Pause', 'Пауза'),
 })[item];
 export const repairCaption = (): string => t('Deploy the current version of the worker again and bring its schedule back on this platform. ' +
   'The resets, the rules, the ChatGPT sign-in and the journal are not touched. Helps when the worker stopped running or its files were ' +
@@ -132,17 +134,17 @@ export function renderWorker(page: WorkerPage, { timeZone, width = WIDTH, cursor
     ['chatgpt', [[page.accounts.chatgpt ?? unknown, page.accounts.chatgpt ? '' : S.dim], [' · ', S.dim],
       lost ? [t('sign-in lost', 'вход потерян'), S.yellow] : [t('signed in', 'вход работает'), '']]],
   ];
-  const labelWidth = Math.max(...accounts.map(([item]) => len(itemLabel(item, page.platform)))) + 3;
+  const labelWidth = Math.max(...accounts.map(([item]) => len(itemLabel(item, page.platform, page.paused)))) + 3;
   for (const [item, value] of accounts) {
-    lines.push(spread([pointer(item), [itemLabel(item, page.platform).padEnd(labelWidth), selected(item) ? S.cyan : ''], ...value],
+    lines.push(spread([pointer(item), [itemLabel(item, page.platform, page.paused).padEnd(labelWidth), selected(item) ? S.cyan : ''], ...value],
       [[t('sign in again', 'войти заново'), selected(item) ? S.cyan : S.dim]], width));
   }
 
   lines.push([]);
   heading(t('ACTIONS', 'ДЕЙСТВИЯ'));
-  for (const item of ['trial', 'repair'] as const) {
+  for (const item of ['trial', 'repair', 'pause'] as const) {
     const mark: Segment[] = item === 'trial' && page.platform === 'github' ? [[t(' · ~1 min of Actions', ' · ~1 мин Actions'), S.dim]] : [];
-    lines.push([pointer(item), [itemLabel(item, page.platform), selected(item) ? S.cyan : ''], ...mark]);
+    lines.push([pointer(item), [itemLabel(item, page.platform, page.paused), selected(item) ? S.cyan : ''], ...mark]);
     if (item === 'repair' && selected(item)) for (const line of wrap(repairCaption(), width - 4)) lines.push([[`    ${line}`, S.dim]]);
   }
 
