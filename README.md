@@ -22,7 +22,7 @@ Runs in your own account — GitHub Actions or Google Apps Script. Your Mac can 
 
 - **No reset expires unused.** The worker applies a reset before it expires: within the last 8 hours on GitHub, the last hour on Google.
 - **Weekly limit hit — reset within minutes.** An optional rule applies the reset that expires first. On Google the worker checks the limit itself every 5 minutes, even with the Mac off; on GitHub, while the Mac is awake, it checks the weekly limit every 2 minutes and calls the worker as soon as it runs out, whichever client used it up: Codex, opencode, your phone.
-- **One screen.** `aures` shows the resets on top and the rules below. Enter on a reset applies it now, regardless of the rules; Enter on a rule switches it. `Tab` opens the «Worker» screen: the platform and its accounts, «Check now» (a trial run that applies nothing), «Repair» (deploys this version of the worker again and brings its schedule back) and the live journal of the worker.
+- **One screen.** `aures` shows the resets on top and the rules below. Enter on a reset applies it now, regardless of the rules; Enter on a rule switches it. `Tab` opens the «Worker» screen: the platform with its state, the accounts, «Check now» (a trial run that applies nothing), «Repair» (deploys this version of the worker again and brings its schedule back), «Pause» (the schedule off; «Apply now» still works), «Switch to …» (the other platform without a reinstall) and the live journal of the worker, polled while the screen is open. The screen, pause and switching are detailed in the [guide](docs/installation.en.md).
 - **No servers, no subscriptions.** Everything in your account: GitHub Actions (up to ~750 of the 2,000 free minutes a month) or Google Apps Script (~5–10 of the 90 free trigger-minutes a day).
 - **Codex on your Mac is untouched.** The worker and the Mac check have ChatGPT sign-ins of their own; nothing is copied from Codex.
 
@@ -57,7 +57,7 @@ Full guide, including installing from source: [docs/installation.en.md](docs/ins
 
 | Command | What it does |
 | --- | --- |
-| *(no command)* | the screen: resets and rules; Enter applies a reset or switches a rule; `Tab` — the «Worker» screen |
+| *(no command)* | the screen: resets and rules; Enter applies a reset or switches a rule; `Tab` — the «Worker» screen: check, repair, pause, switch platform, the journal |
 | `setup` | install, or finish an interrupted install; asks for the platform |
 | `status` | the same overview printed once: resets, rules, worker health and the Mac check |
 | `apply-now` | apply a chosen reset now |

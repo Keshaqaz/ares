@@ -149,6 +149,7 @@ The resets and their deadlines are on top, the general rules below, and under th
 - `↑` `↓` — pick a reset or a rule.
 - `Enter` on a reset — apply it now. The screen asks to confirm; `y` is yes. The CLI waits for the worker and reports the result; on GitHub this can take a few minutes, on Google it takes seconds. A reset is single-use, and applying it cannot be undone.
 - `Enter` on a rule — switch it on or off. On GitHub, turning the weekly rule on shows a ChatGPT code for this Mac, as in step 5 of setup.
+- `Tab` — the «Worker» screen: the platform, the accounts, the actions and the journal of runs (see below).
 - `l` — switch the language (EN · RU in the header); the choice is kept.
 - `r` — refresh, `q` — quit.
 
@@ -162,6 +163,38 @@ With the worker on Google, the screen and the commands are the same, with a few 
 - The commands talk to the worker directly at its web app's URL with the secret from the Keychain — no Google sign-in is needed for them.
 - If the worker lost its ChatGPT sign-in, `aures status` says so ("The worker lost its ChatGPT sign-in. Sign in again: `aures login`."), and Google also emails you about the failed trigger.
 - On a new Mac (or with the CLI's files deleted) any command asks where the worker is: "This Mac does not know where the worker runs" and "Where to look? Type 1 or 2". Pick Google, open the project `aures-worker` on script.google.com and paste the link from the address bar.
+
+### The «Worker» screen
+
+`Tab` on the resets screen opens the «Worker» screen; one more `Tab` goes back. The header is the same, with four blocks under it; `↑` `↓` pick a line, `Enter` runs it, and `l`, `r` and `q` work as on the resets screen.
+
+**«WORKER».** The platform («GitHub Actions» or «Google Apps Script») and its state: "active"; a paused worker shows a yellow "paused", and while a switch of platform is not finished, the red "no active worker: the switch is not finished". Below is the link to the repository or the script project.
+
+**«ACCOUNTS».** Two lines, each with the action "sign in again" on the right:
+
+- "GitHub" or "Google" — the platform account: the GitHub login or, on Google, the email if a sign-in gave it; when the account is unknown, it says so. "Sign in again" renews the CLI's sign-in to the platform; on GitHub it must be the account of the worker repository, otherwise aures puts the previous sign-in back and asks for the right one.
+- "ChatGPT" — the worker's account and its state: "signed in" or "sign-in lost". "Sign in again" opens a new ChatGPT session for the worker, as `aures login`.
+
+**«ACTIONS».** The cursor opens on the first action.
+
+- "Check now" — a trial run: the worker reads the quotas and resets and tells what the rules would do, but applies nothing. On GitHub it is an Actions run; the action is marked "~1 min of Actions".
+- "Repair" — puts this version of the worker onto its platform again; with the cursor on the action, the caption under it reads: "Deploy the current version of the worker again and bring its schedule back on this platform. The resets, the rules, the ChatGPT sign-in and the journal are not touched. Helps when the worker stopped running or its files were changed by hand". On a paused worker it does not bring the schedule back.
+- "Pause" or "Unpause" — the one shown fits the state of the worker (see «Pause» below).
+- "Switch to …" — moves the worker to the other platform, GitHub Actions or Google Apps Script (see «Switching platform» below); a paused worker does not have this action.
+
+While a switch of platform is not finished there are no other actions, only "Retry the switch".
+
+**«JOURNAL».** The worker's live journal: up to 12 entries, newest on top. Each says when the worker ran, what started the run ("scheduled", "from the Mac", "trial", "apply now", "sign-in"), how the run ended ("nothing to apply", "reset applied", "the outcome of the application is not known yet", "temporary error", "lost the ChatGPT sign-in", "the data does not read (…)" and the rest) and how long it took. The actions of this screen land in the journal too, as "aures · …" lines.
+
+While the screen is open, aures polls the worker: every 30 seconds on Google, every minute on GitHub. The line above the journal says "polled 12:04:31, answered in 2.1 s"; when there was no answer — "polled …, no answer: …" — and the journal keeps what the last poll read. `Tab` back and leaving the screen stop the poll.
+
+### Pause
+
+"Pause" takes the worker's schedule off and touches nothing else: on GitHub the workflow is disabled, on Google the trigger is taken off. The ChatGPT session, the state and the rules stay on the platform, so "Unpause" brings the schedule back to the same worker with no new ChatGPT sign-in: "The worker is off pause: its schedule is back."
+
+On pause there are no scheduled runs, so the rules do not work and resets can expire. The resets screen shows the line "worker is paused" with the warning "The worker is paused: resets are not applied and each burns at its activation deadline. «Apply now» still works." and marks the resets "burns". "Apply now" and "Check now" work on pause too: on GitHub aures enables the workflow for one run and disables it again, on Google the run needs no schedule. The Mac check does not wake a paused worker. "Repair" puts the new version in but does not bring the schedule back: "The worker is paused, its schedule stays off."
+
+A paused worker has no "Switch to …" action: take it off pause first.
 
 ### Switching platform
 
@@ -240,13 +273,15 @@ Then remove the program: `brew uninstall aures`. Installed from source, delete t
 
 **On GitHub** `uninstall` asks you to sign in to GitHub once more: deleting a repository needs a separate permission, which the CLI does not keep. It then revokes the worker's ChatGPT sign-in and deletes the repository. Next it removes the Mac check agent, revokes the Mac's ChatGPT sign-in and deletes its files and log, and finally removes the GitHub sign-in from the Keychain. Open the GitHub page it links and click **Revoke** to close access completely.
 
-**On Google** `uninstall` stops the worker — takes off its schedule, revokes its ChatGPT sign-in and the script's own access — deletes the web app, revokes aures' Google sign-in and removes the Google sign-in and the worker secret from the Keychain. The script project itself the CLI cannot delete: the Apps Script API has no call for it. So the last thing it prints are the manual steps:
+**On Google** `uninstall` stops the worker — takes off its schedule, revokes its ChatGPT sign-in and the script's own access — deletes the web app, revokes aures' Google sign-in and removes the Google sign-in and the worker secret from the Keychain. After that nothing comes from the project (checked on the owner's account on 21 October 2026): the script's entry disappears from "Third-party apps" (myaccount.google.com/connections) by itself, a trigger left in the project's list no longer fires, and the web app, without the script's access, answers with a sign-in page only. The script project itself the CLI cannot delete: the Apps Script API has no call for it, and its Drive access (drive.file) does not extend to a standalone script project. So the last thing it prints are the manual steps:
 
 ```
 Left to do by hand:
   1. Delete the project aures-worker on https://script.google.com/home/projects/…
   2. If https://myaccount.google.com/connections still lists aures-worker, remove its access.
 ```
+
+Move the project to the trash on script.google.com yourself — or leave it: with no schedule, sign-in or access it does nothing.
 
 If the program is already gone and the agent is still there, it's best to install the program again and run `uninstall`: only it revokes the Mac's ChatGPT sign-in. To remove the agent and the files by hand, without revoking the sign-in:
 
