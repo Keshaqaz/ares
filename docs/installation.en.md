@@ -169,10 +169,10 @@ On the screen «Worker» (`Tab`) the action "Switch to …" moves the worker to 
 
 1. If the worker has an application of a reset with an unknown outcome, the switch refuses and says why: a new worker with a clean state could spend a second reset. Wait for the worker's next run.
 2. The new worker is prepared without a schedule while the old one keeps working: the GitHub or Google sign-in, the code of this version, the general rules, and a ChatGPT sign-in for the new worker session (the code shows on the screen).
-3. The old worker is quenched: its ChatGPT session is revoked and its schedule taken off; its repository or project stays for a switch back.
+3. The old worker is quenched: its ChatGPT session is revoked and its schedule taken off; its repository or project stays for a switch back. Right before that its status is read again: if an application with an unknown outcome appeared meanwhile, or a run of the worker on GitHub is under way, the switch is undone, the old worker stays active, and you switch again after its next run.
 4. The new worker's schedule goes on, then a trial run.
 
-`Esc` before step 3 stops the switch and leaves the old worker as it was. If the switch stops after step 3 began, no worker is active: `aures status` says so, and the screen «Worker» has one action, "Retry the switch". A paused worker is not switched: take it off pause first.
+`Esc` before step 3 stops the switch and leaves the old worker as it was. If the switch stops after step 3 began, no worker is active: `aures status` says so, `aures apply-now` and Enter on a reset refuse, and the screen «Worker» has one action, "Retry the switch". A paused worker is not switched: take it off pause first.
 
 ## When something breaks
 

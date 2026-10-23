@@ -1,5 +1,5 @@
 import { CommandFailed, YES, resetName, attemptResult, deadline, byDeadline, runnableWorkflow, readSummary, failedRunAdvice, runWorkerNow,
-  command, unfinished, WORKFLOW_FILE } from './common.ts';
+  command, unfinished, switchUnfinished, WORKFLOW_FILE } from './common.ts';
 import type { CommandOptions, Sleep } from './common.ts';
 import { openWorker } from './active-worker.ts';
 import type { Worker } from './active-worker.ts';
@@ -7,6 +7,7 @@ import { runWhileEnabled } from './pause.ts';
 import { brokenOnGoogle } from './google.ts';
 import type { RunOutcome } from '../worker/run.ts';
 import type { Summary } from '../worker/summary.ts';
+import type { WatchFiles } from './watch-files.ts';
 import { t } from './language.ts';
 
 const same = (a: unknown, b: unknown): boolean => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
@@ -39,15 +40,20 @@ function verdict({ creditId, before, after, outcome, failed, details }: Ran & { 
     `Сброс ${name} не применён: воркер был занят прошлой попыткой. Повторите позже.${more}`) };
 }
 
-// The resets the user picks from, once the worker can take an application: null before its first read.
-// A worker on pause takes one too (ADR-0007): its schedule being off is no obstacle, so only the
-// workflow has to be there.
-export async function readyToApply(worker: Worker, paused = false): Promise<Summary | null> {
-  if (worker.platform === 'google') return (await worker.status()).summary as Summary | null;
+// The resets the user picks from, once the worker can take an application: null before its first
+// read; paused as the install record says now. A worker on pause takes one too (ADR-0007): its
+// schedule being off is no obstacle, so only the workflow has to be there. While a switch of
+// platform is unfinished no worker takes one: the worker the record names may not be the only one
+// with a live session, as long as the old one is not quenched.
+export async function readyToApply(worker: Worker, files: Pick<WatchFiles, 'readInstall'>): Promise<{ before: Summary | null; paused: boolean }> {
+  const install = await files.readInstall();
+  if (install?.switching) throw new CommandFailed(switchUnfinished());
+  const paused = install?.paused === true;
+  if (worker.platform === 'google') return { before: (await worker.status()).summary as Summary | null, paused };
   if (paused) {
     if (await worker.api.workflowState(worker.repo.full_name, WORKFLOW_FILE) === null) throw new CommandFailed(unfinished());
   } else await runnableWorkflow(worker.api, worker.repo);
-  return readSummary(worker.api, worker.repo);
+  return { before: await readSummary(worker.api, worker.repo), paused };
 }
 
 // Applies the reset regardless of the rules and tells what became of it: on GitHub in a
@@ -88,8 +94,7 @@ export async function applyNow(options: CommandOptions): Promise<number> {
   const { io, now = Date.now, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)), timeZone } = options;
   return command('apply-now', io, async () => {
     const worker = await openWorker(options, 'apply-now');
-    const paused = (await options.mac.files.readInstall())?.paused === true;
-    const before = await readyToApply(worker, paused);
+    const { before, paused } = await readyToApply(worker, options.mac.files);
     if (!before) {
       throw new CommandFailed(t('The resets are not read yet. Try again after the next worker run.',
         'Сбросы ещё не прочитаны. Повторите после следующего запуска воркера.'));

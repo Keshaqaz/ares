@@ -15,7 +15,8 @@ import { cliWorld } from './cli-world.ts';
 // A request the CLI makes: its URL, method and body.
 export interface SentRequest { url: URL; method: string; body: string }
 // Sees each request before it goes out; what it returns, or rejects with, is the answer instead.
-export type OnRequest = (request: SentRequest) => Response | Promise<Response> | null | undefined | void;
+type Answer = Response | null | undefined | void;
+export type OnRequest = (request: SentRequest) => Answer | Promise<Answer>;
 
 export async function switchWorld(platform: Platform, { answers = [''] }: { answers?: string[] } = {}) {
   const env = await cliWorld();

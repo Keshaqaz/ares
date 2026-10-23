@@ -9,6 +9,7 @@ import { askWorker } from '../src/cli/google.ts';
 import { watch } from '../src/cli/watch.ts';
 import { setup } from '../src/cli/setup.ts';
 import { status } from '../src/cli/status.ts';
+import { applyNow } from '../src/cli/apply-now.ts';
 import { credit } from './support/fake-world.ts';
 import { switchWorld, TO_SWITCH } from './support/switch-world.ts';
 import type { SentRequest } from './support/switch-world.ts';
@@ -309,4 +310,117 @@ test('a failure while quenching leaves no active worker, and the retry quenches 
   assert.deepEqual(env.google().gas?.triggers, []);
   assert.deepEqual(env.active(), ['github']);
   assert.equal((await mac.files.readInstall())?.switching, undefined);
+});
+
+// The old worker on GitHub is left with an application whose outcome is not known: the consume
+// request of its scheduled run is lost on every try.
+async function pendingOnGitHub(env: World): Promise<void> {
+  env.world.chatgpt.credits.push(credit('reset-c', env.world.now + 2 * HOUR));
+  env.world.chatgpt.lose = 'before';
+  await env.world.github.schedule();
+  env.world.chatgpt.lose = null;
+}
+// Runs once, at the first request of the ChatGPT sign-in of the new worker: the old one keeps
+// working while the user signs in.
+const whileSigningIn = (env: World, happen: () => unknown) => {
+  let done = false;
+  env.onRequest = async request => {
+    if (!done && request.url.pathname === '/api/accounts/deviceauth/token') {
+      done = true;
+      await happen();
+    }
+  };
+};
+// The switch from `from` as it ends when the old worker turns out busy right before the quench.
+async function undone(env: World, from: 'github' | 'google', why: RegExp) {
+  const to = from === 'github' ? 'Google Apps Script' : 'GitHub Actions', old = from === 'github' ? 'GitHub Actions' : 'Google Apps Script';
+  assert.equal(env.screen.busy, null);
+  assert.match(switchSteps(env).at(-1) ?? '', new RegExp(`^Переключение: Переключение отменено: ${why.source} Воркер на ${old} остаётся активным, ` +
+    `у нового на ${to} расписания нет\\. Переключите снова после следующего запуска воркера\\.$`));
+  assert.ok(!switchSteps(env).some(step => /Гасим|Отзываем/.test(step)), 'the quench never began');
+  const install = await env.mac.files.readInstall();
+  assert.equal(install?.platform, from, 'the record names the old platform active again');
+  assert.equal(install?.switching, undefined);
+  assert.deepEqual(install?.accounts?.chatgpt, ACCOUNTS.chatgpt);
+  stillActive(env, from);
+  assert.deepEqual(env.breaches, []);
+  assert.match(env.text(), new RegExp(`\\n● ${old} · активен\\n`));
+}
+
+test('while a switch is unfinished, apply-now refuses on the command line and on the screen: the new worker spends nothing', async () => {
+  // GitHub → Google stops right after the record says `switching`, before the quench: the old
+  // worker still has its schedule and its session, the new one its session.
+  const env = await switchWorld('github');
+  const { world, mac, press, text } = env;
+  let failing = true;
+  env.onRequest = request => {
+    const prepared = switchSteps(env).includes('Переключение: У нового воркера своя сессия ChatGPT.');
+    if (failing && prepared && request.method === 'GET' && request.url.pathname.endsWith('/runs')) return Promise.reject(new TypeError('fetch failed'));
+  };
+  await press(...TO_SWITCH, 'return');
+  failing = false;
+  assert.deepEqual((await mac.files.readInstall())?.switching, { from: 'github' });
+  assert.equal((await mac.files.readInstall())?.platform, 'google');
+  assert.ok(env.github().scheduled && env.github().live, 'the old worker is not quenched');
+  assert.ok(env.google().live, 'the new worker has its session');
+  assert.deepEqual(env.breaches, []);
+
+  const consumed = world.consumeCalls().length;
+  const cli = await env.run(applyNow, { answers: ['1', 'y'] });
+  assert.equal(cli.code, 1);
+  assert.match(cli.io.output(), /Переключение площадки не завершено: активного воркера нет, сбросы не применяются\./);
+  assert.ok(!cli.io.output().includes('Применяем'), 'refused before the user picks a reset');
+
+  await press('tab', 'return', 'y');
+  assert.match(text(), /Переключение площадки не завершено: активного воркера нет, сбросы не применяются\./);
+  assert.deepEqual(world.spent(), [], 'no reset is spent');
+  assert.equal(world.consumeCalls().length, consumed, 'no consume request at all');
+  assert.ok(!(JSON.parse(env.google().gas?.properties.get('journal') ?? '[]') as { kind: string }[]).some(entry => entry.kind === 'apply_now'));
+
+  // «Повторить переключение» reads the old worker again: a pending application appeared meanwhile,
+  // so the switch is undone instead of the quench.
+  await pendingOnGitHub(env);
+  await press('tab', 'return');
+  await undone(env, 'github', /исход применения reset-c \(перед истечением\) ещё неизвестен\./);
+});
+
+test('a pending application that appears while the new worker is prepared undoes the switch before the quench (GitHub → Google)', async () => {
+  const env = await switchWorld('github');
+  whileSigningIn(env, () => pendingOnGitHub(env));
+  await env.press(...TO_SWITCH, 'return');
+  await undone(env, 'github', /исход применения reset-c \(перед истечением\) ещё неизвестен\./);
+  assert.ok(env.google().live, 'the new worker is left prepared, without a schedule');
+
+  // Once the next run settles it, the switch goes.
+  await env.world.github.schedule();
+  env.onRequest = null;
+  await env.press('down', 'down', 'down', 'return');
+  assert.deepEqual(env.active(), ['google']);
+  assert.equal((await env.mac.files.readInstall())?.switching, undefined);
+  assert.deepEqual(env.breaches, []);
+});
+
+test('a pending application that appears while the new worker is prepared undoes the switch before the quench (Google → GitHub)', async () => {
+  const env = await switchWorld('google');
+  whileSigningIn(env, () => {
+    env.world.chatgpt.credits.push(credit('reset-c', env.world.now + 20 * MINUTE));
+    env.world.chatgpt.lose = 'after';
+    env.google().gas?.tick();
+    env.world.chatgpt.lose = null;
+  });
+  await env.press(...TO_SWITCH, 'return');
+  await undone(env, 'google', /исход применения reset-c \(перед истечением\) ещё неизвестен\./);
+});
+
+test('a run of the old worker under way on GitHub undoes the switch before the quench', async () => {
+  const env = await switchWorld('github');
+  const repo = env.github().repo;
+  assert.ok(repo);
+  const [last] = repo.runs;
+  assert.ok(last);
+  // The cron started a run while the user signed in; it publishes its summary only at its end.
+  whileSigningIn(env, () => repo.runs.unshift({ ...last, id: last.id + 1000, event: 'schedule', status: 'in_progress', conclusion: null,
+    display_title: 'Scheduled check' }));
+  await env.press(...TO_SWITCH, 'return');
+  await undone(env, 'github', /идёт запуск старого воркера\./);
 });

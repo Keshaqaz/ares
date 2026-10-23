@@ -14,6 +14,9 @@
 // Esc stops the switch until step 3 begins and leaves the old worker as it was. From step 3 the
 // install record says `switching`: no worker is active, and finishSwitch («Повторить
 // переключение») completes the switch from wherever it stopped, after a failure or a crash.
+// Step 2 takes minutes, and the old worker keeps running meanwhile: right before the quench its
+// status is read again, and an application with an unknown outcome or, on GitHub, a run under way
+// undoes the switch instead. The old worker stays the active one, the new one has no schedule.
 // Switching back reuses the quenched repository or project.
 import { randomUUID } from 'node:crypto';
 import pkg from '../../package.json' with { type: 'json' };
@@ -117,12 +120,12 @@ export async function switchPlatform(options: SwitchOptions): Promise<string> {
   const email = await Promise.race([preparing, stop]);
   checkpoint();
 
-  // Step 3: from here on the switch goes to its end, or to «Повторить переключение».
+  // Step 3: from here on the switch goes to its end, to «Повторить переключение», or back to the
+  // old worker when it turns out busy.
   options.committed?.();
   const latest = await files.readInstall() ?? install;
-  await files.writeInstall({ ...latest, platform: target, switching: { from },
-    ...email ? { accounts: { ...latest.accounts, chatgpt: email } } : {} });
-  return finish(options, worker);
+  await files.writeInstall({ ...latest, platform: target, switching: { from } });
+  return finish(options, worker, email);
 }
 
 // «Повторить переключение»: completes a switch the install record says is unfinished.
@@ -133,19 +136,29 @@ export async function finishSwitch(options: FinishSwitchOptions): Promise<string
   return finish(options, null);
 }
 
-// Steps 3–5 from where the record says the switch is. old is the open old worker, null to open it.
-async function finish(options: FinishSwitchOptions, old: Worker | null): Promise<string> {
+// Steps 3–5 from where the record says the switch is. old is the open old worker, null to open it;
+// email is the ChatGPT account the new worker was signed in to, kept once the old one is quenched.
+async function finish(options: FinishSwitchOptions, old: Worker | null, email: string | null = null): Promise<string> {
   const { mac: { files }, journal } = options;
   let install = await files.readInstall();
   if (!install?.switching) throw new CommandFailed(unfinished());
   const { platform: target, switching: { from } } = install;
 
   if (!install.switching.quenched) {
-    journal(t(`Quenching the old worker on ${platformName(from)}…`, `Гасим старый воркер на ${platformName(from)}…`));
     const worker = old ?? await openOld(options, from, install);
+    const busy = worker && await busyNow(worker);
+    if (busy) {
+      const { switching: _undone, ...back } = install;
+      await files.writeInstall({ ...back, platform: from });
+      throw new CommandFailed(t(`The switch is undone: ${busy} The worker on ${platformName(from)} stays active, the new one on ` +
+        `${platformName(target)} has no schedule. Switch again after the next run of the worker.`,
+      `Переключение отменено: ${busy} Воркер на ${platformName(from)} остаётся активным, у нового на ${platformName(target)} ` +
+        'расписания нет. Переключите снова после следующего запуска воркера.'));
+    }
+    journal(t(`Quenching the old worker on ${platformName(from)}…`, `Гасим старый воркер на ${platformName(from)}…`));
     if (worker) await quench(worker, options);
     else journal(t('The old worker is gone: there is nothing to quench.', 'Старого воркера больше нет: гасить нечего.'), 'warn');
-    install = { ...install, switching: { from, quenched: true } };
+    install = { ...install, switching: { from, quenched: true }, ...email ? { accounts: { ...install.accounts, chatgpt: email } } : {} };
     await files.writeInstall(install);
   }
 
@@ -203,10 +216,9 @@ async function oldRules(worker: Worker): Promise<Rules> {
       'Обновите его (`aures upgrade`), дождитесь следующего запуска и повторите переключение.'));
   }
   if (summary?.pending) {
-    const { creditId, reason } = summary.pending;
-    throw new CommandFailed(t(`The switch is refused: the outcome of applying ${resetName(creditId)} (${reasonText(reason)}) is not known yet. ` +
+    throw new CommandFailed(t(`The switch is refused: ${unknownOutcome(summary.pending)} ` +
       'A new worker with a clean state could spend a second reset. The old worker settles it on its next run; switch after that.',
-    `Переключение отклонено: исход применения ${resetName(creditId)} (${reasonText(reason)}) ещё неизвестен. ` +
+    `Переключение отклонено: ${unknownOutcome(summary.pending)} ` +
       'Новый воркер с чистым состоянием мог бы потратить второй сброс. Старый воркер уточнит исход при следующем запуске, переключайте после этого.'));
   }
   if (!rules) {
@@ -215,6 +227,10 @@ async function oldRules(worker: Worker): Promise<Rules> {
   }
   return rules;
 }
+
+const unknownOutcome = ({ creditId, reason }: NonNullable<Summary['pending']>): string => t(
+  `the outcome of applying ${resetName(creditId)} (${reasonText(reason)}) is not known yet.`,
+  `исход применения ${resetName(creditId)} (${reasonText(reason)}) ещё неизвестен.`);
 
 // ─── Step 2: the new worker, without a schedule ─────────────────────────────
 
@@ -246,7 +262,10 @@ const prepareGitHub: Prepare = async ({ fetch, keychain, io, now, sleep, source,
   const minute = (workflow && workflowMinute(workflow.text)) ?? 1 + Math.floor(random() * 59);
   const yaml = workflowYaml({ minute });
   if (workflow?.text !== yaml) await api.putFile(name, FILES.workflow, yaml, { message: `Worker workflow ${pkg.version}`, sha: workflow?.sha });
-  // A new workflow comes enabled: it goes off before the repository gets a session.
+  // A new workflow comes enabled: it goes off before the repository gets a session. Until then a
+  // run it may start has no session to spend a reset with: a new repository has no state, a
+  // reused one the state of a quenched worker. A workflow that was there keeps its state when
+  // its file is written.
   await api.setWorkflow(name, WORKFLOW_FILE, false);
   journal(t(`Version ${pkg.version} of the worker is in, its schedule is off.`, `Залита версия воркера ${pkg.version}, расписание выключено.`));
   checkpoint();
@@ -273,9 +292,11 @@ const prepareGitHub: Prepare = async ({ fetch, keychain, io, now, sleep, source,
 // run, its trigger is off, then the rules and the login through doPost. A login of a worker
 // without a schedule goes as a trial run: it spends nothing.
 const prepareGoogle: Prepare = async ({ fetch, googleKeychain, secretKeychain, io, open, mac: { files }, now, sleep, source, rules, journal,
-  checkpoint }) => {
-  // The record keeps the project from the moment it exists, while the old platform stays the active one.
+  checkpoint, signal }) => {
+  // The record keeps the project from the moment it exists, while the old platform stays the active
+  // one. After Esc the screen goes on with other actions, which write the record too: not any more.
   const remember = async (google: { scriptId: string; deploymentId?: string; url?: string }) => {
+    if (signal?.aborted) return;
     const install = await files.readInstall();
     if (install) await files.writeInstall({ ...install, google });
   };
@@ -344,6 +365,28 @@ const prepareGoogle: Prepare = async ({ fetch, googleKeychain, secretKeychain, i
 };
 
 // ─── Steps 3 and 4: the old and the new worker ──────────────────────────────
+
+// Why the old worker is not to be quenched now, or null. A quenched worker never settles an
+// application with an unknown outcome, and on GitHub a run under way may leave one: its summary is
+// published only at its end. A revoke run is the quench's own, left by a quench that stopped. A web
+// app that is gone runs nothing any more.
+async function busyNow(worker: Worker): Promise<string | null> {
+  let summary: Summary | null;
+  if (worker.platform === 'google') {
+    try { summary = (await worker.ask('status')).summary as Summary | null; } catch (error) {
+      if (error instanceof GoogleFailure && error.reason === 'web_app_404') return null;
+      throw error;
+    }
+  } else {
+    const { api, repo } = worker;
+    const [published, runs] = await Promise.all([readSummary(api, repo), api.runs(repo.full_name, WORKFLOW_FILE)]);
+    if (runs.some(run => run.status !== 'completed' && run.display_title !== 'Revoke session')) {
+      return t('a run of the old worker is under way.', 'идёт запуск старого воркера.');
+    }
+    summary = published;
+  }
+  return summary?.pending ? unknownOutcome(summary.pending) : null;
+}
 
 // The worker on the platform switched from, as the record and the sign-ins find it; null when it
 // is gone: no repository, or a project never deployed. A worker that is there but cannot be
