@@ -66,6 +66,7 @@ export interface WorldOptions extends CommandOptions {
   googleKeychain: Keychain;
   secretKeychain: Keychain;
   open: (url: string) => Promise<void>;
+  copy: (text: string) => Promise<boolean>;
   random: () => number;
   rulesMigrations?: Migration[];
 }
@@ -77,6 +78,8 @@ export interface CliWorld {
   googleKeychain: FakeKeychain;
   secretKeychain: FakeKeychain;
   mac: FakeMac;
+  // Every text the commands copied to the clipboard, in order.
+  copied: string[];
   run(command: (options: WorldOptions) => Promise<number>, options?: RunOptions): Promise<{ code: number; io: Terminal }>;
 }
 
@@ -95,12 +98,15 @@ export async function cliWorld({ node = false, workerSource = WORKER_SOURCE, lan
     secretKeychain = fakeKeychain(WORKER_SECRET_ACCOUNT, keychain.entries);
   const mac = await fakeMac();
   const appsScriptSource = await bundle();
+  const copied: string[] = [];
   const run: CliWorld['run'] = (command, { answers = [], github, ...options } = {}) => {
     const io = terminal(world, answers, { github });
+    // The clipboard succeeds and keeps what was copied, unless a test brings its own.
+    const copy: WorldOptions['copy'] = async text => { copied.push(text); return true; };
     const done = command({ fetch: world.fetch, keychain, io, now: () => world.now, sleep: async ms => world.advance(ms),
-      random: () => 0.5, workerSource, appsScriptSource, googleKeychain, secretKeychain, open: world.google.open, timeZone: 'UTC', mac,
+      random: () => 0.5, workerSource, appsScriptSource, googleKeychain, secretKeychain, open: world.google.open, copy, timeZone: 'UTC', mac,
       ...options });
     return done.then(code => ({ code, io }));
   };
-  return { world, keychain, googleKeychain, secretKeychain, mac, run };
+  return { world, keychain, googleKeychain, secretKeychain, mac, copied, run };
 }

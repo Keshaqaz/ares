@@ -87,9 +87,9 @@ export async function setup(options: SetupOptions): Promise<number> {
 // On GitHub. Files already in the repository are kept, so a repeated setup never loses state
 // or rules and never rewrites the cron. This Mac follows the weekly rule: the check from it is
 // set up or removed. A worker on pause stays paused: the files go in, the schedule stays off.
-async function setupGitHub({ fetch, keychain, io, workerSource, mac, now, sleep, random = Math.random, timeZone, paused }:
+async function setupGitHub({ fetch, keychain, io, open, copy, workerSource, mac, now, sleep, random = Math.random, timeZone, paused }:
   SetupOptions & { now: () => number; sleep: Sleep; paused: boolean }): Promise<number> {
-  const { api, login } = await connectGitHub({ fetch, keychain, io, now, sleep });
+  const { api, login } = await connectGitHub({ fetch, keychain, io, open, copy, now, sleep });
   const repo = await ensureRepository({ api, login, io });
   const name = repo.full_name;
   const [state, rules, worker, workflow, hasKey] = await Promise.all([
@@ -105,7 +105,7 @@ async function setupGitHub({ fetch, keychain, io, workerSource, mac, now, sleep,
   if (state && hasKey) io.print(t('The ChatGPT sign-in is already there.', 'Вход в ChatGPT уже есть.'));
   else {
     io.print(chatgptLogin());
-    const session = await deviceLogin({ fetch, now, sleep, onCode: showCode(io) });
+    const session = await deviceLogin({ fetch, now, sleep, onCode: showCode(io, open, copy) });
     const key = generateKey();
     // A login left over from an interrupted `login` must not replace this new session.
     await api.deleteSecret(name, LOGIN_SECRET);
@@ -130,7 +130,7 @@ async function setupGitHub({ fetch, keychain, io, workerSource, mac, now, sleep,
     const minute = 1 + Math.floor(random() * 59);
     await api.putFile(name, FILES.workflow, workflowYaml({ minute }), { message: 'Run the worker every hour' });
   }
-  if (weekly !== null) await followWeeklyRule({ weekly, mac, fetch, io, now, sleep });
+  if (weekly !== null) await followWeeklyRule({ weekly, mac, fetch, io, open, copy, now, sleep });
   io.print(await trialRun({ api, repo, io, now, sleep, timeZone, paused }));
   return 0;
 }

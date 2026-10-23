@@ -6,6 +6,7 @@ import type { LaunchAgent } from './launch-agent.ts';
 import type { WatchFiles } from './watch-files.ts';
 import { showCode } from './common.ts';
 import type { Printer, Sleep } from './common.ts';
+import type { OpenUrl, CopyText } from './browser.ts';
 import { t } from './language.ts';
 
 // The out-of-schedule check from this Mac (ADR-0005): the launchd agent runs only while the
@@ -14,26 +15,26 @@ import { t } from './language.ts';
 export interface Mac { files: WatchFiles; agent: LaunchAgent }
 export type CheckProblem = 'session_lost' | 'not_running';
 export interface MacCheck { state: 'working' | 'off' | 'broken'; lastPassAt: number | null; problem: CheckProblem | null }
-interface Checking { mac: Mac; fetch: Fetch; io: Printer; now: () => number; sleep: Sleep }
+interface Checking { mac: Mac; fetch: Fetch; io: Printer; open: OpenUrl; copy: CopyText; now: () => number; sleep: Sleep }
 
 export const macLogin = (): string => t('Sign in to ChatGPT for this Mac: it notices the end of the weekly limit (Codex is not affected).',
   'Вход в ChatGPT для этого Mac: он замечает конец недельного лимита (Codex не затронут).');
 const SETUP = '`aures setup`';
 
 // Brings this Mac in line with the weekly rule, as setup and rules leave it.
-export async function followWeeklyRule({ weekly, mac, fetch, io, now, sleep }: Checking & { weekly: boolean }): Promise<void> {
-  return weekly ? startChecking({ mac, fetch, io, now, sleep }) : stopChecking({ mac, io });
+export async function followWeeklyRule({ weekly, mac, fetch, io, open, copy, now, sleep }: Checking & { weekly: boolean }): Promise<void> {
+  return weekly ? startChecking({ mac, fetch, io, open, copy, now, sleep }) : stopChecking({ mac, io });
 }
 
 // Opens a computer session when there is none or it is lost, and (re)loads the agent.
-async function startChecking({ mac: { files, agent }, fetch, io, now, sleep }: Checking): Promise<void> {
+async function startChecking({ mac: { files, agent }, fetch, io, open, copy, now, sleep }: Checking): Promise<void> {
   const [session, state, running] = await Promise.all([files.readSession(), files.readState(), agent.loaded()]);
   const login = !session || state.sessionLost;
   if (login) {
     // No pass may run meanwhile: it would write the lost mark back over the new session.
     await agent.remove();
     io.print(macLogin());
-    await files.writeSession(await deviceLogin({ fetch, now, sleep, onCode: showCode(io) }));
+    await files.writeSession(await deviceLogin({ fetch, now, sleep, onCode: showCode(io, open, copy) }));
     const { sessionLost, ...rest } = await files.readState();
     await files.writeState(rest);
   }

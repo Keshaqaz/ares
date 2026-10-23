@@ -17,7 +17,7 @@ import type { WouldApply } from '../worker/tick.ts';
 import { KeychainUnavailable } from './keychain.ts';
 import type { Keychain } from './keychain.ts';
 import type { Mac } from './mac-check.ts';
-import type { OpenUrl } from './browser.ts';
+import type { OpenUrl, CopyText } from './browser.ts';
 import type { Platform } from './watch-files.ts';
 import { t } from './language.ts';
 
@@ -51,6 +51,8 @@ export interface CommandOptions {
   secretKeychain: Keychain;
   // Opens a page in the browser.
   open: OpenUrl;
+  // Puts a code on the clipboard.
+  copy: CopyText;
   io: Io;
   mac: Mac;
   now?: () => number;
@@ -83,8 +85,20 @@ export const YES = ['y', 'yes', 'д', 'да'];
 export const onOff = (value: boolean): string => value ? t('on', 'включено') : t('off', 'выключено');
 export const chatgptLogin = (): string => t('Sign in to ChatGPT for the worker (Codex on this computer is not affected).',
   'Вход в ChatGPT для воркера (Codex на этом компьютере не затронут).');
-export const showCode = (io: Printer) => ({ userCode, verificationUrl }: DeviceCode): void => io.print(t(`Open ${verificationUrl} and enter the code ${userCode}`,
-  `Откройте ${verificationUrl} и введите код ${userCode}`));
+// What a device-code login tells the user: the page is opened in the browser and the code is
+// copied to the clipboard, and both the address and the code are printed too, so a browser or a
+// clipboard that does not work leaves the user a way on. Neither failure ends the login: the
+// line with the code is printed whatever happens, and the polling goes on. open and copy are
+// injected, as the tests do; the mark says the code was copied only when it was.
+export const showCode = (io: Printer, open: OpenUrl, copy: CopyText) =>
+  async ({ userCode, verificationUrl }: DeviceCode): Promise<void> => {
+    let copied = false;
+    try { copied = await copy(userCode); } catch { /* the code is printed below anyway */ }
+    io.print(t(`Open ${verificationUrl} and enter the code ${userCode}${copied ? ' (code copied)' : ''}`,
+      `Откройте ${verificationUrl} и введите код ${userCode}${copied ? ' (код скопирован)' : ''}`));
+    io.print(t(`If the browser did not open: ${verificationUrl}`, `Если браузер не открылся: ${verificationUrl}`));
+    try { await open(verificationUrl); } catch { /* the address is printed above anyway */ }
+  };
 export const formatTime = (ms: number, timeZone?: string): string => new Intl.DateTimeFormat(t('en-GB', 'ru-RU'), { day: 'numeric', month: 'long', year: 'numeric',
   hour: '2-digit', minute: '2-digit', timeZone, timeZoneName: 'short' }).format(ms);
 
@@ -123,8 +137,8 @@ export const byDeadline = <T extends Expiring>(resets: T[]): T[] => [...resets].
   (a.expiresAt ? Date.parse(a.expiresAt) : Infinity) - (b.expiresAt ? Date.parse(b.expiresAt) : Infinity));
 
 // fresh signs in anew even with a sign-in in the Keychain.
-export async function connectGitHub({ fetch, keychain, io, now, sleep, fresh = false }:
-  { fetch: Fetch; keychain: Keychain; io: Printer; now: () => number; sleep: Sleep; fresh?: boolean }): Promise<GitHub> {
+export async function connectGitHub({ fetch, keychain, io, open, copy, now, sleep, fresh = false }:
+  { fetch: Fetch; keychain: Keychain; io: Printer; open: OpenUrl; copy: CopyText; now: () => number; sleep: Sleep; fresh?: boolean }): Promise<GitHub> {
   let token: string | null = null;
   if (!fresh) try { token = await keychain.read(); } catch (error) { if (!(error instanceof KeychainUnavailable)) throw error; }
   if (token) {
@@ -135,7 +149,7 @@ export async function connectGitHub({ fetch, keychain, io, now, sleep, fresh = f
     }
   }
   io.print(t('Sign in to GitHub.', 'Вход в GitHub.'));
-  token = await githubDeviceLogin({ fetch, now, sleep, onCode: showCode(io) });
+  token = await githubDeviceLogin({ fetch, now, sleep, onCode: showCode(io, open, copy) });
   const api = new GitHubApi({ fetch, token });
   const login = await api.login();
   try { await keychain.write(token); } catch (error) {

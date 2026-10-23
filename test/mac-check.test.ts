@@ -44,9 +44,10 @@ test('turning the weekly rule on logs this Mac into ChatGPT and starts the agent
   const { world, repo, mac, keychain, secretKeychain, run, session, loaded } = await installed();
   const { code, io } = await run(rules, { answers: ['2', ''] });
   assert.equal(code, 0, io.output());
-  assert.deepEqual(io.lines.slice(-4), ['Правила сохранены и заработают со следующего запуска воркера.', macLogin(),
-    io.lines.at(-2), 'Внеочередная проверка с этого Mac включена.']);
-  assert.match(io.lines.at(-2) ?? '', /^Откройте https:\/\/auth\.openai\.com\/codex\/device и введите код FAKE-\d+$/);
+  assert.deepEqual(io.lines.slice(-5), ['Правила сохранены и заработают со следующего запуска воркера.', macLogin(),
+    io.lines.at(-3), io.lines.at(-2), 'Внеочередная проверка с этого Mac включена.']);
+  assert.match(io.lines.at(-3) ?? '', /^Откройте https:\/\/auth\.openai\.com\/codex\/device и введите код FAKE-\d+ \(код скопирован\)$/);
+  assert.equal(io.lines.at(-2), 'Если браузер не открылся: https://auth.openai.com/codex/device');
   const macSession = await session();
   assert.ok(macSession);
   assert.equal(macSession.refreshToken, world.auth.current?.refresh);

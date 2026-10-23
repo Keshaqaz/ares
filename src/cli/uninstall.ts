@@ -156,7 +156,7 @@ const capitalized = (text: string): string => text.charAt(0).toUpperCase() + tex
 // agent, its session (revoked where it can be) and files, and the Keychain entries. Last come the
 // steps only the user can do, with their links.
 export async function uninstall(options: CommandOptions): Promise<number> {
-  const { fetch, keychain, io, mac, now = Date.now, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)) } = options;
+  const { fetch, keychain, io, open, copy, mac, now = Date.now, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)) } = options;
   return command('uninstall', io, async () => {
     const install = await mac.files.readInstall();
     const google = install?.google ?? null;
@@ -172,7 +172,7 @@ export async function uninstall(options: CommandOptions): Promise<number> {
       // The token in the Keychain cannot delete repositories; this one is used once and not kept.
       io.print(t('To delete the repository GitHub asks for a separate permission: sign in once more.',
         'Для удаления репозитория GitHub просит отдельное разрешение: войдите ещё раз.'));
-      const token = await githubDeviceLogin({ fetch, now, sleep, scopes: UNINSTALL_SCOPES, onCode: showCode(io) });
+      const token = await githubDeviceLogin({ fetch, now, sleep, scopes: UNINSTALL_SCOPES, onCode: showCode(io, open, copy) });
       const api = new GitHubApi({ fetch, token });
       const repo = await api.repository(`${await api.login()}/${WORKER_REPOSITORY}`);
       if (!repo) io.print(t('There is no worker repository.', 'Репозитория воркера нет.'));

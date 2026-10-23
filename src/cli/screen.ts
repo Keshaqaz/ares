@@ -22,7 +22,7 @@ import { signInAgain, renewed } from './login.ts';
 import { connectGoogle, readSecret } from './google.ts';
 import { switchPlatform, finishSwitch, SwitchCancelled } from './switch.ts';
 import type { Keychain } from './keychain.ts';
-import type { OpenUrl } from './browser.ts';
+import type { OpenUrl, CopyText } from './browser.ts';
 import type { Mac } from './mac-check.ts';
 import { t, language, setLanguage } from './language.ts';
 
@@ -60,6 +60,7 @@ export interface ScreenOptions {
   googleKeychain: Keychain;
   secretKeychain: Keychain;
   open: OpenUrl;
+  copy: CopyText;
   workerSource: string | null;
   appsScriptSource: string | null;
   reopen: () => Promise<Worker>;
@@ -279,8 +280,8 @@ export class Screen {
         // The lines of the sign-ins are notes while they run: device codes, the pages to open.
         const io: Io = { print: line => note(line), prompt: async () => { throw new Error('the screen asks no questions'); },
           wait: text => show(text ?? busy) };
-        const { fetch, now, sleep, timeZone, mac, options: { keychain, googleKeychain, secretKeychain, open, workerSource, appsScriptSource } } = this;
-        const common = { fetch, keychain, googleKeychain, secretKeychain, open, io, mac, now, sleep, timeZone, journal: step };
+        const { fetch, now, sleep, timeZone, mac, options: { keychain, googleKeychain, secretKeychain, open, copy, workerSource, appsScriptSource } } = this;
+        const common = { fetch, keychain, googleKeychain, secretKeychain, open, copy, io, mac, now, sleep, timeZone, journal: step };
         try {
           step(stop ? await switchPlatform({ ...common, worker: this.worker, workerSource, appsScriptSource, signal: stop.signal,
             committed: () => {
@@ -334,18 +335,18 @@ export class Screen {
 
   // «Войти заново» for ChatGPT: a new worker session, as `aures login`.
   async signInChatGPT(io: Io): Promise<string> {
-    const { fetch, now, sleep, timeZone, mac: { files } } = this;
-    await signInAgain(this.worker, { fetch, io, files, now, sleep, timeZone });
+    const { fetch, now, sleep, timeZone, mac: { files }, options: { open, copy } } = this;
+    await signInAgain(this.worker, { fetch, io, files, open, copy, now, sleep, timeZone });
     return renewed();
   }
 
   // «Войти заново» for GitHub or Google: a new sign-in of the CLI. On GitHub it must be the
   // account of the worker repository; otherwise the sign-in before it is put back.
   async signInPlatform(io: Io): Promise<string> {
-    const { fetch, now, sleep, worker, options: { keychain, googleKeychain, open } } = this;
+    const { fetch, now, sleep, worker, options: { keychain, googleKeychain, open, copy } } = this;
     if (worker.platform === 'github') {
       const before = await readSecret(keychain);
-      const { api, login } = await connectGitHub({ fetch, keychain, io, now, sleep, fresh: true });
+      const { api, login } = await connectGitHub({ fetch, keychain, io, open, copy, now, sleep, fresh: true });
       if (login !== worker.repo.owner.login) {
         if (before) await keychain.write(before);
         throw new CommandFailed(t(`This is the GitHub account ${login}, the worker is in ${worker.repo.owner.login}. Sign in to that one.`,
@@ -404,7 +405,8 @@ export class Screen {
     }
     const chosen = { formatVersion: RULES_FORMAT_VERSION, beforeExpiry: current.beforeExpiry, weeklyAutoApply: current.weeklyAutoApply,
       [rule]: !current[rule] };
-    await saveRules({ worker, stored, chosen, mac, fetch, io: { print: line => note(line) }, now, sleep });
+    const { open, copy } = this.options;
+    await saveRules({ worker, stored, chosen, mac, fetch, io: { print: line => note(line) }, open, copy, now, sleep });
   }
 
   // The other language at once; it is kept for the next start, if this Mac lets it be written.
@@ -420,12 +422,12 @@ export class Screen {
 // The bundles are those setup and upgrade deploy, for «Починить»; null or left out without a build.
 export type ScreenCommandOptions = OpenWorkerOptions & { workerSource?: string | null; appsScriptSource?: string | null };
 export async function openScreen(options: ScreenCommandOptions): Promise<Screen> {
-  const { fetch, mac, keychain, googleKeychain, secretKeychain, open, workerSource = null, appsScriptSource = null, now = Date.now,
+  const { fetch, mac, keychain, googleKeychain, secretKeychain, open, copy, workerSource = null, appsScriptSource = null, now = Date.now,
     sleep = ms => new Promise(resolve => setTimeout(resolve, ms)), timeZone } = options;
   // Its doPost failures are told on the screen, where the user repeats the action.
   const reopen = () => openWorker(options, null);
   const worker = await reopen();
-  const screen = new Screen({ worker, mac, fetch, now, sleep, timeZone, keychain, googleKeychain, secretKeychain, open, workerSource,
+  const screen = new Screen({ worker, mac, fetch, now, sleep, timeZone, keychain, googleKeychain, secretKeychain, open, copy, workerSource,
     appsScriptSource, reopen });
   await screen.load();
   return screen;

@@ -40,7 +40,7 @@ import { trialRun } from './setup.ts';
 import { trialLine } from './setup-google.ts';
 import type { Trial } from './setup-google.ts';
 import type { Keychain } from './keychain.ts';
-import type { OpenUrl } from './browser.ts';
+import type { OpenUrl, CopyText } from './browser.ts';
 import type { Mac } from './mac-check.ts';
 import type { Install, Platform } from './watch-files.ts';
 import { t } from './language.ts';
@@ -63,6 +63,7 @@ export interface FinishSwitchOptions {
   googleKeychain: Keychain;
   secretKeychain: Keychain;
   open: OpenUrl;
+  copy: CopyText;
   io: Io;
   mac: Mac;
   now: () => number;
@@ -252,9 +253,9 @@ const signingIn = (): string => t('Signing the new worker in to ChatGPT: a sessi
 // On GitHub: the repository, this version's worker and workflow, the workflow disabled, the
 // rules, then a new session sealed with a new key. The CLI cannot open a quenched state, and a
 // login run would need the schedule on, so the state starts over, as in setup.
-const prepareGitHub: Prepare = async ({ fetch, keychain, io, now, sleep, source, rules, journal, checkpoint }) => {
+const prepareGitHub: Prepare = async ({ fetch, keychain, io, open, copy, now, sleep, source, rules, journal, checkpoint }) => {
   journal(t('Signing in to GitHub…', 'Входим в GitHub…'));
-  const github = await connectGitHub({ fetch, keychain, io, now, sleep });
+  const github = await connectGitHub({ fetch, keychain, io, open, copy, now, sleep });
   checkpoint();
   let repo = await workerRepository(github);
   if (repo) journal(t(`The worker repository is reused: ${repo.html_url}`, `Репозиторий воркера переиспользуется: ${repo.html_url}`));
@@ -282,7 +283,7 @@ const prepareGitHub: Prepare = async ({ fetch, keychain, io, now, sleep, source,
 
   journal(signingIn());
   io.print(chatgptLogin());
-  const session = await deviceLogin({ fetch, now, sleep, onCode: showCode(io) });
+  const session = await deviceLogin({ fetch, now, sleep, onCode: showCode(io, open, copy) });
   checkpoint();
   const key = generateKey();
   const state = await api.file(name, FILES.state);
@@ -298,7 +299,7 @@ const prepareGitHub: Prepare = async ({ fetch, keychain, io, now, sleep, source,
 // On Google: the project is deployed or redeployed with this version, the script is allowed to
 // run, its trigger is off, then the rules and the login through doPost. A login of a worker
 // without a schedule goes as a trial run: it spends nothing.
-const prepareGoogle: Prepare = async ({ fetch, googleKeychain, secretKeychain, io, open, mac: { files }, now, sleep, source, rules, journal,
+const prepareGoogle: Prepare = async ({ fetch, googleKeychain, secretKeychain, io, open, copy, mac: { files }, now, sleep, source, rules, journal,
   checkpoint, signal }) => {
   // The record keeps the project from the moment it exists, while the old platform stays the active
   // one. After Esc the screen goes on with other actions, which write the record too: not any more.
@@ -357,7 +358,7 @@ const prepareGoogle: Prepare = async ({ fetch, googleKeychain, secretKeychain, i
 
   journal(signingIn());
   io.print(chatgptLogin());
-  const session = await deviceLogin({ fetch, now, sleep, onCode: showCode(io) });
+  const session = await deviceLogin({ fetch, now, sleep, onCode: showCode(io, open, copy) });
   checkpoint();
   const id = randomUUID();
   const taken = await ask('login', { login: { id, session } });

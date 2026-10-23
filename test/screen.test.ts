@@ -83,8 +83,8 @@ test('Enter on a rule switches it, and the weekly rule sets up the check from th
   await press('down', 'down', 'down', 'return');
   assert.deepEqual(readRules(world.github.text(repo, FILES.rules)), { formatVersion: 1, beforeExpiry: true, weeklyAutoApply: true });
   assert.equal(repo.commits.at(-1)?.message, 'Change the general rules');
-  assert.match(text(), /Откройте https:\/\/auth\.openai\.com\/codex\/device и введите код FAKE-\d+/);
-  assert.match(text(), /Правила сохранены и заработают со следующего запуска воркера\.\n.*\n.*\nВнеочередная проверка с этого Mac включена\.\n\n↑↓/);
+  assert.match(text(), /Откройте https:\/\/auth\.openai\.com\/codex\/device и введите код FAKE-\d+ \(код скопирован\)\nЕсли браузер не открылся: https:\/\/auth\.openai\.com\/codex\/device/);
+  assert.match(text(), /Правила сохранены и заработают со следующего запуска воркера\.\n.*\nОткройте https:\/\/auth\.openai\.com\/codex\/device и введите код FAKE-\d+ \(код скопирован\)\nЕсли браузер не открылся: https:\/\/auth\.openai\.com\/codex\/device\nВнеочередная проверка с этого Mac включена\.\n\n↑↓/);
   assert.match(text(), /▸ ☑ Когда кончится недельный лимит · проверка с Mac работает/);
   assert.ok(await mac.files.readSession());
 
@@ -569,7 +569,7 @@ test('the frames of a switch: the caption, the steps in the journal, Esc offered
   await press('return');
   const [signingIn, quenching] = frames.map(frame => frame.join('\n'));
   assert.match(signingIn ?? '', /\nЖУРНАЛ\n─+\n {2}опрошен [^\n]*\n {2}20 окт 12:\d\d {2}aures · Переключение: Вход в ChatGPT для нового воркера: своя сессия…\n {2}20 окт 12:\d\d {2}aures · Переключение: Общие правила перенесены: перед истечением — включено, когда кончится недельный лимит — выключено\.\n/);
-  assert.match(signingIn ?? '', /\nОткройте https:\/\/auth\.openai\.com\/codex\/device и введите код FAKE-\d+\n/);
+  assert.match(signingIn ?? '', /\nОткройте https:\/\/auth\.openai\.com\/codex\/device и введите код FAKE-\d+ \(код скопирован\)\nЕсли браузер не открылся: https:\/\/auth\.openai\.com\/codex\/device\n/);
   assert.match(frames[0]?.at(-1) ?? '', /^. Переключаем площадку… Esc — отменить$/);
   assert.match(quenching ?? '', /aures · Переключение: Отзываем сессию ChatGPT старого воркера…\n/);
   assert.equal(frames[1]?.at(-1)?.slice(2), 'Запускаем воркер на GitHub…', 'no Esc once the quench began');

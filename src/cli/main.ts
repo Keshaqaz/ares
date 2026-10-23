@@ -14,7 +14,7 @@ import { watch } from './watch.ts';
 import { WatchFiles } from './watch-files.ts';
 import { LaunchAgent } from './launch-agent.ts';
 import { GitHubTokenKeychain, KeychainEntry, GOOGLE_TOKEN_ACCOUNT, WORKER_SECRET_ACCOUNT } from './keychain.ts';
-import { openInBrowser } from './browser.ts';
+import { openInBrowser, copyToClipboard } from './browser.ts';
 import { liveLine } from './live-line.ts';
 import type { CommandOptions } from './common.ts';
 import { t, setLanguage, isLanguage } from './language.ts';
@@ -38,9 +38,9 @@ const withBundle = (command: (options: CommandOptions & Bundles) => Promise<numb
   }
   return command({ ...options, workerSource, appsScriptSource });
 };
-// The Keychain entries and the browser every command gets.
+// The Keychain entries, the browser and the clipboard every command gets.
 const access = () => ({ keychain: new GitHubTokenKeychain(), googleKeychain: new KeychainEntry(GOOGLE_TOKEN_ACCOUNT),
-  secretKeychain: new KeychainEntry(WORKER_SECRET_ACCOUNT), open: openInBrowser });
+  secretKeychain: new KeychainEntry(WORKER_SECRET_ACCOUNT), open: openInBrowser, copy: copyToClipboard });
 // «2026-10-20T05:02:21+07:00»: the Mac's time with its offset, as the screen shows times.
 function localStamp(date = new Date()): string {
   const offset = -date.getTimezoneOffset(), pad = (n: number) => String(n).padStart(2, '0');

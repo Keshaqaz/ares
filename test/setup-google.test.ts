@@ -9,6 +9,8 @@ import type { FakeProject } from './support/fake-google.ts';
 
 const HOUR = 3600_000, DAY = 24 * HOUR;
 const GOOGLE_LOGIN = 'https://accounts.google.com/';
+// The device-code page the ChatGPT sign-in opens (issue 23).
+const DEVICE = 'https://auth.openai.com/codex/device';
 
 async function googleWorld() {
   const cli = await cliWorld();
@@ -47,7 +49,7 @@ test('setup on Google goes from nothing to a scheduled worker and ends with a tr
   assert.equal(world.google.projects.size, 1);
   const [deploymentId] = [...project.deployments.keys()];
   const url = `https://script.google.com/macros/s/${deploymentId}/exec`;
-  assert.deepEqual(world.google.opened.filter(href => !href.startsWith(GOOGLE_LOGIN)), [USER_SETTINGS, url]);
+  assert.deepEqual(world.google.opened.filter(href => !href.startsWith(GOOGLE_LOGIN)), [USER_SETTINGS, url, DEVICE]);
   assert.equal(project.authorized, true);
   assert.deepEqual(project.gas?.triggers, [{ handler: 'tick', minutes: 5 }]);
   assert.deepEqual(property(project, 'rules'), { formatVersion: 1, beforeExpiry: true, weeklyAutoApply: false });

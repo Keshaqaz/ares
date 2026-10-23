@@ -4,6 +4,7 @@ import { FILES, STATE_KEY_SECRET, LOGIN_SECRET } from '../worker/layout.ts';
 import { CommandFailed, RunNotStarted, unfinished, chatgptLogin, showCode, workingLine, runnableWorkflow, readSummary, failedRunAdvice,
   runWorkerNow, command } from './common.ts';
 import type { CommandOptions, Io, Sleep } from './common.ts';
+import type { OpenUrl, CopyText } from './browser.ts';
 import { openWorker } from './active-worker.ts';
 import type { Worker, GitHubWorker, GoogleWorker } from './active-worker.ts';
 import type { WatchFiles } from './watch-files.ts';
@@ -24,11 +25,12 @@ const unavailable = (): string => t('ChatGPT is temporarily unavailable: the res
 // `aures login`: a new worker session after the old one is lost. The worker takes it in place
 // of the old one, keeping rules and history, and rejects another ChatGPT account.
 export async function login(options: CommandOptions): Promise<number> {
-  const { fetch, io, mac: { files }, now = Date.now, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)), timeZone } = options;
-  return command('login', io, async () => signInAgain(await openWorker(options, 'login'), { fetch, io, files, now, sleep, timeZone }));
+  const { fetch, io, open, copy, mac: { files }, now = Date.now, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)), timeZone } = options;
+  return command('login', io, async () => signInAgain(await openWorker(options, 'login'), { fetch, io, files, open, copy, now, sleep, timeZone }));
 }
 // files keeps the email of the account signed in to.
-export interface LoggingIn { fetch: Fetch; io: Io; files: Pick<WatchFiles, 'rememberAccount'>; now: () => number; sleep: Sleep; timeZone: string | undefined }
+export interface LoggingIn { fetch: Fetch; io: Io; files: Pick<WatchFiles, 'rememberAccount'>; open: OpenUrl; copy: CopyText;
+  now: () => number; sleep: Sleep; timeZone: string | undefined }
 
 // A new worker session on the platform of the worker: what `aures login` and «войти заново» on the screen do.
 export async function signInAgain(worker: Worker, loggingIn: LoggingIn): Promise<number> {
@@ -36,9 +38,9 @@ export async function signInAgain(worker: Worker, loggingIn: LoggingIn): Promise
 }
 
 // On Google the session goes to the worker in doPost login, and the verdict comes back in its reply.
-async function loginGoogle(worker: GoogleWorker, { fetch, io, files, now, sleep, timeZone }: LoggingIn): Promise<number> {
+async function loginGoogle(worker: GoogleWorker, { fetch, io, files, open, copy, now, sleep, timeZone }: LoggingIn): Promise<number> {
   io.print(chatgptLogin());
-  const session = await deviceLogin({ fetch, now, sleep, onCode: showCode(io) });
+  const session = await deviceLogin({ fetch, now, sleep, onCode: showCode(io, open, copy) });
   const id = randomUUID();
   io.wait(t('Handing the sign-in to the worker…', 'Передаём вход воркеру…'));
   const reply = await worker.ask('login', { login: { id, session } }).finally(() => io.wait(null));
@@ -57,7 +59,7 @@ async function loginGoogle(worker: GoogleWorker, { fetch, io, files, now, sleep,
 
 // On GitHub the CLI cannot open the sealed state, so it hands the session to the worker through
 // the login secret. The verdict comes back in the open summary.
-async function loginGitHub({ api, repo }: GitHubWorker, { fetch, io, files, now, sleep, timeZone }: LoggingIn): Promise<number> {
+async function loginGitHub({ api, repo }: GitHubWorker, { fetch, io, files, open, copy, now, sleep, timeZone }: LoggingIn): Promise<number> {
   const name = repo.full_name;
   const [state, workflow, hasKey] = await Promise.all([api.file(name, FILES.state), api.file(name, FILES.workflow),
     api.hasSecret(name, STATE_KEY_SECRET)]);
@@ -71,7 +73,7 @@ async function loginGitHub({ api, repo }: GitHubWorker, { fetch, io, files, now,
   await runnableWorkflow(api, repo);
 
   io.print(chatgptLogin());
-  const session = await deviceLogin({ fetch, now, sleep, onCode: showCode(io) });
+  const session = await deviceLogin({ fetch, now, sleep, onCode: showCode(io, open, copy) });
   const id = randomUUID();
   await api.putSecret(name, LOGIN_SECRET, JSON.stringify({ id, session }));
   io.print(t('Handing the sign-in to the worker…', 'Передаём вход воркеру…'));

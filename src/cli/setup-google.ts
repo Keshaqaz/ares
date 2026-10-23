@@ -44,7 +44,7 @@ export function trialLine({ outcome, reason, wouldApply, summary }: Trial, timeZ
   return notReadYet(outcome === 'transient_error');
 }
 
-export async function setupGoogle({ fetch, io, mac: { files }, open, googleKeychain, secretKeychain, appsScriptSource, now, sleep, timeZone,
+export async function setupGoogle({ fetch, io, mac: { files }, open, copy, googleKeychain, secretKeychain, appsScriptSource, now, sleep, timeZone,
   paused }: SetupOptions & { now: () => number; sleep: Sleep; paused: boolean }): Promise<number> {
   // The record keeps a pause through the repair: the schedule is not brought back and the
   // passes from this Mac keep not waking the worker.
@@ -106,7 +106,7 @@ export async function setupGoogle({ fetch, io, mac: { files }, open, googleKeych
   if (status.summary) io.print(t('The ChatGPT sign-in is already there.', 'Вход в ChatGPT уже есть.'));
   else {
     io.print(chatgptLogin());
-    const session = await deviceLogin({ fetch, now, sleep, onCode: showCode(io) });
+    const session = await deviceLogin({ fetch, now, sleep, onCode: showCode(io, open, copy) });
     const id = randomUUID();
     const taken = workerDid(await ask('login', { login: { id, session } }), COMMAND);
     if ((taken.summary as Summary | null)?.login?.id !== id) {

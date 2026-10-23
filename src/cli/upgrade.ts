@@ -33,9 +33,9 @@ export async function upgrade(options: UpgradeOptions): Promise<number> {
 // On GitHub: the worker and the workflow go into the user's repository and the rules file is
 // migrated. The worker migrates its sealed state itself when it reads it. The agent of the
 // check from this Mac is reloaded with this version's program.
-async function upgradeGitHub({ fetch, keychain, io, workerSource, mac, now, sleep, rulesMigrations = RULES_MIGRATIONS }:
+async function upgradeGitHub({ fetch, keychain, io, open, copy, workerSource, mac, now, sleep, rulesMigrations = RULES_MIGRATIONS }:
   UpgradeOptions & { now: () => number; sleep: Sleep }): Promise<number> {
-  const { api, login } = await connectGitHub({ fetch, keychain, io, now, sleep });
+  const { api, login } = await connectGitHub({ fetch, keychain, io, open, copy, now, sleep });
   const repo = await installedWorker({ api, login });
   const name = repo.full_name;
   const [worker, workflow, rules] = await Promise.all([api.file(name, FILES.worker), api.file(name, FILES.workflow),

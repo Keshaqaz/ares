@@ -45,15 +45,16 @@ Both platforms are clouds in your own account, with no servers and nothing to pa
 
 ### Installing on GitHub
 
-1. **GitHub sign-in.** Open the link, enter the code and allow access. The sign-in is kept in the Keychain, so you won't be asked again.
+1. **GitHub sign-in.** The CLI opens the sign-in page itself and copies the code to the clipboard — paste it on the page and allow access. If the browser did not open, the address is printed in the terminal. The sign-in is kept in the Keychain, so you won't be asked again.
 2. **Repository.** A private repository `codex-auto-resets-worker` appears in your account. The worker lives there.
-3. **ChatGPT sign-in.** Open the link, enter the code and sign in to the account with the resets. This sign-in belongs to the worker alone: Codex on your computer keeps working as before.
+3. **ChatGPT sign-in.** The CLI opens the page itself and copies the code to the clipboard — paste it and sign in to the account with the resets. This sign-in belongs to the worker alone: Codex on your computer keeps working as before.
 4. **Rules.** Choose when resets are applied (see below). Enter keeps the defaults.
-5. **ChatGPT sign-in for this Mac.** Only if the rule "When the weekly limit runs out" is on. Open the link and enter one more code, for the same ChatGPT account. The CLI installs a launchd agent that watches the weekly limit:
+5. **ChatGPT sign-in for this Mac.** Only if the rule "When the weekly limit runs out" is on. The CLI opens the page itself and copies one more code to the clipboard — paste it for the same ChatGPT account. The CLI installs a launchd agent that watches the weekly limit:
 
    ```
    Sign in to ChatGPT for this Mac: it notices the end of the weekly limit (Codex is not affected).
-   Open https://auth.openai.com/codex/device and enter the code ABCD-12345
+   Open https://auth.openai.com/codex/device and enter the code ABCD-12345 (code copied)
+   If the browser did not open: https://auth.openai.com/codex/device
    The check from this Mac is on.
    ```
 
@@ -85,7 +86,7 @@ The whole install on Google looks like this in the terminal:
 3. **The project and the web app.** The project `aures-worker` appears in your account; the CLI deploys its web app and prints "The worker is deployed: …". The web app's URL is kept on this Mac. For a few seconds after a deploy Google still serves the previous version of the web app; the CLI waits that out by itself ("Waiting for Google to serve the new version of the worker…"), up to a minute.
 4. **The script's consent.** The CLI prints "Let the worker script run: …", opens the web app's URL and asks: "Pick your account, pass «Google hasn't verified this app» through «Advanced» and click «Allow». aures goes on by itself." This is the second «unverified app» screen. Pick the same account and allow — the page shows "done, go back to the terminal", and the CLI goes on by itself.
 5. **Rules.** The same two rules as on GitHub, only the before-expiry window is the last hour: "1. Before expiry (in the last hour) — on".
-6. **ChatGPT sign-in.** As on GitHub: open the link, enter the code and sign in to the account with the resets. This sign-in belongs to the worker alone; Codex on your computer keeps working as before.
+6. **ChatGPT sign-in.** As on GitHub: the CLI opens the page itself and copies the code to the clipboard — paste it and sign in to the account with the resets. This sign-in belongs to the worker alone; Codex on your computer keeps working as before.
 7. **The schedule.** "The worker runs every 5 minutes."
 8. **The check.** "Checking the worker…" — a trial run, as on GitHub: the worker reads the quotas and resets and tells what the rules would do, but applies no reset.
 
@@ -210,7 +211,7 @@ A paused worker has no "Switch to …" action: take it off pause first.
 On the screen «Worker» (`Tab`) the action "Switch to …" moves the worker to the other platform without a reinstall. Each step goes into the journal on the screen:
 
 1. If the worker has an application of a reset with an unknown outcome, the switch refuses and says why: a new worker with a clean state could spend a second reset. Wait for the worker's next run.
-2. The new worker is prepared without a schedule while the old one keeps working: the GitHub or Google sign-in, the code of this version, the general rules, and a ChatGPT sign-in for the new worker session (the code shows on the screen).
+2. The new worker is prepared without a schedule while the old one keeps working: the GitHub or Google sign-in, the code of this version, the general rules, and a ChatGPT sign-in for the new worker session (the page opens itself; the code is on the clipboard and the screen).
 3. The old worker is quenched: its ChatGPT session is revoked and its schedule taken off; its repository or project stays for a switch back. Right before that its status is read again: if an application with an unknown outcome appeared meanwhile, or a run of the worker on GitHub is under way, the switch is undone, the old worker stays active, and you switch again after its next run.
 4. The new worker's schedule goes on, then a trial run.
 

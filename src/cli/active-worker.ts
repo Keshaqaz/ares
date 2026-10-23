@@ -47,9 +47,9 @@ export async function openWorker(options: OpenWorkerOptions, command: string | n
   return openGoogle(options, google.scriptId, google.url, command);
 }
 
-async function openGitHub({ fetch, keychain, io, now = Date.now, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)) }:
+async function openGitHub({ fetch, keychain, io, open, copy, now = Date.now, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)) }:
   OpenWorkerOptions): Promise<GitHubWorker> {
-  const github = await connectGitHub({ fetch, keychain, io, now, sleep });
+  const github = await connectGitHub({ fetch, keychain, io, open, copy, now, sleep });
   return { platform: 'github', api: github.api, repo: await installedWorker(github) };
 }
 
