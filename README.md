@@ -14,7 +14,7 @@ Runs in your own account — GitHub Actions or Google Apps Script. Your Mac can 
 
 **English** · [Русский](docs/README.ru.md)
 
-<img src="docs/assets/status-en.png" alt="The aures screen: resets on top, rules below">
+<img src="docs/assets/status-en.png" alt="The aures screen: resets on top, rules below, the worker on Google Apps Script">
 
 </div>
 
@@ -47,7 +47,7 @@ aures setup
 
 `setup` asks where the worker will run — GitHub or Google Apps Script — installs it there and runs it once. On GitHub that means one-time codes, the private repo `codex-auto-resets-worker` and the rules; on Google, the script project `aures-worker` and two «Google hasn't verified this app» screens (the walkthrough for every screen is in the [guide](docs/installation.en.md)):
 
-<img src="docs/assets/setup-en.png" alt="aures setup: GitHub and ChatGPT sign-in, rules, the Mac check and a trial run">
+<img src="docs/assets/setup-en.png" alt="aures setup on Google Apps Script: the platform, the Google sign-in, the Apps Script API switch, rules, the ChatGPT sign-in and a trial run">
 
 The CLI speaks English; for Russian press `l` on the screen or run `aures language ru`.
 
@@ -67,12 +67,27 @@ Full guide, including installing from source: [docs/installation.en.md](docs/ins
 | `uninstall` | remove the worker, the Mac check and the sign-ins |
 | `language en` / `language ru` | the language of the CLI; `l` on the screen does the same |
 
+## The «Worker» screen
+
+`Tab` on the screen opens the worker itself, on either platform:
+
+<div align="center">
+<img src="docs/assets/worker-en.png" alt="The «Worker» screen: the platform and its state, the accounts, the actions and the live journal">
+</div>
+
+- **Worker** — the platform, its state (active, on pause, switch unfinished) and a link to the repo or the script project.
+- **Accounts** — the GitHub or Google account and the worker's ChatGPT sign-in; Enter on either signs in again.
+- **Actions** — «Check now» (a trial run that applies nothing), «Repair» (deploys this version of the worker again and brings its schedule back), «Pause» / «Unpause» (the schedule off and back on; «Apply now» still works on pause) and «Switch to …» (moves the worker to the other platform, no reinstall).
+- **Journal** — the last runs of the worker, newest first: what started each run and how it ended. It is polled while the screen is open: every 30 seconds on Google, every minute on GitHub.
+
+Details in the [guide](docs/installation.en.md#the-worker-screen).
+
 ## How it works
 
 ```mermaid
 flowchart LR
   hour(["⏰ hourly (GitHub)<br/>or every 5 min (Google)"])
-  mac(["💻 your Mac sees<br/>the weekly limit run out"])
+  mac(["💻 your Mac sees<br/>the weekly limit run out<br/>(GitHub)"])
   you(["⌨️ you press Enter<br/>on a reset"])
   worker["<b>Worker</b><br/>GitHub Actions<br/>or Google Apps Script<br/>in your account"]
   due{"a rule fires<br/>or you asked?"}
