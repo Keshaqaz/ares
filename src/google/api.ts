@@ -262,10 +262,14 @@ export async function revokeGoogle(fetch: Fetch, refreshToken: string): Promise<
 
 // One doPost of the worker's web app. Apps Script answers the POST with a redirect to
 // script.googleusercontent.com, where a GET reads the reply. null when the reply is not JSON:
-// the script is not authorized yet and Google shows a page instead.
+// the script is not authorized yet and Google shows an HTML page instead — in its own 401/403
+// answer (probe 16; also after ScriptApp.invalidateAuth) or inside a 200.
 export async function postWorker(fetch: Fetch, url: string, body: Record<string, unknown>): Promise<Record<string, unknown> | null> {
   let reply = await send(fetch, url, { method: 'POST', body, redirect: 'manual' });
   if ([301, 302, 303].includes(reply.status) && reply.location) reply = await send(fetch, new URL(reply.location, url).href);
+  // The page of an unauthorized web app is HTML, not JSON; anything else Google answers with
+  // these statuses is a real refusal.
+  if ([401, 403].includes(reply.status) && reply.value === null) return null;
   if (reply.status !== 200) throw new GoogleFailure(`web_app_${reply.status}`);
   const value = reply.value;
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;

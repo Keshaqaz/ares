@@ -262,12 +262,13 @@ export function withGoogle(world: FakeWorld & { google?: FakeGoogle }): FakeGoog
   }
 
   // POST to the web app: Apps Script runs doPost and redirects to where its reply can be read.
+  // A script the owner has not allowed answers with Google's 403 HTML page instead (probe 16).
   async function webApp(deploymentId: string, body: string): Promise<Response> {
     const project = [...google.projects.values()].find(p => p.deployments.has(deploymentId));
     const version = project?.deployments.get(deploymentId);
     if (!project || version === undefined) return new Response('Sorry, unable to open the file at this time.', { status: 404 });
     if (!project.authorized) {
-      return new Response('<html>Authorization is required to perform that action.</html>', { status: 200, headers: { 'content-type': 'text/html' } });
+      return new Response('<html>Authorization is required to perform that action.</html>', { status: 403, headers: { 'content-type': 'text/html' } });
     }
     const sources = (project.versions[version - 1] ?? []).filter(file => file.type === 'SERVER_JS').map(file => file.source);
     if (!project.gas) project.gas = await fakeAppsScript({ world, files: sources });

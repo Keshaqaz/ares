@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { connectGoogle, deployWorker } from '../src/cli/google.ts';
 import type { WorkerDeployment } from '../src/cli/google.ts';
-import { postWorker } from '../src/google/api.ts';
+import { GoogleFailure, postWorker } from '../src/google/api.ts';
+import type { Fetch } from '../src/chatgpt/http.ts';
 import { command } from '../src/cli/common.ts';
 import { cliWorld } from './support/cli-world.ts';
 import type { CliWorld } from './support/cli-world.ts';
@@ -32,6 +33,25 @@ const noViolations = ({ world }: CliWorld) => {
   assert.deepEqual(world.google.violations, []);
   assert.deepEqual(world.violations, []);
 };
+
+// A web app that always answers with this one page, as Google does before the script is allowed.
+const page = (status: number, body = '<html>Authorization is required to perform that action.</html>',
+  type = 'text/html'): Fetch => async () => new Response(body, { status, headers: { 'content-type': type } });
+const refused = (error: unknown): error is GoogleFailure => error instanceof GoogleFailure;
+
+test('postWorker takes the HTML page of an unauthorized web app for a «not yet», whatever its status; other refusals are failures', async () => {
+  const url = 'https://script.google.com/macros/s/AKfycbFake1/exec';
+  // Live check 16: before the script is allowed, the web app answers 403 with Google's HTML page.
+  assert.equal(await postWorker(page(403), url, { action: 'status' }), null, 'a 403 page');
+  assert.equal(await postWorker(page(401), url, { action: 'status' }), null, 'a 401 page counts the same');
+  assert.equal(await postWorker(page(200), url, { action: 'status' }), null, 'a page inside a 200 still does');
+  await assert.rejects(postWorker(page(403, '{"error":{"code":403}}', 'application/json'), url, { action: 'status' }),
+    (error: unknown) => refused(error) && error.reason === 'web_app_403', 'a JSON 403 is a real refusal');
+  await assert.rejects(postWorker(page(404, 'Sorry, unable to open the file at this time.', 'text/plain'), url, { action: 'status' }),
+    (error: unknown) => refused(error) && error.reason === 'web_app_404', 'a gone web app');
+  await assert.rejects(postWorker(page(500), url, { action: 'status' }),
+    (error: unknown) => refused(error) && error.reason === 'web_app_500', 'an outage');
+});
 
 test('the first deploy waits for the Apps Script API: it opens usersettings, explains the switch and retries until it is on', async () => {
   const cli = await cliWorld();
