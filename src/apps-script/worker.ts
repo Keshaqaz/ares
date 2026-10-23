@@ -5,7 +5,7 @@ import { revoke as revokeSession } from '../chatgpt/session.ts';
 import { TransientFailure, object } from '../chatgpt/http.ts';
 import type { TransientReason } from '../chatgpt/http.ts';
 import { migrateState, readRules, readLogin, BrokenState, STATE_FORMAT_VERSION, RULES_FORMAT_VERSION } from '../worker/state-file.ts';
-import type { State, Rules, Login, BrokenStateReason } from '../worker/state-file.ts';
+import type { State, Rules, Login, Pending, BrokenStateReason } from '../worker/state-file.ts';
 import { openSummary } from '../worker/summary.ts';
 import type { Summary } from '../worker/summary.ts';
 import { settle } from './sync-promise.ts';
@@ -71,16 +71,21 @@ export function appsScriptWorker({ gas, secret }: WorkerOptions): Worker {
     try { return work(); } finally { lock.releaseLock(); }
   };
 
-  // State and rules as the tick takes them. A login brings the first session when there is no state yet.
-  const load = (props: Properties, login: Login | null = null): { state: State; rules: Rules } => {
+  // The state alone: a revocation needs no rules. A login brings the first session when there is no state yet.
+  const loadState = (props: Properties, login: Login | null = null): State => {
     const stateText = props.getProperty(PROPERTIES.state);
     let state: unknown = login ? { formatVersion: STATE_FORMAT_VERSION, session: login.session } : null;
     if (stateText !== null) {
       try { state = JSON.parse(stateText); } catch { throw new BrokenState('state_unreadable'); }
     } else if (!state) throw new BrokenState('state_missing');
+    return migrateState(state);
+  };
+  // State and rules as the tick takes them.
+  const load = (props: Properties, login: Login | null = null): { state: State; rules: Rules } => {
+    const state = loadState(props, login);
     const rulesText = props.getProperty(PROPERTIES.rules);
     if (rulesText === null) throw new BrokenState('rules_missing');
-    return { state: migrateState(state), rules: readRules(rulesText) };
+    return { state, rules: readRules(rulesText) };
   };
 
   const journal = (props: Properties): JournalEntry[] => {
@@ -122,12 +127,16 @@ export function appsScriptWorker({ gas, secret }: WorkerOptions): Worker {
   const scheduled = (g: AppsScript): boolean => g.ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === TICK_FUNCTION);
 
   // Revokes the worker session in OpenAI; the state keeps it, and the next tick finds it lost.
-  const revoke = (g: AppsScript): { outcome: 'revoked' | 'revoke_failed' | 'no_session'; reason?: TransientReason } => {
+  // The quench of a switch keeps an application with an unknown outcome: under the lock, no tick
+  // can start one between the CLI's last status and this revocation, so it refuses with pending.
+  const revoke = (g: AppsScript, { keepPending = false } = {}): { outcome: 'revoked' | 'revoke_failed' | 'no_session' | 'pending';
+    reason?: TransientReason; pending?: { creditId: string; reason: Pending['reason'] } } => {
     let state: State;
-    try { state = load(g.PropertiesService.getScriptProperties()).state; } catch (error) {
+    try { state = loadState(g.PropertiesService.getScriptProperties()); } catch (error) {
       if (error instanceof BrokenState) return { outcome: 'no_session' };
       throw error;
     }
+    if (keepPending && state.pending) return { outcome: 'pending', pending: { creditId: state.pending.creditId, reason: state.pending.reason } };
     const { fetch, flush } = urlFetch(g);
     try {
       settle(revokeSession(fetch, state.session), flush);
@@ -180,7 +189,7 @@ export function appsScriptWorker({ gas, secret }: WorkerOptions): Worker {
       schedule(g, on);
       return { ok: true, schedule: on };
     } },
-    revoke: { locked: true, act: g => ({ ok: true, ...revoke(g) }) },
+    revoke: { locked: true, act: g => ({ ok: true, ...revoke(g, { keepPending: true }) }) },
     // Leaves nothing that runs or holds a session: the project itself only the user can delete.
     // A revocation OpenAI did not confirm keeps the state, so that a repeated uninstall retries it.
     uninstall: { locked: true, act: g => {
@@ -216,7 +225,13 @@ export function appsScriptWorker({ gas, secret }: WorkerOptions): Worker {
       if (!object(request) || !expected || !sameSecret(request.secret, expected)) return reply(FORBIDDEN);
       const action = typeof request.action === 'string' && Object.prototype.hasOwnProperty.call(ACTIONS, request.action) ? ACTIONS[request.action] : null;
       if (!action) return reply({ ok: false, error: 'unknown_action' });
-      const result = action.locked ? locked(g, () => action.act(g, request)) : action.act(g, request);
+      // An exception would reach the CLI as Google's HTML page, which it takes for a script not
+      // allowed to run: it is answered as JSON instead. The message is Apps Script's, never a token.
+      let result: object | null | typeof BUSY;
+      try { result = action.locked ? locked(g, () => action.act(g, request)) : action.act(g, request); } catch (error) {
+        const message = object(error) && typeof error.message === 'string' ? error.message : String(error);
+        return reply({ ok: false, error: 'internal', message });
+      }
       if (result === BUSY) return reply({ ok: false, error: 'busy' });
       return reply(result ?? { ok: false, error: 'bad_request' });
     },

@@ -11,6 +11,7 @@ import { credit } from './support/fake-world.ts';
 import { cliWorld } from './support/cli-world.ts';
 import { SCRIPT_HOME } from './support/fake-google.ts';
 import type { FakeProject } from './support/fake-google.ts';
+import { workerDid } from '../src/cli/google.ts';
 
 const HOUR = 3600_000, MINUTE = 60_000;
 const GOOGLE_LOGIN = 'https://accounts.google.com/';
@@ -251,4 +252,9 @@ test('the screen on Google applies a reset and switches a rule through the worke
   assert.equal(journal().at(-1)?.kind, 'apply_now');
   assert.match(shown.frame().join('\n'), /СБРОСЫ · 1/);
   onlyWebApp();
+});
+
+test('a worker script that failed is told with its message, not as a script without access', () => {
+  assert.throws(() => workerDid({ ok: false, error: 'internal', message: 'Service invoked too many times: properties' }, 'status'),
+    { message: 'Скрипт воркера упал: Service invoked too many times: properties. Повторите `aures status`.' });
 });

@@ -470,6 +470,29 @@ test('a pending application that appears while the new worker is prepared undoes
   await undone(env, 'google', /исход применения reset-c \(перед истечением\) ещё неизвестен\./);
 });
 
+test('a pending application a tick of the old worker on Google starts right before the revocation undoes the switch', async () => {
+  const env = await switchWorld('google');
+  let done = false;
+  // The status busyNow read had none; the tick comes between it and doPost revoke.
+  env.onRequest = request => {
+    if (done || !doPost(request, 'revoke')) return;
+    done = true;
+    env.world.chatgpt.credits.push(credit('reset-c', env.world.now + 20 * MINUTE));
+    env.world.chatgpt.lose = 'after';
+    env.google().gas?.tick();
+    env.world.chatgpt.lose = null;
+  };
+  await env.press(...TO_SWITCH, 'return');
+  assert.ok(done, 'the revocation was asked');
+  assert.match(switchSteps(env).at(-1) ?? '', /^Переключение: Переключение отменено: исход применения reset-c \(перед истечением\) ещё неизвестен\. /);
+  const install = await env.mac.files.readInstall();
+  assert.equal(install?.platform, 'google', 'the record names the old platform active again');
+  assert.equal(install?.switching, undefined);
+  stillActive(env, 'google');
+  assert.ok(env.google().gas?.properties.get('state')?.includes('"pending":{'), 'the old worker keeps its pending application');
+  assert.deepEqual(env.breaches, []);
+});
+
 test('a run of the old worker under way on GitHub undoes the switch before the quench', async () => {
   const env = await switchWorld('github');
   const repo = env.github().repo;

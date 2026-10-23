@@ -255,6 +255,44 @@ test('revoke ends the worker session in OpenAI; the next tick finds it lost', as
   assert.deepEqual(post(gas, 'revoke'), { ok: true, outcome: 'revoke_failed', reason: 'revoke_503' });
 });
 
+test('revoke refuses while an application has an unknown outcome and keeps the session; uninstall revokes anyway', async () => {
+  const { world, gas, session } = await installed();
+  world.chatgpt.credits = [credit('reset-a', world.now + 20 * MINUTE)];
+  post(gas, 'schedule', { on: true });
+  world.chatgpt.lose = 'after';
+  gas.tick();
+  world.chatgpt.lose = null;
+  assert.deepEqual(post(gas, 'revoke'), { ok: true, outcome: 'pending', pending: { creditId: 'reset-a', reason: 'before_expiry' } });
+  assert.deepEqual(world.auth.revoked, []);
+  assert.deepEqual(post(gas, 'uninstall'), { ok: true, outcome: 'revoked' });
+  assert.deepEqual(world.auth.revoked, [session.refreshToken]);
+  noViolations(world, gas);
+});
+
+test('revoke and uninstall end the session even when the rules do not read', async () => {
+  const { world, gas, session } = await installed();
+  gas.properties.delete('rules');
+  assert.deepEqual(post(gas, 'revoke'), { ok: true, outcome: 'revoked' });
+  assert.deepEqual(world.auth.revoked, [session.refreshToken]);
+  gas.properties.set('rules', '{');
+  world.auth.revoked.length = 0;
+  assert.deepEqual(post(gas, 'uninstall'), { ok: true, outcome: 'revoked' });
+  assert.deepEqual(world.auth.revoked, [session.refreshToken]);
+  assert.equal(gas.properties.size, 0);
+});
+
+test('an exception in an action is answered as JSON with its message, not as Google\'s error page, and frees the lock', async () => {
+  const { world, gas } = await installed();
+  world.chatgpt.credits = [credit('reset-a', world.now + 5 * MINUTE)];
+  // The journal entry is the last write of a run.
+  const props = gas.properties, set = props.set.bind(props);
+  props.set = (key, value) => { if (key === 'journal') throw new Error('Service invoked too many times: properties'); return set(key, value); };
+  assert.deepEqual(post(gas, 'trial'), { ok: false, error: 'internal', message: 'Service invoked too many times: properties' });
+  props.set = set;
+  assert.equal(post(gas, 'trial').outcome, 'would_apply');
+  noViolations(world, gas);
+});
+
 test('uninstall removes the triggers, revokes the session, forgets the properties and the script authorization', async () => {
   const { world, gas, session } = await installed();
   post(gas, 'schedule', { on: true });

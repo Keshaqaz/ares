@@ -147,19 +147,25 @@ async function finish(options: FinishSwitchOptions, old: Worker | null, email: s
   const { platform: target, switching: { from } } = install;
 
   if (!install.switching.quenched) {
-    const worker = old ?? await openOld(options, from, install);
-    const busy = worker && await busyNow(worker);
-    if (busy) {
-      const { switching: _undone, ...back } = install;
+    const { switching: _undone, ...back } = install;
+    const undo = async (busy: string): Promise<never> => {
       await files.writeInstall({ ...back, platform: from });
       throw new CommandFailed(t(`The switch is undone: ${busy} The worker on ${platformName(from)} stays active, the new one on ` +
         `${platformName(target)} has no schedule. Switch again after the next run of the worker.`,
       `Переключение отменено: ${busy} Воркер на ${platformName(from)} остаётся активным, у нового на ${platformName(target)} ` +
         'расписания нет. Переключите снова после следующего запуска воркера.'));
-    }
+    };
+    const worker = old ?? await openOld(options, from, install);
+    const busy = worker && await busyNow(worker);
+    if (busy) await undo(busy);
     journal(t(`Quenching the old worker on ${platformName(from)}…`, `Гасим старый воркер на ${platformName(from)}…`));
-    if (worker) await quench(worker, options);
-    else journal(t('The old worker is gone: there is nothing to quench.', 'Старого воркера больше нет: гасить нечего.'), 'warn');
+    if (worker) {
+      try { await quench(worker, options); } catch (error) {
+        // A tick of the old worker on Google started an application after busyNow read its status.
+        if (!(error instanceof StillPending)) throw error;
+        await undo(error.message);
+      }
+    } else journal(t('The old worker is gone: there is nothing to quench.', 'Старого воркера больше нет: гасить нечего.'), 'warn');
     install = { ...install, switching: { from, quenched: true }, ...email ? { accounts: { ...install.accounts, chatgpt: email } } : {} };
     await files.writeInstall(install);
   }
@@ -432,6 +438,7 @@ async function quench(worker: Worker, options: FinishSwitchOptions): Promise<voi
   journal(t('Revoking the old worker\'s ChatGPT session…', 'Отзываем сессию ChatGPT старого воркера…'));
   let notRevoked: string | null;
   try { notRevoked = worker.platform === 'github' ? await revokeOnGitHub(worker, options) : await revokeOnGoogle(worker); } catch (error) {
+    if (error instanceof StillPending) throw error;
     notRevoked = explain(error);
     if (notRevoked === null) throw error;
   }
@@ -472,9 +479,14 @@ async function revokeOnGitHub({ api, repo }: GitHubWorker, { io, now, sleep }: F
   return t(`the run ended with an error: ${run.html_url}`, `запуск завершился с ошибкой: ${run.html_url}`);
 }
 
+// The old worker on Google has an application with an unknown outcome: it refused the revocation
+// and is not quenched. The message is the reason, as busyNow gives it.
+class StillPending extends Error {}
+
 async function revokeOnGoogle(worker: GoogleWorker): Promise<string | null> {
   const reply = await worker.ask('revoke');
   if (reply.outcome === 'revoked' || reply.outcome === 'no_session') return null;
+  if (reply.outcome === 'pending') throw new StillPending(unknownOutcome(reply.pending as NonNullable<Summary['pending']>));
   return t(`ChatGPT did not confirm it (${reply.reason})`, `ChatGPT не подтвердил отзыв (${reply.reason})`);
 }
 
