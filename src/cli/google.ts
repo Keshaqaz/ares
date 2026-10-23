@@ -17,6 +17,11 @@ import { t } from './language.ts';
 export const USER_SETTINGS = 'https://script.google.com/home/usersettings';
 // The switch takes effect at once (probe 01); the CLI asks again this often.
 const API_POLL_MS = 5_000;
+// A web app keeps serving the previous version of its deployment for a few seconds after the
+// deployment is updated, answering forbidden to the fresh secret (probe 16: ~2 s). The first
+// ask after a deploy retries a forbidden this often, up to this long, before it is taken for a
+// real refusal.
+const TAKEOVER_POLL_MS = 3_000, TAKEOVER_WAIT_MS = 60_000;
 
 // The box of the consent page, as the user looks for it.
 const scopeName = (scope: GoogleScope): string => ({
@@ -169,4 +174,33 @@ export function workerDid(reply: WorkerReply | null, command: string | null): Wo
     busy: t(`The worker is busy with another run. ${again}.`, `Воркер занят другим запуском. ${again}.`),
     unauthorized: t(`The worker script has no access yet. ${again}.`, `У скрипта воркера ещё нет доступа. ${again}.`),
   } as Record<string, string>)[error] ?? t(`The worker refused (${error}). ${again}.`, `Воркер отказал (${error}). ${again}.`));
+}
+
+// The first ask of the worker right after deployWorker: the live web app keeps serving the
+// previous version for a few seconds, so a forbidden is asked again with a pause until the new
+// version takes over. null — the script not allowed yet — is returned as it is, for the caller's
+// wait for consent; a forbidden that outlasts the window is a failure of its own. command names
+// what to repeat, as in workerDid.
+export async function askAfterDeploy({ fetch, url, secret, now, sleep, io, command }:
+  { fetch: Fetch; url: string; secret: string; now: () => number; sleep: Sleep; io: Io; command: string | null }):
+  Promise<WorkerReply | null> {
+  let waiting = false;
+  const until = now() + TAKEOVER_WAIT_MS;
+  try {
+    for (;;) {
+      const reply = await askWorker({ fetch, url, secret }, 'status');
+      if (reply?.error !== 'forbidden') return reply;
+      if (!waiting) {
+        waiting = true;
+        io.wait(t('Waiting for Google to serve the new version of the worker…', 'Ждём, когда Google начнёт отдавать новую версию воркера…'));
+      }
+      if (now() >= until) {
+        const again = command === null ? t('Try again', 'Повторите') : t(`Run \`aures ${command}\` again`, `Повторите \`aures ${command}\``);
+        throw new CommandFailed(t(`The worker's web app still answers with its previous version: the new one has not taken over in a minute. ` +
+          `${again} in a few minutes.`,
+        `Web app воркера всё ещё отвечает прежней версией: новая не вступила в силу за минуту. ${again} через несколько минут.`));
+      }
+      await sleep(TAKEOVER_POLL_MS);
+    }
+  } finally { if (waiting) io.wait(null); }
 }

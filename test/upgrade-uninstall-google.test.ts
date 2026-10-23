@@ -66,6 +66,25 @@ test('upgrade on Google with a sign-in Google ended opens the sign-in and goes o
   assert.match(io.lines.at(-1) ?? '', /^Воркер обновлён до версии/);
 });
 
+// The web app keeps answering with the previous version of the deployment for a few seconds;
+// the upgrade waits it out instead of trusting the first answer (issue 20).
+test('upgrade on Google waits out a web app still serving the previous version', async () => {
+  const { world, project, gas, secretKeychain, run } = await onGoogle();
+  world.google.servePrevious = 2;
+  const [deploymentId] = [...project.deployments.keys()];
+  const versions = project.versions.length;
+  const next = `${await bundle()}\n// next version\n`;
+
+  const { code, io } = await run(upgrade, { appsScriptSource: next });
+  assert.equal(code, 0, io.output());
+  assert.ok(io.waits.includes('Ждём, когда Google начнёт отдавать новую версию воркера…'), io.output());
+  assert.deepEqual([...project.deployments], [[deploymentId, versions + 1]]);
+  assert.equal(await secretKeychain.read(), world.google.deployedSecret());
+  assert.deepEqual(gas.triggers, [{ handler: 'tick', minutes: 5 }]);
+  assert.match(io.lines.at(-1) ?? '', /^Воркер обновлён до версии/);
+  assert.deepEqual(world.google.violations, []);
+});
+
 test('upgrade on Google sends a deleted project or deployment to setup', async () => {
   const { world, project, run } = await onGoogle();
   project.deployments.clear();

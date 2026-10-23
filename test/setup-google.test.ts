@@ -156,6 +156,40 @@ test('a worker that does not know the secret in the Keychain is deployed again u
   noViolations(cli);
 });
 
+// A redeployed web app keeps answering with the previous version, which does not know the new
+// secret, until Google serves the new one; the setup waits that out (issue 20).
+test('a web app still serving the previous version after a redeploy is waited out', async () => {
+  const cli = await googleWorld();
+  const { world, secretKeychain } = cli;
+  await cli.run();
+  await secretKeychain.write('another-secret');
+  world.google.servePrevious = 2;
+
+  const { code, io } = await cli.run({ answers: [] });
+  assert.equal(code, 0, io.output());
+  assert.ok(io.waits.includes('Ждём, когда Google начнёт отдавать новую версию воркера…'), io.output());
+  assert.equal(world.google.deployedSecret(), await secretKeychain.read());
+  assert.equal(deployed(cli).versions.length, 2);
+  assert.match(io.lines.at(-1) ?? '', /^Воркер работает\./);
+  noViolations(cli);
+});
+
+test('a web app that keeps answering with the previous version past the minute is a clear failure', async () => {
+  const cli = await googleWorld();
+  const { world, secretKeychain } = cli;
+  await cli.run();
+  await secretKeychain.write('another-secret');
+  world.google.servePrevious = 1000;
+
+  const { code, io } = await cli.run({ answers: [] });
+  assert.equal(code, 1);
+  assert.equal(io.lines.at(-1), 'Web app воркера всё ещё отвечает прежней версией: новая не вступила в силу за минуту. ' +
+    'Повторите `aures setup` через несколько минут.');
+  assert.ok(io.waits.includes('Ждём, когда Google начнёт отдавать новую версию воркера…'), io.output());
+  assert.equal(io.waits.at(-1), null, 'the wait line is taken away');
+  noViolations(cli);
+});
+
 test('the platform asked again until the answer is 1 or 2, and GitHub keeps its own path', async () => {
   const cli = await googleWorld();
   const { code, io } = await cli.run({ answers: ['3', '', '1', ''] });

@@ -5,7 +5,7 @@ import { workflowYaml, workflowMinute } from '../worker/workflow.ts';
 import { GoogleFailure } from '../google/api.ts';
 import { CommandFailed, unfinished, connectGitHub, installedWorker, command } from './common.ts';
 import type { CommandOptions, Sleep } from './common.ts';
-import { connectGoogle, deployWorker, askWorker, readSecret } from './google.ts';
+import { connectGoogle, deployWorker, askAfterDeploy, readSecret } from './google.ts';
 import type { GoogleWorker } from './watch-files.ts';
 import type { Migration, Rules } from '../worker/state-file.ts';
 import { t } from './language.ts';
@@ -106,9 +106,11 @@ export async function redeployGoogle({ fetch, googleKeychain, secretKeychain, io
     throw new CommandFailed(t('The worker project or its deployment is gone from Google. Run `aures setup`: it deploys the worker anew.',
       'Проекта или развёртывания воркера в Google больше нет. Запустите `aures setup`: он развернёт воркер заново.'));
   }
-  // The new version answers to the new secret, unless Google wants the script allowed anew.
+  // The web app of the just-updated deployment can still serve the previous version, answering
+  // forbidden to the fresh secret; askAfterDeploy waits that out. The new version answers to the
+  // new secret, unless Google wants the script allowed anew.
   const secret = await readSecret(secretKeychain);
-  if (!secret || !await askWorker({ fetch, url, secret }, 'status')) {
+  if (!secret || !await askAfterDeploy({ fetch, url, secret, now, sleep, io, command: 'upgrade' })) {
     throw new CommandFailed(t('The worker is updated, but the script has to be allowed to run again: run `aures setup`.',
       'Воркер обновлён, но скрипту нужно снова разрешить работать: запустите `aures setup`.'));
   }

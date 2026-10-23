@@ -8,7 +8,7 @@ import { deviceLogin, sessionEmail } from '../chatgpt/session.ts';
 import type { Summary } from '../worker/summary.ts';
 import type { WouldApply } from '../worker/tick.ts';
 import { GoogleFailure } from '../google/api.ts';
-import { connectGoogle, deployWorker, askWorker, workerDid, brokenOnGoogle, readSecret } from './google.ts';
+import { connectGoogle, deployWorker, askWorker, askAfterDeploy, workerDid, brokenOnGoogle, readSecret } from './google.ts';
 import type { WorkerReply, WorkerDeployment } from './google.ts';
 import { CommandFailed, chatgptLogin, showCode, chooseRules, failedRunAdvice, workingLine, trialVerdict, notReadYet } from './common.ts';
 import type { Io, Sleep } from './common.ts';
@@ -88,8 +88,11 @@ export async function setupGoogle({ fetch, io, mac: { files }, open, googleKeych
     }
     await remember(google = result);
     secret = await readSecret(secretKeychain);
+    if (!secret) throw new Error('the worker is not deployed');
     io.print(t(`The worker is deployed: ${result.url}`, `Воркер развёрнут: ${result.url}`));
-    status = await ask('status');
+    // The live web app can still serve the previous version for a few seconds, answering
+    // forbidden to the fresh secret; askAfterDeploy waits that out.
+    status = await askAfterDeploy({ fetch, url: result.url, secret, now, sleep, io, command: COMMAND });
   } else io.print(t(`The worker is deployed: ${google?.url}`, `Воркер развёрнут: ${google?.url}`));
 
   if (status === null) status = await consent({ io, open, sleep, url: google?.url ?? '', ask });

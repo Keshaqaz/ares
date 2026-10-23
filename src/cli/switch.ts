@@ -34,7 +34,7 @@ import { CommandFailed, WORKER_REPOSITORY, WORKER_DESCRIPTION, WORKFLOW_FILE, ch
 import type { Io, Sleep } from './common.ts';
 import { rulesOf } from './active-worker.ts';
 import type { Worker, GitHubWorker, GoogleWorker, Ask } from './active-worker.ts';
-import { connectGoogle, deployWorker, askWorker, workerDid, readSecret, brokenOnGoogle } from './google.ts';
+import { connectGoogle, deployWorker, askWorker, askAfterDeploy, workerDid, readSecret, brokenOnGoogle } from './google.ts';
 import type { WorkerDeployment, WorkerReply } from './google.ts';
 import { trialRun } from './setup.ts';
 import { trialLine } from './setup-google.ts';
@@ -324,7 +324,10 @@ const prepareGoogle: Prepare = async ({ fetch, googleKeychain, secretKeychain, i
   const secret = await readSecret(secretKeychain);
   if (!secret) throw new CommandFailed(t('There is no worker secret in the Keychain. Try again.', 'В Связке ключей нет секрета воркера. Повторите.'));
   const ask = async (action: string, extra?: Record<string, unknown>) => workerDid(await askWorker({ fetch, url: deployed.url, secret }, action, extra), null);
-  let status: WorkerReply | null = await askWorker({ fetch, url: deployed.url, secret }, 'status');
+  // The web app of the just-updated deployment can still serve the previous version, answering
+  // forbidden to the fresh secret; askAfterDeploy waits that out. null — the script not allowed
+  // yet — goes on to the consent below.
+  let status: WorkerReply | null = await askAfterDeploy({ fetch, url: deployed.url, secret, now, sleep, io, command: null });
   if (status === null) {
     io.print(t(`Let the worker script run: ${deployed.url}`, `Разрешите скрипту воркера работать: ${deployed.url}`));
     io.print(t('Pick your account, pass «Google hasn\'t verified this app» through «Advanced» and click «Allow». aures goes on by itself.',

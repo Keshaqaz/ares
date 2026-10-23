@@ -133,6 +133,32 @@ test('GitHub → Google → GitHub: the rules move, the old worker is quenched, 
   assert.deepEqual(world.google.violations, []);
 });
 
+// The web app of the reused deployment keeps answering with the previous version for a few
+// seconds after the deploy (issue 20); the switch waits that out instead of failing.
+test('a switch back to Google waits out a web app still serving the previous version', async () => {
+  const env = await switchWorld('github');
+  const { world, mac, press } = env;
+  await press(...TO_SWITCH, 'return');
+  assert.deepEqual(env.active(), ['google']);
+  const project = world.google.project();
+  assert.ok(project);
+  const versions = project.versions.length;
+  world.google.servePrevious = 2;
+
+  // To GitHub and back: the way back updates the deployment, and its web app serves the
+  // previous version, which does not know the new secret, for the first requests.
+  await press('down', 'down', 'down', 'return');
+  assert.deepEqual(env.active(), ['github']);
+  await press('down', 'down', 'down', 'return');
+  assert.deepEqual(env.active(), ['google']);
+  assert.deepEqual(env.breaches, []);
+  assert.equal(project.versions.length, versions + 1);
+  assert.equal((await mac.files.readInstall())?.platform, 'google');
+  assert.equal(switchSteps(env).at(-1), 'Переключение: Воркер переключён на Google Apps Script. Старый на GitHub Actions погашен, его ' +
+    'репозиторий сохранён для обратного переключения.');
+  assert.deepEqual(world.google.violations, []);
+});
+
 test('a pending application refuses the switch with the reason, and nothing changes', async () => {
   const env = await switchWorld('github');
   const { world, mac, press, text } = env;

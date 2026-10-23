@@ -29,6 +29,9 @@ export interface FakeProject {
   versions: ScriptFile[][];
   // deploymentId → the version it serves.
   deployments: Map<string, number>;
+  // The version the web app still serves for the first requests after its deployment is
+  // updated: Apps Script keeps the previous version live for a few seconds (probe 16, issue 20).
+  serving: { version: number; left: number } | null;
   // The owner granted the script its scopes at the web app URL.
   authorized: boolean;
   // The script's runtime, with its properties and triggers; it runs the version last loaded.
@@ -59,6 +62,9 @@ export interface FakeGoogle {
   refreshTokens: Map<string, string[]>;
   accessTokens: Map<string, { scopes: string[]; expiresAt: number }>;
   projects: Map<string, FakeProject>;
+  // For how many requests a web app whose deployment was just updated still serves the previous
+  // version, answering forbidden to the new secret; 0: the new version at once.
+  servePrevious: number;
   // The next Apps Script API call of this kind answers 500, as an outage mid-deploy.
   failNext: ApiCall | null;
   // The status the token revocation answers with instead of ending the grant; null: it ends it.
@@ -92,7 +98,7 @@ export function withGoogle(world: FakeWorld & { google?: FakeGoogle }): FakeGoog
 
   const google: FakeGoogle = {
     apiEnabled: false, enableAfterMs: 12_000, consents: [], allowsScript: true, email: 'owner@example.invalid', grantsEmail: true, opened: [], refreshTokens: new Map(), accessTokens: new Map(),
-    projects: new Map(), failNext: null, revokeFail: null, requests: [], violations: [],
+    projects: new Map(), servePrevious: 0, failNext: null, revokeFail: null, requests: [], violations: [],
     open: async href => {
       google.opened.push(href);
       const url = new URL(href);
@@ -209,8 +215,8 @@ export function withGoogle(world: FakeWorld & { google?: FakeGoogle }): FakeGoog
       if (!can('projects')) return insufficient();
       if (typeof body.title !== 'string') return apiError(400, 'INVALID_ARGUMENT', 'title');
       const scriptId = `fake-script-${++serial}`;
-      google.projects.set(scriptId, { scriptId, title: body.title, files: [], versions: [], deployments: new Map(), authorized: false,
-        gas: null, loaded: null });
+      google.projects.set(scriptId, { scriptId, title: body.title, files: [], versions: [], deployments: new Map(), serving: null,
+        authorized: false, gas: null, loaded: null });
       return json(200, { scriptId, title: body.title });
     }
     const match = path.match(/^\/v1\/projects\/([^/]+)(?:\/(content|versions|deployments)(?:\/([^/]+))?)?$/);
@@ -254,6 +260,12 @@ export function withGoogle(world: FakeWorld & { google?: FakeGoogle }): FakeGoog
         return json(200, deploymentView(project, deploymentId, config ?? {}));
       }
       if (method === 'PUT' && id !== undefined && project.deployments.has(id)) {
+        // The live web app keeps serving the previous version for a few seconds after the
+        // deployment is pointed at a new one (probe 16, issue 20).
+        const served = project.deployments.get(id);
+        if (google.servePrevious > 0 && served !== undefined && served !== version) {
+          project.serving = { version: served, left: google.servePrevious };
+        }
         project.deployments.set(id, version);
         return json(200, deploymentView(project, id, config ?? {}));
       }
@@ -265,11 +277,14 @@ export function withGoogle(world: FakeWorld & { google?: FakeGoogle }): FakeGoog
   // A script the owner has not allowed answers with Google's 403 HTML page instead (probe 16).
   async function webApp(deploymentId: string, body: string): Promise<Response> {
     const project = [...google.projects.values()].find(p => p.deployments.has(deploymentId));
-    const version = project?.deployments.get(deploymentId);
+    let version = project?.deployments.get(deploymentId);
     if (!project || version === undefined) return new Response('Sorry, unable to open the file at this time.', { status: 404 });
     if (!project.authorized) {
       return new Response('<html>Authorization is required to perform that action.</html>', { status: 403, headers: { 'content-type': 'text/html' } });
     }
+    // A deployment just pointed at a new version still serves the previous one for the first
+    // requests, as the live web app does for a few seconds.
+    if (project.serving && project.serving.left-- > 0) version = project.serving.version;
     const sources = (project.versions[version - 1] ?? []).filter(file => file.type === 'SERVER_JS').map(file => file.source);
     if (!project.gas) project.gas = await fakeAppsScript({ world, files: sources });
     else if (project.loaded !== version) project.gas.load(sources);
