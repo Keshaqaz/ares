@@ -6,7 +6,8 @@
 // (1) The old worker's status: a pending application refuses the switch, nothing changes.
 // (2) The new worker without a schedule: its repository or project is made or reused, this
 //     version of its code goes in, the general rules are moved, and the user signs it in to
-//     ChatGPT. Its schedule is off before it has a session.
+//     ChatGPT. Its schedule is off before it has a session; a new workflow on GitHub has no cron
+//     until step 4.
 // (3) The old worker is quenched: its session is revoked and its schedule taken off (GitHub: a
 //     revoke run, then the workflow disabled; Google: doPost revoke, then schedule off).
 // (4) The new worker's schedule goes on. (5) A trial run.
@@ -68,13 +69,14 @@ export interface FinishSwitchOptions {
   sleep: Sleep;
   timeZone: string | undefined;
   journal: SwitchJournal;
+  // Picks the minute of the cron of a new GitHub worker.
+  random?: () => number;
 }
 export interface SwitchOptions extends FinishSwitchOptions {
   // The active worker, the one switched from.
   worker: Worker;
   workerSource: string | null;
   appsScriptSource: string | null;
-  random?: () => number;
   signal?: AbortSignal;
   committed?: () => void;
 }
@@ -165,7 +167,7 @@ async function finish(options: FinishSwitchOptions, old: Worker | null, email: s
   // Step 4. A failure leaves no worker active, and the screen offers to repeat.
   const worker = await openNew(options, target, install);
   try {
-    if (worker.platform === 'github') await worker.api.setWorkflow(worker.repo.full_name, WORKFLOW_FILE, true);
+    if (worker.platform === 'github') await scheduleOnGitHub(worker, options.random ?? Math.random);
     else await worker.ask('schedule', { on: true });
   } catch (error) {
     const why = explain(error);
@@ -241,10 +243,10 @@ const rulesLine = ({ beforeExpiry, weeklyAutoApply }: Rules): string => t(
   `Общие правила перенесены: перед истечением — ${beforeExpiry ? 'включено' : 'выключено'}, когда кончится недельный лимит — ${weeklyAutoApply ? 'включено' : 'выключено'}.`);
 const signingIn = (): string => t('Signing the new worker in to ChatGPT: a session of its own…', 'Вход в ChatGPT для нового воркера: своя сессия…');
 
-// On GitHub: the repository, this version's worker and workflow with the workflow disabled, the
+// On GitHub: the repository, this version's worker and workflow, the workflow disabled, the
 // rules, then a new session sealed with a new key. The CLI cannot open a quenched state, and a
 // login run would need the schedule on, so the state starts over, as in setup.
-const prepareGitHub: Prepare = async ({ fetch, keychain, io, now, sleep, source, rules, random = Math.random, journal, checkpoint }) => {
+const prepareGitHub: Prepare = async ({ fetch, keychain, io, now, sleep, source, rules, journal, checkpoint }) => {
   journal(t('Signing in to GitHub…', 'Входим в GitHub…'));
   const github = await connectGitHub({ fetch, keychain, io, now, sleep });
   checkpoint();
@@ -259,13 +261,12 @@ const prepareGitHub: Prepare = async ({ fetch, keychain, io, now, sleep, source,
   const [worker, workflow, rulesFile] = await Promise.all([api.file(name, FILES.worker), api.file(name, FILES.workflow),
     api.file(name, FILES.rules)]);
   if (worker?.text !== source) await api.putFile(name, FILES.worker, source, { message: `Worker ${pkg.version}`, sha: worker?.sha });
-  const minute = (workflow && workflowMinute(workflow.text)) ?? 1 + Math.floor(random() * 59);
-  const yaml = workflowYaml({ minute });
+  // A new workflow comes enabled, so it comes without its cron: no schedule runs it before step 4
+  // writes the cron in. A workflow that was there keeps its state when its file is written, and
+  // its minute.
+  const yaml = workflowYaml({ minute: workflow && workflowMinute(workflow.text) });
   if (workflow?.text !== yaml) await api.putFile(name, FILES.workflow, yaml, { message: `Worker workflow ${pkg.version}`, sha: workflow?.sha });
-  // A new workflow comes enabled: it goes off before the repository gets a session. Until then a
-  // run it may start has no session to spend a reset with: a new repository has no state, a
-  // reused one the state of a quenched worker. A workflow that was there keeps its state when
-  // its file is written.
+  // It goes off before the repository gets a session: nothing dispatches a run meanwhile either.
   await api.setWorkflow(name, WORKFLOW_FILE, false);
   journal(t(`Version ${pkg.version} of the worker is in, its schedule is off.`, `Залита версия воркера ${pkg.version}, расписание выключено.`));
   checkpoint();
@@ -442,6 +443,15 @@ async function quench(worker: Worker, options: FinishSwitchOptions): Promise<voi
     if (!(error instanceof GoogleFailure && error.reason === 'web_app_404')) throw error;
   }
   journal(t('The old worker\'s schedule is off: it is quenched.', 'Расписание старого воркера снято: он погашен.'));
+}
+
+// Step 4 on GitHub: the cron goes into the workflow while it is still disabled, a minute picked
+// now for a workflow prepareGitHub wrote without one, then the workflow is enabled.
+async function scheduleOnGitHub({ api, repo }: GitHubWorker, random: () => number): Promise<void> {
+  const name = repo.full_name, workflow = await api.file(name, FILES.workflow);
+  const yaml = workflowYaml({ minute: (workflow && workflowMinute(workflow.text)) ?? 1 + Math.floor(random() * 59) });
+  if (workflow?.text !== yaml) await api.putFile(name, FILES.workflow, yaml, { message: `Worker workflow ${pkg.version}`, sha: workflow?.sha });
+  await api.setWorkflow(name, WORKFLOW_FILE, true);
 }
 
 // Why the session was not revoked, or null when it was. A dispatch needs the workflow on, so a

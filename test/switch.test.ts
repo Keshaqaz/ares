@@ -10,6 +10,8 @@ import { watch } from '../src/cli/watch.ts';
 import { setup } from '../src/cli/setup.ts';
 import { status } from '../src/cli/status.ts';
 import { applyNow } from '../src/cli/apply-now.ts';
+import { WORKFLOW_FILE } from '../src/cli/common.ts';
+import { workflowYaml, workflowMinute } from '../src/worker/workflow.ts';
 import { credit } from './support/fake-world.ts';
 import { switchWorld, TO_SWITCH } from './support/switch-world.ts';
 import type { SentRequest } from './support/switch-world.ts';
@@ -38,6 +40,7 @@ test('GitHub → Google → GitHub: the rules move, the old worker is quenched, 
   const repo = env.github().repo;
   assert.ok(repo);
   const firstSession = env.github().session;
+  const minute = workflowMinute(world.github.text(repo, FILES.workflow));
 
   await press(...TO_SWITCH);
   assert.match(text(), /\n▸ Переключиться на Google Apps Script\n/);
@@ -99,6 +102,7 @@ test('GitHub → Google → GitHub: the rules move, the old worker is quenched, 
   assert.equal(world.github.repo(), repo);
   assert.deepEqual(readRules(world.github.text(repo, FILES.rules)), { formatVersion: 1, beforeExpiry: true, weeklyAutoApply: true });
   assert.equal(repo.workflowState, 'active');
+  assert.equal(world.github.text(repo, FILES.workflow), workflowYaml({ minute }), 'the reused workflow keeps its minute');
   assert.ok(env.github().live, 'a new live session on GitHub');
   assert.notEqual(env.github().session?.refreshToken, firstSession?.refreshToken);
   assert.equal(repo.runs.length, runs + 1, 'the trial run only');
@@ -234,6 +238,34 @@ for (const [from, moments] of [['github', GITHUB_TO_GOOGLE], ['google', GOOGLE_T
     });
   }
 }
+
+test('a new workflow on GitHub has no schedule before step 4: it is written without the cron, which goes in once the old worker is quenched', async () => {
+  const env = await switchWorld('google');
+  const { world } = env;
+  // Before each request: what the requests before it left on both platforms.
+  const seen: { request: string; scheduled: boolean; old: boolean }[] = [];
+  env.onRequest = request => {
+    seen.push({ request: `${request.method} ${request.url.pathname}`, scheduled: env.github().scheduled, old: env.google().scheduled });
+  };
+  await env.press(...TO_SWITCH, 'return');
+  assert.deepEqual(env.active(), ['github']);
+  assert.deepEqual(env.breaches, []);
+
+  // The new worker's schedule first shows after the request that enables it, and the old one has none by then.
+  const first = seen.findIndex(moment => moment.scheduled);
+  assert.ok(first > 0, 'the new worker gets a schedule');
+  assert.equal(seen[first - 1]?.request, `PUT /repos/octo-fake/codex-auto-resets-worker/actions/workflows/${WORKFLOW_FILE}/enable`);
+  assert.equal(seen[first - 1]?.old, false, 'the old worker is quenched before');
+  // The workflow as the switch wrote it: no cron while it is prepared, the cron right before it is enabled.
+  const written = world.github.requests.filter(request => request.method === 'PUT' && request.path.endsWith(`/contents/${FILES.workflow}`))
+    .map(request => Buffer.from((JSON.parse(request.body) as { content: string }).content, 'base64').toString('utf8'));
+  const repo = env.github().repo;
+  assert.ok(repo);
+  const minute = workflowMinute(world.github.text(repo, FILES.workflow));
+  assert.ok(minute !== null);
+  assert.deepEqual(written, [workflowYaml({ minute: null }), workflowYaml({ minute })]);
+  assert.ok(!written[0]?.includes('schedule:'));
+});
 
 test('Esc after the quench began does not stop the switch', async () => {
   const env = await switchWorld('github');

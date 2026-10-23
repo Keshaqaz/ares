@@ -28,7 +28,8 @@ export async function switchWorld(platform: Platform, { answers = [''] }: { answ
   const live = (refreshToken: string | undefined) => Boolean(refreshToken) && !world.auth.revoked.includes(refreshToken ?? '');
   const github = () => {
     const repo = world.github.repo();
-    const scheduled = Boolean(repo?.files.has(FILES.workflow) && repo.workflowState === 'active');
+    // The cron runs an enabled workflow that has one; a workflow without it is only dispatched.
+    const scheduled = Boolean(repo?.workflowState === 'active' && /^ {2}schedule:$/m.test(repo.files.get(FILES.workflow)?.text ?? ''));
     const state = repo?.files.get(FILES.state)?.text, key = repo && world.github.secret(repo, STATE_KEY_SECRET);
     let session = null;
     // Between the new key and the new state (prepareGitHub) the worker could not open its state either.
@@ -51,13 +52,12 @@ export async function switchWorld(platform: Platform, { answers = [''] }: { answ
 
   // Every breach of the invariant, with the moment it was seen at.
   const breaches: string[] = [];
-  const check = async (moment: string, strict: boolean) => {
+  const check = async (moment: string) => {
     if (active().length > 1) breaches.push(`${moment}: two active workers`);
-    // A new GitHub workflow comes enabled for the moment before it is disabled; the repository has no session then.
-    if (strict && scheduled().length > 1) breaches.push(`${moment}: two schedules`);
-    const install = await mac.files.readInstall(), others = (strict ? scheduled() : active()).filter(p => p !== install?.platform);
+    if (scheduled().length > 1) breaches.push(`${moment}: two schedules`);
+    const install = await mac.files.readInstall(), others = scheduled().filter(p => p !== install?.platform);
     if (install && !install.switching && !install.paused && others.length) {
-      breaches.push(`${moment}: the record names ${install.platform} active, ${others.join(', ')} ${strict ? 'scheduled' : 'active'}`);
+      breaches.push(`${moment}: the record names ${install.platform} active, ${others.join(', ')} scheduled`);
     }
   };
 
@@ -69,7 +69,7 @@ export async function switchWorld(platform: Platform, { answers = [''] }: { answ
     const request = { url, method: init.method ?? 'GET', body: typeof init.body === 'string' ? init.body : '' };
     const broken = await onRequest?.(request);
     const response = broken ?? await world.fetch(input, init);
-    await check(`${request.method} ${url.host}${url.pathname}`, false);
+    await check(`${request.method} ${url.host}${url.pathname}`);
     return response;
   };
   // The user approves every device code the screen shows as soon as the CLI waits.
@@ -84,7 +84,7 @@ export async function switchWorld(platform: Platform, { answers = [''] }: { answ
     await env.run(async options => { screen = await openScreen({ ...options, fetch, sleep }); return 0; });
     assert.ok(screen);
     const shown = screen;
-    shown.changed = () => { void check(`frame: ${shown.busy ?? ''}`, true); };
+    shown.changed = () => { void check(`frame: ${shown.busy ?? ''}`); };
     return shown;
   };
   const opened = await reopen();

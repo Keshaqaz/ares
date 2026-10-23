@@ -1,19 +1,21 @@
 import { FILES, STATE_KEY_SECRET, LOGIN_SECRET, REVOKE_INPUT, TRIAL_INPUT } from './layout.ts';
 
 // The worker repository's only workflow. The cron is static (ADR-0004): setup picks the
-// minute so that installations do not all start together, and upgrade keeps it.
+// minute so that installations do not all start together, and upgrade keeps it. A minute of
+// null leaves the cron out: a new worker the switch of platform prepares (switch.ts) is not run
+// by a schedule, enabled or not, until the switch's step 4 writes the cron in.
 
-export function workflowYaml({ minute }: { minute: number }): string {
+export function workflowYaml({ minute }: { minute: number | null }): string {
   // Minute 0 is GitHub's busiest moment for schedules.
-  if (!Number.isInteger(minute) || minute < 1 || minute > 59) throw new RangeError('minute must be 1..59');
+  if (minute !== null && (!Number.isInteger(minute) || minute < 1 || minute > 59)) throw new RangeError('minute must be 1..59');
   return `name: codex-auto-resets
 run-name: >-
   \${{ inputs.apply_now && format('Apply now: {0}', inputs.apply_now) || inputs.${TRIAL_INPUT} && 'Trial run'
       || inputs.${REVOKE_INPUT} && 'Revoke session' || (github.event_name == 'workflow_dispatch' && 'Check from this Mac')
       || 'Scheduled check' }}
-on:
+on:${minute === null ? '' : `
   schedule:
-    - cron: '${minute} * * * *'
+    - cron: '${minute} * * * *'`}
   workflow_dispatch:
     inputs:
       apply_now:
