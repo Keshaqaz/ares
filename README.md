@@ -7,7 +7,7 @@
 Applies your issued ChatGPT rate-limit resets so they don't go to waste.<br>
 Runs in your own account — GitHub Actions or Google Apps Script. Your Mac can be off.
 
-[![version](https://img.shields.io/badge/version-0.4.4-8A2BE2)](https://github.com/Keshaqaz/aures/releases/latest)
+[![version](https://img.shields.io/badge/version-0.5.0-8A2BE2)](https://github.com/Keshaqaz/aures/releases/latest)
 [![platform](https://img.shields.io/badge/CLI-macOS-000?logo=apple)](docs/installation.en.md)
 [![node](https://img.shields.io/badge/node-%E2%89%A526-339933?logo=nodedotjs&logoColor=white)](docs/installation.en.md)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
