@@ -23,6 +23,12 @@ test('the formula installs the release archive behind a node wrapper and tests -
   const text = formula({ version: '1.2.3', sha256 });
   assert.equal(releaseUrl('1.2.3'), 'https://github.com/Keshaqaz/aures/releases/download/v1.2.3/aures-1.2.3.tgz');
   assert.match(text, /^class Aures < Formula$/m);
+  // `brew audit --strict`: the description names neither platform alone, stays within
+  // 80 characters and starts with neither the formula's name nor an article.
+  const desc = text.match(/^  desc "(.+)"$/m)?.[1] ?? '';
+  assert.equal(desc, 'Applies ChatGPT Codex resets from your own GitHub or Google Apps Script worker');
+  assert.ok(desc.length <= 80, `desc is ${desc.length} characters, over the 80 of brew audit --strict`);
+  assert.doesNotMatch(desc, /^(aures|a|an|the)\b/i);
   assert.match(text, new RegExp(`^  url "${releaseUrl('1.2.3')}"$`, 'm'));
   assert.match(text, new RegExp(`^  sha256 "${sha256}"$`, 'm'));
   assert.match(text, /^  license "MIT"$/m);

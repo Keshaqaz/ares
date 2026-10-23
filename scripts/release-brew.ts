@@ -21,7 +21,7 @@ export function formula({ version, sha256 }: { version: string; sha256: string }
   if (!/^[0-9]+\.[0-9]+\.[0-9]+$/.test(version)) throw new RangeError(`invalid version: ${version}`);
   if (!/^[0-9a-f]{64}$/.test(sha256)) throw new RangeError(`invalid sha256: ${sha256}`);
   return `class Aures < Formula
-  desc "Applies issued ChatGPT Codex resets from your own GitHub Actions worker"
+  desc "Applies ChatGPT Codex resets from your own GitHub or Google Apps Script worker"
   homepage "${REPOSITORY}"
   url "${releaseUrl(version)}"
   sha256 "${sha256}"
