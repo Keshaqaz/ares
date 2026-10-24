@@ -169,10 +169,10 @@ export async function uninstall(options: CommandOptions): Promise<number> {
     });
     let github: { api: GitHubApi; repo: Repository } | null = null;
     if (onGitHub) {
-      // A worker moved to Google keeps its GitHub sign-in in the Keychain; without this line the
-      // sign-in below asks for GitHub out of nowhere.
-      if (install?.platform === 'google') io.print(t('The Keychain still keeps the GitHub sign-in of the earlier worker; its repository is deleted too.',
-        'В Связке ключей остался вход в GitHub от прежнего воркера; его репозиторий тоже будет удалён.'));
+      // A worker moved to Google may have left its GitHub sign-in in the Keychain (a locked one
+      // hides whether it did); without this line the sign-in below asks for GitHub out of nowhere.
+      if (install?.platform === 'google') io.print(t('This Mac may still keep the GitHub sign-in of an earlier worker: aures checks whether its repository is there and offers to delete it with the rest.',
+        'На этом Mac мог остаться вход в GitHub от прежнего воркера: aures проверит, есть ли его репозиторий, и предложит удалить его вместе с остальным.'));
       // The token in the Keychain cannot delete repositories; this one is used once and not kept.
       io.print(t('To delete the repository GitHub asks for a separate permission: sign in once more.',
         'Для удаления репозитория GitHub просит отдельное разрешение: войдите ещё раз.'));

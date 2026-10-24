@@ -137,7 +137,7 @@ test('uninstall with a worker on each platform, the one on GitHub retired, remov
   const { code, io } = await run(uninstall, { answers: ['y'] });
   assert.equal(code, 0, io.output());
   // The move to Google is why GitHub is asked for anything at all; the line comes before the ask.
-  const kept = io.lines.indexOf('В Связке ключей остался вход в GitHub от прежнего воркера; его репозиторий тоже будет удалён.');
+  const kept = io.lines.indexOf('На этом Mac мог остаться вход в GitHub от прежнего воркера: aures проверит, есть ли его репозиторий, и предложит удалить его вместе с остальным.');
   const asked = io.lines.indexOf('Для удаления репозитория GitHub просит отдельное разрешение: войдите ещё раз.');
   assert.ok(kept !== -1 && kept < asked, io.output());
   assert.match(io.output(), /Будут удалены репозиторий https:\/\/github\.com\/\S+ со всей историей, воркер на Google/);

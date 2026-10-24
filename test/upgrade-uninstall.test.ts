@@ -109,7 +109,7 @@ test('uninstall revokes the worker session, deletes the repository and the Keych
   assert.equal(code, 0, io.output());
   assert.match(io.output(), /удаления репозитория[\s\S]*https:\/\/github\.com\/login\/device/);
   // No word about an earlier worker: this install never left GitHub.
-  assert.ok(!io.output().includes('В Связке ключей остался вход в GitHub от прежнего воркера'), io.output());
+  assert.ok(!io.output().includes('На этом Mac мог остаться вход в GitHub от прежнего воркера'), io.output());
   assert.deepEqual(repo.runs[0]?.inputs, { apply_now: '', [REVOKE_INPUT]: 'true' });
   assert.deepEqual(world.auth.revoked, [session.refreshToken]);
   assert.equal(world.github.repo(), undefined);
