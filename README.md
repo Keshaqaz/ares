@@ -120,7 +120,7 @@ flowchart LR
 | Rule | Default | When a reset is applied |
 | --- | --- | --- |
 | Before expiry | on | less than 8 hours are left before it expires on GitHub, or less than one hour on Google |
-| When the weekly limit runs out | off | the weekly limit is used up; the reset that expires first goes |
+| When the weekly limit runs out | on on Google, off on GitHub | the weekly limit is used up; the reset that expires first goes |
 
 Both rules cover all resets and work independently; change them with `aures rules`.
 

@@ -14,7 +14,8 @@ const DEVICE = 'https://auth.openai.com/codex/device';
 
 async function googleWorld() {
   const cli = await cliWorld();
-  return { ...cli, run: ({ answers = ['2', ''], ...rest }: RunOptions = {}) => cli.run(setup, { answers, ...rest }) };
+  // On Google the rules are set without a question (issue 24), so the platform is the only answer.
+  return { ...cli, run: ({ answers = ['2'], ...rest }: RunOptions = {}) => cli.run(setup, { answers, ...rest }) };
 }
 const deployed = ({ world }: Pick<CliWorld, 'world'>): FakeProject => {
   const project = world.google.project();
@@ -51,7 +52,12 @@ test('setup on Google goes from nothing to a scheduled worker and ends with a tr
   assert.match(io.output(), /«Перейти на страницу "aures-worker" \(небезопасно\)»/);
   assert.match(io.output(), /отметьте обе галочки \(или «Выбрать все»\) и нажмите «Продолжить»/);
   assert.doesNotMatch(io.output(), /«Разрешить»|«Allow»/);
-  assert.match(io.output(), /Перед истечением \(в последний час\) — включено/);
+  // The rules go in without a question (issue 24): the platform is the only prompt, the worker
+  // gets both rules on, and the one line names them and where to change them.
+  assert.deepEqual(io.asked, ['Введите 1 или 2: ']);
+  assert.doesNotMatch(io.output(), /Когда применять сбросы/);
+  assert.match(io.output(),
+    /Правила: перед истечением \(в последний час\) — вкл\., когда кончится недельный лимит — вкл\. Изменить: `aures rules` или экран `aures`\./);
 
   const project = deployed(cli);
   assert.equal(world.google.projects.size, 1);
@@ -60,7 +66,7 @@ test('setup on Google goes from nothing to a scheduled worker and ends with a tr
   assert.deepEqual(world.google.opened.filter(href => !href.startsWith(GOOGLE_LOGIN)), [USER_SETTINGS, url, DEVICE]);
   assert.equal(project.authorized, true);
   assert.deepEqual(project.gas?.triggers, [{ handler: 'tick', minutes: 5 }]);
-  assert.deepEqual(property(project, 'rules'), { formatVersion: 1, beforeExpiry: true, weeklyAutoApply: false });
+  assert.deepEqual(property(project, 'rules'), { formatVersion: 1, beforeExpiry: true, weeklyAutoApply: true });
   const state = property(project, 'state') as { session: { accountId: string; refreshToken: string } };
   assert.equal(state.session.accountId, world.accountId);
   assert.equal(state.session.refreshToken, world.auth.current?.refresh);
@@ -72,14 +78,14 @@ test('setup on Google goes from nothing to a scheduled worker and ends with a tr
     accounts: { google: 'owner@example.invalid', chatgpt: 'fake@example.invalid' } });
   assert.equal(world.google.deployedSecret(), await cli.secretKeychain.read());
   assert.equal(world.github.requests.length, 0, 'GitHub is not touched');
-  assert.equal(mac.launchctl.calls.length, 0, 'the check from this Mac is left for later');
+  assert.equal(mac.launchctl.calls.length, 0, 'the weekly rule needs no check from this Mac on Google');
   noViolations(cli);
 });
 
 test('a repeated setup on Google finds the project and keeps its state, rules and schedule, without new sign-ins', async () => {
   const cli = await googleWorld();
   const { world } = cli;
-  await cli.run({ answers: ['2', '2', ''] });
+  await cli.run({ answers: ['2'] });
   const project = deployed(cli);
   const before = new Map(project.gas?.properties);
   const versions = project.versions.length;
@@ -89,6 +95,7 @@ test('a repeated setup on Google finds the project and keeps its state, rules an
   const { code, io } = await cli.run({ answers: [] });
   assert.equal(code, 0, io.output());
   assert.deepEqual(io.asked, [], 'neither the platform nor the rules are asked again');
+  assert.doesNotMatch(io.output(), /Изменить: `aures rules`/, 'the rules line is not printed again');
   assert.equal(world.google.projects.size, 1);
   assert.equal(project.versions.length, versions, 'nothing is deployed again');
   assert.equal(world.google.requests.slice(requests).filter(r => !r.url.includes('/macros/')).length, 0, 'no Google sign-in or API call');
@@ -116,7 +123,7 @@ test('setup stopped while the script waits to be allowed goes on with the consen
   const token = await googleKeychain.read();
 
   world.google.allowsScript = true;
-  const { code, io } = await cli.run({ answers: [''] });
+  const { code, io } = await cli.run({ answers: [] });
   assert.equal(code, 0, io.output());
   assert.equal(world.google.projects.size, 1);
   assert.equal(project.versions.length, 1, 'the deployed version is kept');
@@ -144,7 +151,7 @@ test('setup interrupted right after the project is created deploys into that pro
   assert.deepEqual(await mac.files.readInstall(), { platform: 'google', google: { scriptId: project.scriptId },
     accounts: { google: 'owner@example.invalid' } });
 
-  const { code, io } = await cli.run({ answers: [''] });
+  const { code, io } = await cli.run({ answers: [] });
   assert.equal(code, 0, io.output());
   assert.equal(world.google.projects.size, 1);
   assert.equal(project.deployments.size, 1);

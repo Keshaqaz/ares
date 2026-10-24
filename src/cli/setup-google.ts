@@ -10,7 +10,7 @@ import type { WouldApply } from '../worker/tick.ts';
 import { GoogleFailure } from '../google/api.ts';
 import { connectGoogle, deployWorker, askWorker, askAfterDeploy, workerDid, brokenOnGoogle, readSecret } from './google.ts';
 import type { WorkerReply, WorkerDeployment } from './google.ts';
-import { CommandFailed, chatgptLogin, showCode, chooseRules, failedRunAdvice, workingLine, trialVerdict, notReadYet } from './common.ts';
+import { CommandFailed, chatgptLogin, showCode, ruleLabel, failedRunAdvice, workingLine, trialVerdict, notReadYet } from './common.ts';
 import type { Io, Sleep } from './common.ts';
 import { KeychainUnavailable } from './keychain.ts';
 import type { Keychain } from './keychain.ts';
@@ -31,6 +31,17 @@ const warnings = (): string[] => [
   'Google покажет два предупреждения о непроверенном приложении: при входе aures в Google и когда вы разрешите скрипту воркера работать. ' +
     'И приложение, и скрипт ваши, Google их просто не проверял.'),
 ];
+
+// The rule names as the screen prints them, only starting a sentence: «перед истечением…».
+const lowerFirst = (text: string): string => text.charAt(0).toLowerCase() + text.slice(1);
+// The one line setup on Google prints about the rules it has just written without a question
+// (issue 24): both on — the weekly rule needs no Mac check here, the worker watches the limit
+// itself — told in the same names as chooseRules and the `aures` screen, with where to change.
+const rulesLine = (): string => {
+  const [beforeExpiry, weekly] = [ruleLabel('beforeExpiry', 'google'), ruleLabel('weeklyAutoApply')].map(lowerFirst);
+  return t(`Rules: ${beforeExpiry} — on, ${weekly} — on. To change: \`aures rules\` or the \`aures\` screen.`,
+    `Правила: ${beforeExpiry} — вкл., ${weekly} — вкл. Изменить: \`aures rules\` или экран \`aures\`.`);
+};
 
 // What the trial run tells, by the reply of doPost trial.
 export interface Trial { outcome: RunOutcome; reason?: string; wouldApply: WouldApply | null; summary: Summary | null }
@@ -99,8 +110,8 @@ export async function setupGoogle({ fetch, io, mac: { files }, open, copy, googl
   status = workerDid(status, COMMAND);
 
   if (!status.rules) {
-    const chosen = await chooseRules(io, undefined, 'google');
-    workerDid(await ask('rules', { rules: { beforeExpiry: chosen.beforeExpiry, weeklyAutoApply: chosen.weeklyAutoApply } }), COMMAND);
+    workerDid(await ask('rules', { rules: { beforeExpiry: true, weeklyAutoApply: true } }), COMMAND);
+    io.print(rulesLine());
   }
   // Without a session the worker has no summary.
   if (status.summary) io.print(t('The ChatGPT sign-in is already there.', 'Вход в ChatGPT уже есть.'));

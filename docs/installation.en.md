@@ -84,7 +84,11 @@ The whole install on Google looks like this in the terminal:
 2. **The Apps Script API switch.** While the API is off, Google refuses to deploy the worker. The CLI prints "Turn on the Apps Script API: https://script.google.com/home/usersettings", opens that page and explains: "On that page close the welcome dialog if it shows, open the line «Google Apps Script API» and click the switch. aures goes on by itself." You need the switch once; the CLI checks it every 5 seconds and continues by itself.
 3. **The project and the web app.** The project `aures-worker` appears in your account; the CLI deploys its web app and prints "The worker is deployed: …". The web app's URL is kept on this Mac. For a few seconds after a deploy Google still serves the previous version of the web app; the CLI waits that out by itself ("Waiting for Google to serve the new version of the worker…"), up to a minute.
 4. **The script's consent.** The CLI prints "Let the worker script run: …" and opens the web app's URL. The page that opens is «aures-worker (Unverified)»: click «Review permissions», and the consent opens in a popup window. In it pick the same account, click «Advanced» and then «Go to aures-worker (unsafe)», then tick both boxes — "Connect to an external service" and "Perform actions when you're not using the application" — or press «Select all» and «Continue». This is the second «unverified app» warning. The page shows "done, go back to the terminal", and the CLI goes on by itself.
-5. **Rules.** The same two rules as on GitHub, only the before-expiry window is the last hour: "1. Before expiry (in the last hour) — on".
+5. **Rules.** No question: both go on at once — "before expiry" (the window on Google is the last hour) and "when the weekly limit runs out" — the worker watches the limit itself every 5 minutes, nothing is needed on this Mac. The CLI prints one line with them and where to change them:
+
+   ```
+   Rules: before expiry (in the last hour) — on, when the weekly limit runs out — on. To change: `aures rules` or the `aures` screen.
+   ```
 6. **ChatGPT sign-in.** As on GitHub: the CLI opens the page itself and copies the code to the clipboard — paste it and sign in to the account with the resets. This sign-in belongs to the worker alone; Codex on your computer keeps working as before.
 7. **The schedule.** "The worker runs every 5 minutes."
 8. **The check.** "Checking the worker…" — a trial run, as on GitHub: the worker reads the quotas and resets and tells what the rules would do, but applies no reset.
@@ -96,7 +100,7 @@ An interrupted `setup` can simply be run again: it goes on in the same project a
 | Rule | Default | What it does |
 | --- | --- | --- |
 | Before expiry (on GitHub — the last 8 hours, on Google — the last hour) | on | Applies a reset when less than 8 hours are left before it expires on GitHub, or less than one hour on Google. |
-| When the weekly limit runs out | off | As soon as the worker sees the weekly limit is used up, applies the reset that expires first. On Google the worker itself notices the end of the limit every 5 minutes, even with the Mac off; on GitHub, while the Mac is awake, the Mac check notices the end of the limit, and the reset comes within minutes. |
+| When the weekly limit runs out | on on Google, off on GitHub | As soon as the worker sees the weekly limit is used up, applies the reset that expires first. On Google the worker itself notices the end of the limit every 5 minutes, even with the Mac off; on GitHub, while the Mac is awake, the Mac check notices the end of the limit, and the reset comes within minutes. |
 
 The rules cover all resets at once and work independently. Change them any time on the `aures` screen or with `aures rules`; new rules take effect from the next worker run. On GitHub, turning the weekly rule on asks for a ChatGPT code for this Mac, as in step 5 of setup; turning it off removes the Mac check but keeps the Mac's ChatGPT sign-in, so turning it on again asks for no code. On Google no Mac check is installed: the worker watches the limit itself.
 

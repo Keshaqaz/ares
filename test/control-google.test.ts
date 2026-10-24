@@ -16,11 +16,11 @@ import { workerDid } from '../src/cli/google.ts';
 const HOUR = 3600_000, MINUTE = 60_000;
 const GOOGLE_LOGIN = 'https://accounts.google.com/';
 
-// A worker installed on Google by setup with the default rules: resets reset-a (in 5 days) and
-// reset-b (in 2 days 3 hours).
+// A worker installed on Google by setup with the default rules (both on, issue 24): resets
+// reset-a (in 5 days) and reset-b (in 2 days 3 hours).
 async function installed() {
   const env = await cliWorld();
-  const { code, io } = await env.run(setup, { answers: ['2', ''] });
+  const { code, io } = await env.run(setup, { answers: ['2'] });
   assert.equal(code, 0, io.output());
   const project = env.world.google.project();
   assert.ok(project?.gas);
@@ -125,11 +125,13 @@ test('a link of another signed-in Google account finds the project too', async (
 
 test('rules on Google switch a rule in the worker and leave this Mac as it is', async () => {
   const { mac, run, property, onlyWebApp } = await installed();
+  // Setup left the weekly rule on (issue 24); «2» switches it off.
   const { code, io } = await run(rules, { answers: ['2', ''] });
   assert.equal(code, 0, io.output());
   assert.match(io.output(), /1\. Перед истечением \(в последний час\) — включено/);
+  assert.match(io.output(), /2\. Когда кончится недельный лимит — включено[\s\S]*2\. Когда кончится недельный лимит — выключено/);
   assert.equal(io.lines.at(-1), 'Правила сохранены и заработают со следующего запуска воркера.');
-  assert.deepEqual(property('rules'), { formatVersion: 1, beforeExpiry: true, weeklyAutoApply: true });
+  assert.deepEqual(property('rules'), { formatVersion: 1, beforeExpiry: true, weeklyAutoApply: false });
   assert.equal(mac.launchctl.calls.length, 0, 'the check from this Mac does not wake the worker on Google yet');
 
   assert.equal((await run(rules, { answers: [''] })).io.lines.at(-1), 'Правила не изменились.');
@@ -190,7 +192,7 @@ test('a project found without a deployment is left to setup, which goes on in it
   assert.equal(code, 1);
   assert.equal(io.lines.at(-1), 'Установка не завершена. Запустите `aures setup`.');
   assert.deepEqual(await env.mac.files.readInstall(), { platform: 'google', google: { scriptId: project.scriptId } });
-  assert.equal((await env.run(setup, { answers: [''] })).code, 0);
+  assert.equal((await env.run(setup, { answers: [] })).code, 0);
   assert.equal(env.world.google.projects.size, 1);
 });
 
@@ -215,7 +217,7 @@ test('a worker on Google that does not answer is named with the advice to repair
   assert.equal(project.deployments.size, 1);
   assert.notDeepEqual(await mac.files.readInstall(), before, 'a new deployment has a new URL');
   assert.deepEqual(state().session, session, 'the worker keeps its session');
-  assert.deepEqual(property('rules'), { formatVersion: 1, beforeExpiry: true, weeklyAutoApply: false });
+  assert.deepEqual(property('rules'), { formatVersion: 1, beforeExpiry: true, weeklyAutoApply: true });
   assert.equal((await run(status)).code, 0);
 });
 
@@ -225,7 +227,7 @@ test('setup starts over in a new project when the user deleted the old one', asy
   world.google.projects.clear();
   assert.match((await run(status)).io.lines.at(-1) ?? '', /^Воркер на Google не отвечает: его web app удалён\./);
 
-  const { code, io } = await run(setup, { answers: [''] });
+  const { code, io } = await run(setup, { answers: [] });
   assert.equal(code, 0, io.output());
   assert.match(io.output(), /Проекта воркера в Google больше нет, создаём новый\./);
   const project = world.google.project();
@@ -244,8 +246,9 @@ test('the screen on Google applies a reset and switches a rule through the worke
   assert.ok(shown.frame().includes(`  ${link(project)}`), shown.frame().join('\n'));
 
   await press('down', 'down', 'down', 'return');
-  assert.deepEqual(property('rules'), { formatVersion: 1, beforeExpiry: true, weeklyAutoApply: true });
-  assert.match(shown.frame().join('\n'), /☑ Когда кончится недельный лимит/);
+  // Setup left the weekly rule on (issue 24), so the screen switches it off here.
+  assert.deepEqual(property('rules'), { formatVersion: 1, beforeExpiry: true, weeklyAutoApply: false });
+  assert.match(shown.frame().join('\n'), /☐ Когда кончится недельный лимит/);
 
   await press('down', 'return', 'y');
   assert.ok(shown.notes.some(note => note.text === 'Сброс reset-b применён.'), shown.frame().join('\n'));
