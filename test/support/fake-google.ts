@@ -11,7 +11,7 @@ import type { GoogleScope, ScriptFile, DeploymentConfig } from '../../src/google
 import { USER_AGENT } from '../../src/chatgpt/http.ts';
 import type { Fetch } from '../../src/chatgpt/http.ts';
 import { fakeAppsScript } from './fake-apps-script.ts';
-import type { FakeAppsScript } from './fake-apps-script.ts';
+import type { FakeAppsScript, ScriptScope } from './fake-apps-script.ts';
 import type { FakeWorld } from './fake-world.ts';
 
 export const USER_SETTINGS = 'https://script.google.com/home/usersettings';
@@ -32,14 +32,19 @@ export interface FakeProject {
   // The version the web app still serves for the first requests after its deployment is
   // updated: Apps Script keeps the previous version live for a few seconds (probe 16, issue 20).
   serving: { version: number; left: number } | null;
-  // The owner granted the script its scopes at the web app URL.
-  authorized: boolean;
+  // The scopes the owner granted the script at its consent at the web app URL; null: the consent
+  // was never given, and the web app answers Google's 403 HTML page.
+  granted: ScriptScope[] | null;
   // The script's runtime, with its properties and triggers; it runs the version last loaded.
   gas: FakeAppsScript | null;
   loaded: number | null;
 }
 // What the user does on the consent page: ticks these boxes, or refuses.
 export type Consent = GoogleScope[] | 'denied';
+// What the user does at the script's consent each time its web app opens (issue 29): ticks these
+// boxes — both by default, one of them for a partial consent, none — or closes the page without
+// a consent.
+export type ScriptConsent = ScriptScope[] | 'closed';
 
 export type ApiCall = 'create_project' | 'update_content' | 'create_version' | 'create_deployment' | 'update_deployment' | 'delete_deployment';
 
@@ -50,8 +55,8 @@ export interface FakeGoogle {
   enableAfterMs: number | null;
   // What the user does on each consent, in turn; when none is left, ticks every box.
   consents: Consent[];
-  // Whether the user lets the script run when its web app opens; false: closes the page.
-  allowsScript: boolean;
+  // What the user does at the script's consent each time its web app opens (issue 29).
+  scriptConsent: ScriptConsent;
   // The account the user signs in with; with grantsEmail false the consent gives no email, as a
   // grant from before the CLI asked for it.
   email: string;
@@ -97,7 +102,7 @@ export function withGoogle(world: FakeWorld & { google?: FakeGoogle }): FakeGoog
   };
 
   const google: FakeGoogle = {
-    apiEnabled: false, enableAfterMs: 12_000, consents: [], allowsScript: true, email: 'owner@example.invalid', grantsEmail: true, opened: [], refreshTokens: new Map(), accessTokens: new Map(),
+    apiEnabled: false, enableAfterMs: 12_000, consents: [], scriptConsent: ['scriptapp', 'external_request'], email: 'owner@example.invalid', grantsEmail: true, opened: [], refreshTokens: new Map(), accessTokens: new Map(),
     projects: new Map(), servePrevious: 0, failNext: null, revokeFail: null, requests: [], violations: [],
     open: async href => {
       google.opened.push(href);
@@ -113,7 +118,7 @@ export function withGoogle(world: FakeWorld & { google?: FakeGoogle }): FakeGoog
       const exec = url.host === 'script.google.com' && url.pathname.match(/^\/macros\/s\/([^/]+)\/exec$/);
       if (exec) {
         const project = [...google.projects.values()].find(p => p.deployments.has(exec[1] ?? ''));
-        if (project && google.allowsScript) project.authorized = true;
+        if (project && google.scriptConsent !== 'closed') project.granted = [...google.scriptConsent];
         return;
       }
       if (url.origin + url.pathname !== 'https://accounts.google.com/o/oauth2/v2/auth') {
@@ -219,7 +224,7 @@ export function withGoogle(world: FakeWorld & { google?: FakeGoogle }): FakeGoog
       if (typeof body.title !== 'string') return apiError(400, 'INVALID_ARGUMENT', 'title');
       const scriptId = `fake-script-${++serial}`;
       google.projects.set(scriptId, { scriptId, title: body.title, files: [], versions: [], deployments: new Map(), serving: null,
-        authorized: false, gas: null, loaded: null });
+        granted: null, gas: null, loaded: null });
       return json(200, { scriptId, title: body.title });
     }
     const match = path.match(/^\/v1\/projects\/([^/]+)(?:\/(content|versions|deployments)(?:\/([^/]+))?)?$/);
@@ -277,19 +282,20 @@ export function withGoogle(world: FakeWorld & { google?: FakeGoogle }): FakeGoog
   }
 
   // POST to the web app: Apps Script runs doPost and redirects to where its reply can be read.
-  // A script the owner has not allowed answers with Google's 403 HTML page instead (probe 16).
+  // A script the owner has not allowed answers with Google's 403 HTML page instead (probe 16);
+  // one allowed without every scope runs, and its services fail for the scopes it lacks.
   async function webApp(deploymentId: string, body: string): Promise<Response> {
     const project = [...google.projects.values()].find(p => p.deployments.has(deploymentId));
     let version = project?.deployments.get(deploymentId);
     if (!project || version === undefined) return new Response('Sorry, unable to open the file at this time.', { status: 404 });
-    if (!project.authorized) {
+    if (project.granted === null) {
       return new Response('<html>Authorization is required to perform that action.</html>', { status: 403, headers: { 'content-type': 'text/html' } });
     }
     // A deployment just pointed at a new version still serves the previous one for the first
     // requests, as the live web app does for a few seconds.
     if (project.serving && project.serving.left-- > 0) version = project.serving.version;
     const sources = (project.versions[version - 1] ?? []).filter(file => file.type === 'SERVER_JS').map(file => file.source);
-    if (!project.gas) project.gas = await fakeAppsScript({ world, files: sources });
+    if (!project.gas) project.gas = await fakeAppsScript({ world, files: sources, scopes: () => project.granted });
     else if (project.loaded !== version) project.gas.load(sources);
     project.loaded = version;
     const key = `fake-key-${++serial}`;

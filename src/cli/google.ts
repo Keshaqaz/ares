@@ -177,6 +177,10 @@ export function workerDid(reply: WorkerReply | null, command: string | null): Wo
   throw new CommandFailed(({
     busy: t(`The worker is busy with another run. ${again}.`, `Воркер занят другим запуском. ${again}.`),
     unauthorized: t(`The worker script has no access yet. ${again}.`, `У скрипта воркера ещё нет доступа. ${again}.`),
+    scopes: t('The worker script was not given every access at its consent: not every box was ticked. ' +
+      'Run `aures setup` — it opens the consent again; tick both boxes (or «Select all») and click «Continue».',
+      'Скрипту воркера на согласии выданы не все доступы: отмечены не все галочки. ' +
+      'Запустите `aures setup` — он откроет согласие ещё раз; отметьте обе галочки (или «Выбрать все») и нажмите «Продолжить».'),
     internal: t(`The worker script failed: ${String(reply?.message)}. ${again}.`, `Скрипт воркера упал: ${String(reply?.message)}. ${again}.`),
   } as Record<string, string>)[error] ?? t(`The worker refused (${error}). ${again}.`, `Воркер отказал (${error}). ${again}.`));
 }

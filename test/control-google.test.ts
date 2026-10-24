@@ -145,7 +145,7 @@ test('a Mac without the install record asks where the worker is and finds it on 
   await mac.files.removeAll();
   keychain.entries.clear();
   world.google.projects.set('fake-other', { scriptId: 'fake-other', title: 'Мой проект', files: [], versions: [], deployments: new Map(),
-    serving: null, authorized: true, gas: null, loaded: null });
+    serving: null, granted: ['scriptapp', 'external_request'], gas: null, loaded: null });
 
   const { code, io } = await run(status, { answers: ['3', '2', `${link(project)}/edit`.replace(project.scriptId, 'nope'),
     `${link(project).replace(project.scriptId, 'fake-other')}/edit`, `${link(project)}/edit`] });

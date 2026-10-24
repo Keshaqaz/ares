@@ -4,13 +4,22 @@
 import vm from 'node:vm';
 import { randomUUID } from 'node:crypto';
 import { appsScriptSource } from '../../scripts/build-worker.ts';
-import { secretSource } from '../../src/apps-script/layout.ts';
+import { SCRIPT_SCOPES, secretSource } from '../../src/apps-script/layout.ts';
 import type { AppsScript, HttpResponse, Lock, Trigger, UrlFetchRequest, TextOutput } from '../../src/apps-script/runtime.ts';
 import type { FakeWorld } from './fake-world.ts';
 
 // Apps Script quota: one Script Properties value.
 export const PROPERTY_VALUE_LIMIT = 9 * 1024;
 const EVERY_MINUTES = [1, 5, 10, 15, 30];
+
+// The script's consent has these two boxes (issue 29): the triggers (script.scriptapp) and the
+// external services (script.external_request).
+export type ScriptScope = 'scriptapp' | 'external_request';
+
+// Apps Script's exception for a service called without its scope, as the worker recognizes it
+// (src/apps-script/runtime.ts): the standard phrase with the scope's URL in it.
+const withoutScope = (call: string, scopeUrl: string): Error =>
+  new Error(`You do not have permission to call ${call}. Required permissions: (${scopeUrl})`);
 
 export interface FakeTrigger { handler: string; minutes: number }
 export interface Reply { mimeType: string; text: string; json: Record<string, unknown> | null }
@@ -46,9 +55,11 @@ const output = (content: string): TextOutput & { mimeType: string } => {
 };
 
 // secret is the one the project's secret file declares; null leaves the file out. files, when
-// given, are the project's sources instead of the secret file and the bundle.
-export async function fakeAppsScript({ world, secret = 'fake-secret-0123456789', files }:
-  { world: FakeWorld; secret?: string | null; files?: string[] }): Promise<FakeAppsScript> {
+// given, are the project's sources instead of the secret file and the bundle. scopes, when given,
+// names what the owner granted the script at its consent, read at each call: a service whose
+// scope is not in it fails as Apps Script fails it (issue 29).
+export async function fakeAppsScript({ world, secret = 'fake-secret-0123456789', files, scopes }: { world: FakeWorld;
+  secret?: string | null; files?: string[]; scopes?: () => ScriptScope[] | null }): Promise<FakeAppsScript> {
   let context: Record<string, unknown> = {};
   const gas: FakeAppsScript = {
     properties: new Map(), largestValue: 0, triggers: [], lockHeld: false, authInvalidated: false, batches: [],
@@ -84,6 +95,7 @@ export async function fakeAppsScript({ world, secret = 'fake-secret-0123456789',
   const services: AppsScript = {
     // A request that does not reach its server fails the whole batch, as in Apps Script.
     UrlFetchApp: { fetchAll: requests => {
+      if (scopes && !(scopes() ?? []).includes('external_request')) throw withoutScope('fetchAll', SCRIPT_SCOPES.externalRequest);
       const hook = gas.onFetch;
       gas.onFetch = null;
       hook?.();
@@ -118,8 +130,11 @@ export async function fakeAppsScript({ world, secret = 'fake-secret-0123456789',
       };
     } },
     ScriptApp: {
-      getProjectTriggers: () => gas.triggers.map((trigger): Trigger & { fake: FakeTrigger } =>
-        ({ fake: trigger, getHandlerFunction: () => trigger.handler })),
+      getProjectTriggers: () => {
+        if (scopes && !(scopes() ?? []).includes('scriptapp')) throw withoutScope('getProjectTriggers', SCRIPT_SCOPES.scriptapp);
+        return gas.triggers.map((trigger): Trigger & { fake: FakeTrigger } =>
+          ({ fake: trigger, getHandlerFunction: () => trigger.handler }));
+      },
       deleteTrigger: trigger => {
         gas.triggers = gas.triggers.filter(t => t !== (trigger as Trigger & { fake: FakeTrigger }).fake);
       },

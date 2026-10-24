@@ -64,7 +64,7 @@ test('setup on Google goes from nothing to a scheduled worker and ends with a tr
   const [deploymentId] = [...project.deployments.keys()];
   const url = `https://script.google.com/macros/s/${deploymentId}/exec`;
   assert.deepEqual(world.google.opened.filter(href => !href.startsWith(GOOGLE_LOGIN)), [USER_SETTINGS, url, DEVICE]);
-  assert.equal(project.authorized, true);
+  assert.deepEqual(project.granted, ['scriptapp', 'external_request']);
   assert.deepEqual(project.gas?.triggers, [{ handler: 'tick', minutes: 5 }]);
   assert.deepEqual(property(project, 'rules'), { formatVersion: 1, beforeExpiry: true, weeklyAutoApply: true });
   const state = property(project, 'state') as { session: { accountId: string; refreshToken: string } };
@@ -113,16 +113,16 @@ test('setup stopped while the script waits to be allowed goes on with the consen
   const cli = await googleWorld();
   const { world, googleKeychain } = cli;
   world.google.apiEnabled = true;
-  world.google.allowsScript = false;
+  world.google.scriptConsent = 'closed';
   // The user gives up waiting: Ctrl-C after a few polls.
   let polls = 0;
   const interrupted = cli.run({ sleep: async ms => { if (++polls > 3) throw new Error('Ctrl-C'); world.advance(ms); } });
   await assert.rejects(interrupted, /Ctrl-C/);
   const project = deployed(cli);
-  assert.equal(project.authorized, false);
+  assert.equal(project.granted, null);
   const token = await googleKeychain.read();
 
-  world.google.allowsScript = true;
+  world.google.scriptConsent = ['scriptapp', 'external_request'];
   const { code, io } = await cli.run({ answers: [] });
   assert.equal(code, 0, io.output());
   assert.equal(world.google.projects.size, 1);
@@ -134,6 +134,87 @@ test('setup stopped while the script waits to be allowed goes on with the consen
   assert.match(io.output(), /«aures-worker \(Unverified\)»: нажмите «Review permissions»/);
   assert.match(io.output(), /«Дополнительные настройки» и «Перейти на страницу "aures-worker" \(небезопасно\)»/);
   assert.doesNotMatch(io.output(), /«Разрешить»|«Allow»/);
+  assert.deepEqual(project.gas?.triggers, [{ handler: 'tick', minutes: 5 }]);
+  assert.match(io.lines.at(-1) ?? '', /^Воркер работает\./);
+  noViolations(cli);
+});
+
+// The user ticks every box at the consent the web app opens the second time: setup wraps
+// google.open, which grants what scriptConsent names at each visit of the web app URL.
+const fullConsentOnReopen = (cli: Pick<CliWorld, 'world'>): void => {
+  const open = cli.world.google.open;
+  let visits = 0;
+  cli.world.google.open = async href => {
+    if (/^https:\/\/script\.google\.com\/macros\/s\/[^/]+\/exec$/.test(href) && ++visits > 1) {
+      cli.world.google.scriptConsent = ['scriptapp', 'external_request'];
+    }
+    return open(href);
+  };
+};
+
+// A consent without the triggers box (issue 29): the worker answers 'scopes', setup tells what
+// happened, opens the consent again, and with every box ticked goes to the end.
+test('a script consented without its triggers box makes setup reopen the consent and go on', async () => {
+  const cli = await googleWorld();
+  const { world } = cli;
+  world.google.scriptConsent = ['external_request'];
+  fullConsentOnReopen(cli);
+  const { code, io } = await cli.run();
+  assert.equal(code, 0, io.output());
+  assert.match(io.output(), /Скрипту воркера выданы не все доступы: на согласии отмечены не все галочки\./);
+  assert.match(io.output(), /aures откроет согласие ещё раз — отметьте обе галочки \(или «Выбрать все»\) и нажмите «Продолжить»\./);
+  // The consent instructions come again for the reopened consent.
+  assert.equal(io.lines.filter(line => line.startsWith('Разрешите скрипту воркера работать')).length, 2);
+  const project = deployed(cli);
+  assert.equal(world.google.opened.filter(href => /\/macros\/s\/[^/]+\/exec$/.test(href)).length, 2);
+  assert.deepEqual(project.granted, ['scriptapp', 'external_request']);
+  assert.deepEqual(project.gas?.triggers, [{ handler: 'tick', minutes: 5 }]);
+  assert.match(io.lines.at(-1) ?? '', /^Воркер работает\./);
+  noViolations(cli);
+});
+
+// A consent without the external services box (issue 29): the status answers, and the actions
+// that reach a site answer 'scopes' with the same hint and the reopened consent.
+test('a script consented without its external services box makes login reopen the consent and go on', async () => {
+  const cli = await googleWorld();
+  const { world } = cli;
+  world.google.scriptConsent = ['scriptapp'];
+  fullConsentOnReopen(cli);
+  const { code, io } = await cli.run();
+  assert.equal(code, 0, io.output());
+  assert.match(io.output(), /Скрипту воркера выданы не все доступы: на согласии отмечены не все галочки\./);
+  // The consent is first given after the deploy and then again, when the login answers 'scopes'.
+  assert.equal(io.lines.filter(line => line.startsWith('Разрешите скрипту воркера работать')).length, 2);
+  const project = deployed(cli);
+  assert.deepEqual(project.granted, ['scriptapp', 'external_request']);
+  // The login that met the partial consent wrote no journal entry; the one after it did.
+  assert.deepEqual((property(project, 'journal') as { kind: string }[]).map(entry => entry.kind), ['login', 'trial']);
+  assert.match(io.lines.at(-1) ?? '', /^Воркер работает\./);
+  noViolations(cli);
+});
+
+// A partial consent the user gave up on (issue 29): a repeated setup recognizes the missing
+// scopes at once, reopens the consent and, with every box ticked, goes to the end.
+test('a repeated setup reopens the consent of a script left with partial scopes', async () => {
+  const cli = await googleWorld();
+  const { world, googleKeychain } = cli;
+  world.google.apiEnabled = true;
+  world.google.scriptConsent = ['external_request'];
+  // The user never ticks the second box: Ctrl-C while setup waits after reopening the consent.
+  let polls = 0;
+  const interrupted = cli.run({ sleep: async ms => { if (++polls > 3) throw new Error('Ctrl-C'); world.advance(ms); } });
+  await assert.rejects(interrupted, /Ctrl-C/);
+  const project = deployed(cli);
+  assert.deepEqual(project.granted, ['external_request']);
+
+  world.google.scriptConsent = ['scriptapp', 'external_request'];
+  const { code, io } = await cli.run({ answers: [] });
+  assert.equal(code, 0, io.output());
+  // The deploy is kept; the missing scopes take setup straight to the consent again.
+  assert.equal(project.versions.length, 1, 'nothing is deployed again');
+  assert.match(io.output(), /Скрипту воркера выданы не все доступы: на согласии отмечены не все галочки\./);
+  assert.equal(io.lines.filter(line => line.startsWith('Разрешите скрипту воркера работать')).length, 1);
+  assert.deepEqual(project.granted, ['scriptapp', 'external_request']);
   assert.deepEqual(project.gas?.triggers, [{ handler: 'tick', minutes: 5 }]);
   assert.match(io.lines.at(-1) ?? '', /^Воркер работает\./);
   noViolations(cli);

@@ -1,6 +1,8 @@
 // The Apps Script services the worker uses, typed as far as it uses them, and the pieces of a
 // web runtime that Apps Script lacks: fetch, AbortSignal and the one use of Buffer.
+import { object } from '../chatgpt/http.ts';
 import type { Fetch } from '../chatgpt/http.ts';
+import { SCRIPT_SCOPES } from './layout.ts';
 
 export interface UrlFetchRequest {
   url: string; method: string; headers: Record<string, string>; contentType?: string; payload?: string;
@@ -45,6 +47,17 @@ declare const Utilities: AppsScript['Utilities'];
 // The global services, read when the script is called: they are there only inside Apps Script.
 export const appsScript = (): AppsScript => ({ UrlFetchApp, PropertiesService, LockService, ScriptApp, ContentService, Utilities });
 
+// Apps Script's exception when a service is called without a scope the user left unticked at the
+// script's consent: «Exception: You do not have permission to call getProjectTriggers. Required
+// permissions: (https://www.googleapis.com/auth/script.scriptapp)» — the same for UrlFetchApp's
+// fetch/fetchAll and script.external_request. Recognized as narrowly as the text allows: the
+// standard phrase together with the URL of one of the script's own two scopes (layout.ts).
+export function missingScopes(error: unknown): boolean {
+  const message = (object(error) && typeof error.message === 'string' ? error.message : String(error)).toLowerCase();
+  return message.includes('do not have permission to call') &&
+    Object.values(SCRIPT_SCOPES).some(url => message.includes(url));
+}
+
 // What request() reads from a reply.
 interface Reply { status: number; text(): Promise<string> }
 interface Waiting { request: UrlFetchRequest; resolve(reply: Reply): void; reject(error: unknown): void }
@@ -68,7 +81,10 @@ export function urlFetch(gas: AppsScript): { fetch: Fetch; flush(): boolean } {
     let replies: HttpResponse[];
     try {
       replies = gas.UrlFetchApp.fetchAll(batch.map(w => w.request));
-    } catch {
+    } catch (error) {
+      // A scope left unticked at the consent fails every request alike; that is the script's
+      // own lack of a scope, which doPost answers as such, not a failure to reach the sites.
+      if (missingScopes(error)) throw error;
       for (const waiting of batch) waiting.reject(new TypeError('fetch failed'));
       return true;
     }

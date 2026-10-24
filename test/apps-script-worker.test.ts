@@ -293,6 +293,33 @@ test('an exception in an action is answered as JSON with its message, not as Goo
   noViolations(world, gas);
 });
 
+test('a consent of the script without its triggers box is answered as missing scopes, not as an internal failure', async () => {
+  const world = fakeWorld();
+  const gas = await fakeAppsScript({ world, scopes: () => ['external_request'] });
+  assert.equal(post(gas, 'rules', { rules: RULES }).ok, true);
+  // The script runs (its web app is allowed), but its triggers do not read.
+  assert.deepEqual(post(gas, 'status'), { ok: false, error: 'scopes' });
+  assert.deepEqual(post(gas, 'login', { login: { id: 'login-1', session: world.login() } }), { ok: false, error: 'scopes' });
+  assert.deepEqual(post(gas, 'schedule', { on: true }), { ok: false, error: 'scopes' });
+  assert.deepEqual(gas.triggers, []);
+  noViolations(world, gas);
+});
+
+test('a consent without the external services box answers scopes for the running actions, and the tick says what to do', async () => {
+  const world = fakeWorld();
+  const gas = await fakeAppsScript({ world, scopes: () => ['scriptapp'] });
+  assert.equal(post(gas, 'rules', { rules: RULES }).ok, true);
+  // The triggers read, so the status answers; every action that reaches a site does not.
+  assert.equal(post(gas, 'status').ok, true);
+  assert.deepEqual(post(gas, 'login', { login: { id: 'login-1', session: world.login() } }), { ok: false, error: 'scopes' });
+  assert.deepEqual(post(gas, 'trial'), { ok: false, error: 'scopes' });
+  assert.deepEqual(post(gas, 'wake'), { ok: false, error: 'scopes' });
+  // The failed trigger run, which Google mails, names what to do instead of the raw exception.
+  assert.throws(() => gas.tick(), /aures: the worker script was not given every access.*aures setup/s);
+  assert.equal(gas.lockHeld, false);
+  noViolations(world, gas);
+});
+
 test('uninstall removes the triggers, revokes the session, forgets the properties and the script authorization', async () => {
   const { world, gas, session } = await installed();
   post(gas, 'schedule', { on: true });

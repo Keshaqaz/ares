@@ -9,7 +9,7 @@ import type { State, Rules, Login, Pending, BrokenStateReason } from '../worker/
 import { openSummary } from '../worker/summary.ts';
 import type { Summary } from '../worker/summary.ts';
 import { settle } from './sync-promise.ts';
-import { urlFetch } from './runtime.ts';
+import { urlFetch, missingScopes } from './runtime.ts';
 import type { AppsScript, Properties, TextOutput, WebAppEvent } from './runtime.ts';
 import { BEFORE_EXPIRY_MS, TICK_MINUTES, TICK_FUNCTION } from './layout.ts';
 
@@ -50,6 +50,12 @@ const FAILURES: Partial<Record<RunOutcome, string>> = {
 };
 // The one reply to a request without the right secret, whatever else it holds.
 const FORBIDDEN = { ok: false, error: 'forbidden' };
+// A consent of the script without every box ticked (issue 29): only the user can give the
+// missing scope, so it is told apart from a failure of the script itself.
+const SCOPES = { ok: false, error: 'scopes' };
+// What a run with a partial consent tells in the mail of the failed trigger run.
+const SCOPES_FAILURE = 'aures: the worker script was not given every access at its consent. ' +
+  'Give it every access: `aures setup` opens the consent again — tick both boxes.';
 const BUSY = Symbol('busy');
 
 const iso = (ms: number): string => new Date(ms).toISOString();
@@ -205,11 +211,18 @@ export function appsScriptWorker({ gas, secret }: WorkerOptions): Worker {
   return {
     tick() {
       const g = gas();
-      const ran = locked(g, () => runTick(g, 'scheduled'));
-      // Another run holds the lock; it reads and applies what this one would.
-      if (ran === BUSY) return;
-      const failure = FAILURES[ran.outcome];
-      if (failure) throw new Error(ran.reason ? `${failure} (${ran.reason})` : failure);
+      try {
+        const ran = locked(g, () => runTick(g, 'scheduled'));
+        // Another run holds the lock; it reads and applies what this one would.
+        if (ran === BUSY) return;
+        const failure = FAILURES[ran.outcome];
+        if (failure) throw new Error(ran.reason ? `${failure} (${ran.reason})` : failure);
+      } catch (error) {
+        // A consent without every box (issue 29) fails the tick the same way; Google's mail then
+        // tells the user what to do instead of Apps Script's raw exception.
+        if (!missingScopes(error)) throw error;
+        throw new Error(SCOPES_FAILURE);
+      }
     },
     // Opened in the browser once, for the user to grant the script its scopes.
     doGet() {
@@ -229,6 +242,7 @@ export function appsScriptWorker({ gas, secret }: WorkerOptions): Worker {
       // allowed to run: it is answered as JSON instead. The message is Apps Script's, never a token.
       let result: object | null | typeof BUSY;
       try { result = action.locked ? locked(g, () => action.act(g, request)) : action.act(g, request); } catch (error) {
+        if (missingScopes(error)) return reply(SCOPES);
         const message = object(error) && typeof error.message === 'string' ? error.message : String(error);
         return reply({ ok: false, error: 'internal', message });
       }

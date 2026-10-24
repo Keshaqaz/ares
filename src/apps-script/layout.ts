@@ -16,11 +16,19 @@ export const PROJECT_FILES = { manifest: 'appsscript', worker: 'worker', secret:
 // The global the secret file declares.
 export const SECRET_GLOBAL = 'AURES_SECRET';
 
+// The script's own consent asks for these two (the manifest's oauthScopes): UrlFetchApp needs
+// external_request, the triggers scriptapp. A consent with one of them left unticked (issue 29)
+// is told by Apps Script's exception naming the missing URL (runtime.ts).
+export const SCRIPT_SCOPES = {
+  externalRequest: 'https://www.googleapis.com/auth/script.external_request',
+  scriptapp: 'https://www.googleapis.com/auth/script.scriptapp',
+} as const;
+
 export const MANIFEST = {
   timeZone: 'Etc/UTC',
   runtimeVersion: 'V8',
   exceptionLogging: 'STACKDRIVER',
-  oauthScopes: ['https://www.googleapis.com/auth/script.external_request', 'https://www.googleapis.com/auth/script.scriptapp'],
+  oauthScopes: [SCRIPT_SCOPES.externalRequest, SCRIPT_SCOPES.scriptapp],
   webapp: { access: 'ANYONE_ANONYMOUS', executeAs: 'USER_DEPLOYING' },
 };
 

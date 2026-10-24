@@ -34,6 +34,15 @@ const warnings = (): string[] => [
 
 // The rule names as the screen prints them, only starting a sentence: «перед истечением…».
 const lowerFirst = (text: string): string => text.charAt(0).toLowerCase() + text.slice(1);
+
+// What a script whose consent was given without every box tells the user (issue 29): the consent
+// opens again, and this time both boxes have to be ticked.
+const scopesHint = (): string => t(
+  'The worker script was not given every access: not every box of its consent was ticked. ' +
+    'aures opens the consent again — tick both boxes (or «Select all») and click «Continue».',
+  'Скрипту воркера выданы не все доступы: на согласии отмечены не все галочки. ' +
+    'aures откроет согласие ещё раз — отметьте обе галочки (или «Выбрать все») и нажмите «Продолжить».');
+
 // The one line setup on Google prints about the rules it has just written without a question
 // (issue 24): both on — the weekly rule needs no Mac check here, the worker watches the limit
 // itself — told in the same names as chooseRules and the `aures` screen, with where to change.
@@ -69,6 +78,15 @@ export async function setupGoogle({ fetch, io, mac: { files }, open, copy, googl
   const ask = (action: string, extra?: Record<string, unknown>) => {
     if (!google?.url || !secret) throw new Error('the worker is not deployed');
     return askWorker({ fetch, url: google.url, secret }, action, extra);
+  };
+  // Asks the worker; a reply that the script was not given every scope (issue 29) has the user
+  // redo the consent — the same wait as for a script not allowed at all — and asks again.
+  const asking = async (action: string, extra?: Record<string, unknown>): Promise<WorkerReply> => {
+    for (;;) {
+      const reply = await ask(action, extra);
+      if (!reply || reply.error !== 'scopes') return workerDid(reply, COMMAND);
+      await consent({ io, open, sleep, url: google?.url ?? '', ask, again: true });
+    }
   };
 
   // A deployed worker answers to the secret in the Keychain; one that does not know it gets a new
@@ -106,7 +124,11 @@ export async function setupGoogle({ fetch, io, mac: { files }, open, copy, googl
     status = await askAfterDeploy({ fetch, url: result.url, secret, now, sleep, io, command: COMMAND });
   } else io.print(t(`The worker is deployed: ${google?.url}`, `Воркер развёрнут: ${google?.url}`));
 
-  if (status === null) status = await consent({ io, open, sleep, url: google?.url ?? '', ask });
+  // A script not allowed yet, or one whose consent lacks a scope (issue 29), goes through the
+  // consent; in the latter case its hint says why it opens again.
+  if (status === null || status.error === 'scopes') {
+    status = await consent({ io, open, sleep, url: google?.url ?? '', ask, again: status?.error === 'scopes' });
+  }
   status = workerDid(status, COMMAND);
 
   if (!status.rules) {
@@ -119,7 +141,7 @@ export async function setupGoogle({ fetch, io, mac: { files }, open, copy, googl
     io.print(chatgptLogin());
     const session = await deviceLogin({ fetch, now, sleep, onCode: showCode(io, open, copy) });
     const id = randomUUID();
-    const taken = workerDid(await ask('login', { login: { id, session } }), COMMAND);
+    const taken = await asking('login', { login: { id, session } });
     if ((taken.summary as Summary | null)?.login?.id !== id) {
       throw new CommandFailed(t(`The worker did not take the ChatGPT sign-in (${taken.outcome}${taken.reason ? `: ${taken.reason}` : ''}).`,
         `Воркер не принял вход в ChatGPT (${taken.outcome}${taken.reason ? `: ${taken.reason}` : ''}).`));
@@ -129,33 +151,42 @@ export async function setupGoogle({ fetch, io, mac: { files }, open, copy, googl
   if (status.schedule !== true) {
     if (paused) io.print(t('The worker stays paused: its schedule stays off.', 'Воркер остаётся на паузе: расписание остаётся снятым.'));
     else {
-      workerDid(await ask('schedule', { on: true }), COMMAND);
+      await asking('schedule', { on: true });
       io.print(t('The worker runs every 5 minutes.', 'Воркер запускается каждые 5 минут.'));
     }
   }
   io.print(t('Checking the worker…', 'Проверяем воркер…'));
-  io.print(trialLine(workerDid(await ask('trial'), COMMAND) as unknown as Trial, timeZone));
+  io.print(trialLine(await asking('trial') as unknown as Trial, timeZone));
   return 0;
 }
 
-// Opens the web app for the owner to let the script run, and waits until it answers as authorized.
-async function consent({ io, open, sleep, url, ask }:
-  { io: Io; open: (url: string) => Promise<void>; sleep: Sleep; url: string; ask: (action: string) => Promise<WorkerReply | null> }):
-  Promise<WorkerReply> {
-  io.print(t(`Let the worker script run: ${url}`, `Разрешите скрипту воркера работать: ${url}`));
-  io.print(t('The page that opens is in English, «aures-worker (Unverified)»: click «Review permissions», and the consent opens in a popup window.',
-    'Открывшаяся страница будет на английском, «aures-worker (Unverified)»: нажмите «Review permissions», согласие откроется во всплывающем окне.'));
-  io.print(t('In the window pick the same account, click «Advanced» and then «Go to aures-worker (unsafe)», tick both boxes (or «Select all») ' +
-    'and click «Continue». aures goes on by itself.',
-  'В окне выберите тот же аккаунт, нажмите «Дополнительные настройки» и «Перейти на страницу "aures-worker" (небезопасно)», ' +
-    'отметьте обе галочки (или «Выбрать все») и нажмите «Продолжить». aures продолжит сам.'));
-  await open(url);
-  io.wait(t('Waiting for the script to be allowed…', 'Ждём, когда скрипту разрешат работать…'));
-  try {
-    for (;;) {
-      const status = await ask('status');
-      if (status) return status;
-      await sleep(CONSENT_POLL_MS);
-    }
-  } finally { io.wait(null); }
+// Opens the web app for the owner to let the script run, and waits until it answers as authorized
+// with every scope. A consent with a box left unticked (issue 29) answers 'scopes': the hint says
+// what was missed and the consent opens again — once, for the answer may be the one given just
+// before; after that the wait goes on, with the URL and the hint already told. again tells that
+// this call follows such an answer, so the hint comes first and there is no second opening.
+async function consent({ io, open, sleep, url, ask, again = false }:
+  { io: Io; open: (url: string) => Promise<void>; sleep: Sleep; url: string; ask: (action: string) => Promise<WorkerReply | null>;
+    again?: boolean }): Promise<WorkerReply> {
+  for (;;) {
+    if (again) io.print(scopesHint());
+    io.print(t(`Let the worker script run: ${url}`, `Разрешите скрипту воркера работать: ${url}`));
+    io.print(t('The page that opens is in English, «aures-worker (Unverified)»: click «Review permissions», and the consent opens in a popup window.',
+      'Открывшаяся страница будет на английском, «aures-worker (Unverified)»: нажмите «Review permissions», согласие откроется во всплывающем окне.'));
+    io.print(t('In the window pick the same account, click «Advanced» and then «Go to aures-worker (unsafe)», tick both boxes (or «Select all») ' +
+      'and click «Continue». aures goes on by itself.',
+    'В окне выберите тот же аккаунт, нажмите «Дополнительные настройки» и «Перейти на страницу "aures-worker" (небезопасно)», ' +
+      'отметьте обе галочки (или «Выбрать все») и нажмите «Продолжить». aures продолжит сам.'));
+    await open(url);
+    io.wait(t('Waiting for the script to be allowed…', 'Ждём, когда скрипту разрешат работать…'));
+    try {
+      for (;;) {
+        const status = await ask('status');
+        if (status && status.error !== 'scopes') return status;
+        // A consent without every box: the consent opens again, with the hint before it.
+        if (status && !again) { again = true; break; }
+        await sleep(CONSENT_POLL_MS);
+      }
+    } finally { io.wait(null); }
+  }
 }
