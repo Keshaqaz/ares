@@ -135,6 +135,18 @@ export async function fakeAppsScript({ world, secret = 'fake-secret-0123456789',
         return gas.triggers.map((trigger): Trigger & { fake: FakeTrigger } =>
           ({ fake: trigger, getHandlerFunction: () => trigger.handler }));
       },
+      // As the documentation has it: the authorized scopes of the list asked about, null when
+      // nothing says (a script the fake never gave a consent to answers with its services
+      // instead, as the web app answers Google's 403 page before the script runs).
+      getAuthorizationInfo: (authMode, asked) => ({
+        getAuthorizedScopes: () => {
+          if (authMode !== 'FULL') gas.violations.push(`authMode ${authMode}`);
+          const granted = scopes?.() ?? null;
+          return granted && asked.filter(url => granted.some(scope =>
+            (scope === 'external_request' ? SCRIPT_SCOPES.externalRequest : SCRIPT_SCOPES.scriptapp) === url));
+        },
+      }),
+      AuthMode: { FULL: 'FULL' },
       deleteTrigger: trigger => {
         gas.triggers = gas.triggers.filter(t => t !== (trigger as Trigger & { fake: FakeTrigger }).fake);
       },

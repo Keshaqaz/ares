@@ -9,7 +9,7 @@ import type { State, Rules, Login, Pending, BrokenStateReason } from '../worker/
 import { openSummary } from '../worker/summary.ts';
 import type { Summary } from '../worker/summary.ts';
 import { settle } from './sync-promise.ts';
-import { urlFetch, missingScopes } from './runtime.ts';
+import { urlFetch, missingScopes, MissingScopes, scopesGranted } from './runtime.ts';
 import type { AppsScript, Properties, TextOutput, WebAppEvent } from './runtime.ts';
 import { BEFORE_EXPIRY_MS, TICK_MINUTES, TICK_FUNCTION } from './layout.ts';
 
@@ -159,6 +159,10 @@ export function appsScriptWorker({ gas, secret }: WorkerOptions): Worker {
   type Action = (g: AppsScript, request: Record<string, unknown>) => object | null;
   const ACTIONS: Record<string, { locked: boolean; act: Action }> = {
     status: { locked: false, act: g => {
+      // A consent without every box (issue 29) can leave the script without a scope that nothing
+      // read here would notice; the authorization says without a request whether both scopes of
+      // the manifest are there, so the CLI can wait for the missing one at the consent.
+      if (!scopesGranted(g)) throw new MissingScopes();
       const props = g.PropertiesService.getScriptProperties();
       let summary: Summary | null = null, rules: Summary['rules'] | null = null;
       try { summary = openSummary(load(props)); } catch (error) { if (!(error instanceof BrokenState)) throw error; }

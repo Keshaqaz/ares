@@ -21,6 +21,10 @@ import { t } from './language.ts';
 
 // Until the script answers as authorized the CLI asks again this often.
 const CONSENT_POLL_MS = 5_000;
+// While the answer stays 'scopes', the consent page opens again no sooner than this long after
+// the last opening: the user gets a fresh page to redo an incomplete consent, never a cycle of
+// tabs (issue 29).
+const CONSENT_REOPEN_MS = 60_000;
 const COMMAND = 'setup';
 
 // Both «unverified app» screens, told shortly before the first of them: the CLI's sign-in and
@@ -80,13 +84,31 @@ export async function setupGoogle({ fetch, io, mac: { files }, open, copy, googl
     return askWorker({ fetch, url: google.url, secret }, action, extra);
   };
   // Asks the worker; a reply that the script was not given every scope (issue 29) has the user
-  // redo the consent — the same wait as for a script not allowed at all — and asks again.
+  // redo the consent: the page opens once, with the hint before it, and consent() waits there
+  // until the worker's authorization says every scope is given, reopening the page no more than
+  // once a minute. Should the ask still meet a refusal after that — the authorization and the
+  // service disagree — it waits with a pause and never opens the page again: a cycle of tabs
+  // helps nobody (the review of issue 29).
   const asking = async (action: string, extra?: Record<string, unknown>): Promise<WorkerReply> => {
-    for (;;) {
-      const reply = await ask(action, extra);
-      if (!reply || reply.error !== 'scopes') return workerDid(reply, COMMAND);
-      await consent({ io, open, sleep, url: google?.url ?? '', ask, again: true });
-    }
+    let opened = false, told = false;
+    try {
+      for (;;) {
+        const reply = await ask(action, extra);
+        if (!reply || reply.error !== 'scopes') return workerDid(reply, COMMAND);
+        if (!opened) {
+          opened = true;
+          await consent({ io, open, sleep, now, url: google?.url ?? '', ask, again: true });
+          continue;
+        }
+        if (!told) {
+          told = true;
+          io.print(t('The consent is still not complete. On the page that opened tick both boxes (or «Select all») and click «Continue».',
+            'Согласие всё ещё неполное. На открывшейся странице отметьте обе галочки (или «Выбрать все») и нажмите «Продолжить».'));
+          io.wait(t('Waiting for every access of the script…', 'Ждём, когда скрипту выдадут все доступы…'));
+        }
+        await sleep(CONSENT_POLL_MS);
+      }
+    } finally { io.wait(null); }
   };
 
   // A deployed worker answers to the secret in the Keychain; one that does not know it gets a new
@@ -127,7 +149,7 @@ export async function setupGoogle({ fetch, io, mac: { files }, open, copy, googl
   // A script not allowed yet, or one whose consent lacks a scope (issue 29), goes through the
   // consent; in the latter case its hint says why it opens again.
   if (status === null || status.error === 'scopes') {
-    status = await consent({ io, open, sleep, url: google?.url ?? '', ask, again: status?.error === 'scopes' });
+    status = await consent({ io, open, sleep, now, url: google?.url ?? '', ask, again: status?.error === 'scopes' });
   }
   status = workerDid(status, COMMAND);
 
@@ -160,14 +182,17 @@ export async function setupGoogle({ fetch, io, mac: { files }, open, copy, googl
   return 0;
 }
 
-// Opens the web app for the owner to let the script run, and waits until it answers as authorized
-// with every scope. A consent with a box left unticked (issue 29) answers 'scopes': the hint says
-// what was missed and the consent opens again — once, for the answer may be the one given just
-// before; after that the wait goes on, with the URL and the hint already told. again tells that
-// this call follows such an answer, so the hint comes first and there is no second opening.
-async function consent({ io, open, sleep, url, ask, again = false }:
-  { io: Io; open: (url: string) => Promise<void>; sleep: Sleep; url: string; ask: (action: string) => Promise<WorkerReply | null>;
-    again?: boolean }): Promise<WorkerReply> {
+// Opens the web app for the owner to let the script run, and waits until the worker answers as
+// authorized with every scope (issue 29): status answers 'scopes' until the consent gave both.
+// A consent that comes back without every box opens the page again at once, with the hint before
+// it; later incomplete answers print the hint once more and keep waiting, and the page opens
+// again no sooner than CONSENT_REOPEN_MS after the last opening — so an incomplete consent is
+// never met with silence, and never with a cycle of tabs. again tells that this call follows a
+// 'scopes' answer, so the hint comes first.
+async function consent({ io, open, sleep, url, ask, now, again = false }:
+  { io: Io; open: (url: string) => Promise<void>; sleep: Sleep; url: string; now: () => number;
+    ask: (action: string) => Promise<WorkerReply | null>; again?: boolean }): Promise<WorkerReply> {
+  let told = false;
   for (;;) {
     if (again) io.print(scopesHint());
     io.print(t(`Let the worker script run: ${url}`, `Разрешите скрипту воркера работать: ${url}`));
@@ -177,14 +202,21 @@ async function consent({ io, open, sleep, url, ask, again = false }:
       'and click «Continue». aures goes on by itself.',
     'В окне выберите тот же аккаунт, нажмите «Дополнительные настройки» и «Перейти на страницу "aures-worker" (небезопасно)», ' +
       'отметьте обе галочки (или «Выбрать все») и нажмите «Продолжить». aures продолжит сам.'));
+    const opened = now();
     await open(url);
     io.wait(t('Waiting for the script to be allowed…', 'Ждём, когда скрипту разрешат работать…'));
     try {
       for (;;) {
         const status = await ask('status');
         if (status && status.error !== 'scopes') return status;
-        // A consent without every box: the consent opens again, with the hint before it.
+        // The consent the user just gave does not cover every box: the page opens again, with
+        // the hint before it. Later incomplete answers wait — told, not silent — and reopen the
+        // page only once a minute at most.
         if (status && !again) { again = true; break; }
+        if (status) {
+          if (!told) { told = true; io.print(scopesHint()); }
+          if (now() - opened >= CONSENT_REOPEN_MS) { again = true; break; }
+        }
         await sleep(CONSENT_POLL_MS);
       }
     } finally { io.wait(null); }

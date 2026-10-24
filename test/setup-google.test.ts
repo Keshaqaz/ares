@@ -173,8 +173,8 @@ test('a script consented without its triggers box makes setup reopen the consent
   noViolations(cli);
 });
 
-// A consent without the external services box (issue 29): the status answers, and the actions
-// that reach a site answer 'scopes' with the same hint and the reopened consent.
+// A consent without the external services box (issue 29): the status already says so — the
+// authorization check needs no request — and setup reopens the consent before going on.
 test('a script consented without its external services box makes login reopen the consent and go on', async () => {
   const cli = await googleWorld();
   const { world } = cli;
@@ -211,6 +211,50 @@ test('a repeated setup reopens the consent of a script left with partial scopes'
   const { code, io } = await cli.run({ answers: [] });
   assert.equal(code, 0, io.output());
   // The deploy is kept; the missing scopes take setup straight to the consent again.
+  assert.equal(project.versions.length, 1, 'nothing is deployed again');
+  assert.match(io.output(), /Скрипту воркера выданы не все доступы: на согласии отмечены не все галочки\./);
+  assert.equal(io.lines.filter(line => line.startsWith('Разрешите скрипту воркера работать')).length, 1);
+  assert.deepEqual(project.granted, ['scriptapp', 'external_request']);
+  assert.deepEqual(project.gas?.triggers, [{ handler: 'tick', minutes: 5 }]);
+  assert.match(io.lines.at(-1) ?? '', /^Воркер работает\./);
+  noViolations(cli);
+});
+
+// The review of issue 29: a user who never ticks the external services box. Setup waits at the
+// consent, tells why, and reopens the page at most once a minute — never a cycle of tabs; the
+// wait ends only with the user (Ctrl-C here).
+test('a consent left without a box is waited for with the hint, reopening the page no more than once a minute', async () => {
+  const cli = await googleWorld();
+  const { world } = cli;
+  world.google.apiEnabled = true;
+  world.google.scriptConsent = ['scriptapp'];
+  let polls = 0;
+  const interrupted = cli.run({ sleep: async ms => { if (++polls > 40) throw new Error('Ctrl-C'); world.advance(ms); } });
+  await assert.rejects(interrupted, /Ctrl-C/);
+  const project = deployed(cli);
+  assert.deepEqual(project.granted, ['scriptapp']);
+  // ~40 polls of 5 s: the first opening, the reopening on the first incomplete answer, then once a minute.
+  const pages = world.google.opened.filter(href => /\/macros\/s\/[^/]+\/exec$/.test(href)).length;
+  assert.ok(pages >= 2 && pages <= 5, `the consent page opened ${pages} times`);
+  assert.equal(project.gas?.triggers.length ?? 0, 0, 'nothing is scheduled without every scope');
+});
+
+// The review of issue 29: a repeated setup over a consent left without the external services box
+// sees it at the status and reopens the consent, instead of meeting it only at the login.
+test('a repeated setup reopens the consent of a script left without its external services box', async () => {
+  const cli = await googleWorld();
+  const { world } = cli;
+  world.google.apiEnabled = true;
+  world.google.scriptConsent = ['scriptapp'];
+  let polls = 0;
+  const interrupted = cli.run({ sleep: async ms => { if (++polls > 3) throw new Error('Ctrl-C'); world.advance(ms); } });
+  await assert.rejects(interrupted, /Ctrl-C/);
+  const project = deployed(cli);
+  assert.deepEqual(project.granted, ['scriptapp']);
+
+  world.google.scriptConsent = ['scriptapp', 'external_request'];
+  const { code, io } = await cli.run({ answers: [] });
+  assert.equal(code, 0, io.output());
   assert.equal(project.versions.length, 1, 'nothing is deployed again');
   assert.match(io.output(), /Скрипту воркера выданы не все доступы: на согласии отмечены не все галочки\./);
   assert.equal(io.lines.filter(line => line.startsWith('Разрешите скрипту воркера работать')).length, 1);

@@ -74,6 +74,8 @@ test('the first deploy waits for the Apps Script API: it opens usersettings, exp
   // The owner grants the script its scopes; then doPost answers to the secret in the Keychain.
   assert.equal(await post(cli, deployed.url, 'status'), null, 'before the consent Google shows a page');
   await world.google.open(deployed.url);
+  // The grant lands when the user finishes the page, not inside open.
+  world.now += world.google.consentAfterMs;
   assert.equal((await post(cli, deployed.url, 'rules', { rules: RULES }))?.ok, true);
   assert.deepEqual(await postWorker(world.fetch, deployed.url, { secret: 'wrong', action: 'status' }), { ok: false, error: 'forbidden' });
   noViolations(cli);
@@ -133,6 +135,7 @@ test('a repeated deploy updates the same deployment: the web app keeps its URL a
   cli.world.google.apiEnabled = true;
   const { deployed } = await deploy(cli);
   await cli.world.google.open(deployed.url);
+  cli.world.now += cli.world.google.consentAfterMs;
   await post(cli, deployed.url, 'rules', { rules: RULES });
   const login = await post(cli, deployed.url, 'login', { login: { id: 'login-1', session: cli.world.login() } });
   assert.equal(login?.outcome, 'idle');

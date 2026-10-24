@@ -9,6 +9,8 @@ export interface UrlFetchRequest {
   muteHttpExceptions: boolean; followRedirects: boolean;
 }
 export interface HttpResponse { getResponseCode(): number; getContentText(): string }
+// What ScriptApp.getAuthorizationInfo answers: which of the scopes it was asked about are granted.
+export interface AuthorizationInfo { getAuthorizedScopes(): string[] | null }
 export interface Properties {
   getProperty(key: string): string | null;
   setProperty(key: string, value: string): Properties;
@@ -29,6 +31,9 @@ export interface AppsScript {
     deleteTrigger(trigger: Trigger): void;
     newTrigger(functionName: string): TriggerBuilder;
     invalidateAuth(): void;
+    // Says, without a request, which of the given scopes the user granted the script.
+    getAuthorizationInfo(authMode: string, scopes: string[]): AuthorizationInfo;
+    AuthMode: { FULL: string };
   };
   ContentService: { createTextOutput(content: string): TextOutput; MimeType: { JSON: string; TEXT: string } };
   Utilities: { getUuid(): string; base64DecodeWebSafe(text: string): number[]; newBlob(data: number[]): Blob };
@@ -47,15 +52,33 @@ declare const Utilities: AppsScript['Utilities'];
 // The global services, read when the script is called: they are there only inside Apps Script.
 export const appsScript = (): AppsScript => ({ UrlFetchApp, PropertiesService, LockService, ScriptApp, ContentService, Utilities });
 
+// The script's own consent did not give every scope its manifest asks for (issue 29): thrown
+// where the authorization is read directly, as a service without its scope throws Apps Script's
+// own exception of the same meaning. missingScopes() tells both apart from real failures.
+export class MissingScopes extends Error {}
+
 // Apps Script's exception when a service is called without a scope the user left unticked at the
 // script's consent: «Exception: You do not have permission to call getProjectTriggers. Required
 // permissions: (https://www.googleapis.com/auth/script.scriptapp)» — the same for UrlFetchApp's
 // fetch/fetchAll and script.external_request. Recognized as narrowly as the text allows: the
 // standard phrase together with the URL of one of the script's own two scopes (layout.ts).
 export function missingScopes(error: unknown): boolean {
+  if (error instanceof MissingScopes) return true;
   const message = (object(error) && typeof error.message === 'string' ? error.message : String(error)).toLowerCase();
   return message.includes('do not have permission to call') &&
     Object.values(SCRIPT_SCOPES).some(url => message.includes(url));
+}
+
+// Whether the script's consent gave every scope the manifest asks for (issue 29). Apps Script
+// answers without a request: ScriptApp.getAuthorizationInfo(AuthMode.FULL, scopes) checks the
+// given scopes, and its getAuthorizedScopes() names the authorized ones of the list asked about —
+// the documented way for executions that start without a consent to every required scope
+// (developers.google.com/apps-script: ScriptApp and AuthorizationInfo). null, which says nothing,
+// is taken as unknown, and the services still fail with Apps Script's own exception.
+export function scopesGranted(gas: AppsScript): boolean {
+  const granted = gas.ScriptApp.getAuthorizationInfo(gas.ScriptApp.AuthMode.FULL,
+    [SCRIPT_SCOPES.externalRequest, SCRIPT_SCOPES.scriptapp]).getAuthorizedScopes();
+  return granted === null || Object.values(SCRIPT_SCOPES).every(url => granted.includes(url));
 }
 
 // What request() reads from a reply.

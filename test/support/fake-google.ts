@@ -2,8 +2,9 @@
 // user may leave unticked, its token endpoint, the Apps Script API calls the CLI makes and the web
 // apps of the deployed projects. withGoogle(world) chains it in front of world.fetch. google.open
 // is the user's browser: it answers the consent through the CLI's loopback server, turns on the
-// Apps Script API at usersettings and grants the script its scopes at the web app URL. A web app's
-// doPost runs the deployed version in the fake Apps Script runtime over the same world.
+// Apps Script API at usersettings and opens the script's consent at the web app URL — the grant
+// lands consentAfterMs later, when the user finishes the page, never inside open itself. A web
+// app's doPost runs the deployed version in the fake Apps Script runtime over the same world.
 import { createHash } from 'node:crypto';
 import { GOOGLE_OAUTH_CLIENT } from '../../src/google/oauth-client.ts';
 import { GOOGLE_SCOPES } from '../../src/google/api.ts';
@@ -35,6 +36,9 @@ export interface FakeProject {
   // The scopes the owner granted the script at its consent at the web app URL; null: the consent
   // was never given, and the web app answers Google's 403 HTML page.
   granted: ScriptScope[] | null;
+  // When the user finishes the consent whose page the CLI opened; null: none is in progress.
+  // The grant lands when the world's clock passes it, never inside open itself (issue 29).
+  consentAt: number | null;
   // The script's runtime, with its properties and triggers; it runs the version last loaded.
   gas: FakeAppsScript | null;
   loaded: number | null;
@@ -43,7 +47,7 @@ export interface FakeProject {
 export type Consent = GoogleScope[] | 'denied';
 // What the user does at the script's consent each time its web app opens (issue 29): ticks these
 // boxes — both by default, one of them for a partial consent, none — or closes the page without
-// a consent.
+// a consent. Read when the user finishes the consent, consentAfterMs after the page opened.
 export type ScriptConsent = ScriptScope[] | 'closed';
 
 export type ApiCall = 'create_project' | 'update_content' | 'create_version' | 'create_deployment' | 'update_deployment' | 'delete_deployment';
@@ -57,6 +61,9 @@ export interface FakeGoogle {
   consents: Consent[];
   // What the user does at the script's consent each time its web app opens (issue 29).
   scriptConsent: ScriptConsent;
+  // How long the user takes at the consent page after the CLI opens it: the grant lands only
+  // once the world's clock has passed this, never inside open itself.
+  consentAfterMs: number;
   // The account the user signs in with; with grantsEmail false the consent gives no email, as a
   // grant from before the CLI asked for it.
   email: string;
@@ -100,9 +107,16 @@ export function withGoogle(world: FakeWorld & { google?: FakeGoogle }): FakeGoog
     if (!google.apiEnabled && enableAt !== null && world.now >= enableAt) google.apiEnabled = true;
     return google.apiEnabled;
   };
+  // The consent the user gives lands this much after its page was opened, never inside open
+  // itself: open only opens the browser, the user takes their time at the page (issue 29).
+  const applyConsent = (project: FakeProject): void => {
+    if (project.consentAt === null || world.now < project.consentAt) return;
+    project.consentAt = null;
+    if (google.scriptConsent !== 'closed') project.granted = [...google.scriptConsent];
+  };
 
   const google: FakeGoogle = {
-    apiEnabled: false, enableAfterMs: 12_000, consents: [], scriptConsent: ['scriptapp', 'external_request'], email: 'owner@example.invalid', grantsEmail: true, opened: [], refreshTokens: new Map(), accessTokens: new Map(),
+    apiEnabled: false, enableAfterMs: 12_000, consents: [], scriptConsent: ['scriptapp', 'external_request'], consentAfterMs: 7_000, email: 'owner@example.invalid', grantsEmail: true, opened: [], refreshTokens: new Map(), accessTokens: new Map(),
     projects: new Map(), servePrevious: 0, failNext: null, revokeFail: null, requests: [], violations: [],
     open: async href => {
       google.opened.push(href);
@@ -117,8 +131,9 @@ export function withGoogle(world: FakeWorld & { google?: FakeGoogle }): FakeGoog
       }
       const exec = url.host === 'script.google.com' && url.pathname.match(/^\/macros\/s\/([^/]+)\/exec$/);
       if (exec) {
+        // The browser shows the page; the user finishes the consent later, on the world's clock.
         const project = [...google.projects.values()].find(p => p.deployments.has(exec[1] ?? ''));
-        if (project && google.scriptConsent !== 'closed') project.granted = [...google.scriptConsent];
+        if (project) project.consentAt = world.now + google.consentAfterMs;
         return;
       }
       if (url.origin + url.pathname !== 'https://accounts.google.com/o/oauth2/v2/auth') {
@@ -224,7 +239,7 @@ export function withGoogle(world: FakeWorld & { google?: FakeGoogle }): FakeGoog
       if (typeof body.title !== 'string') return apiError(400, 'INVALID_ARGUMENT', 'title');
       const scriptId = `fake-script-${++serial}`;
       google.projects.set(scriptId, { scriptId, title: body.title, files: [], versions: [], deployments: new Map(), serving: null,
-        granted: null, gas: null, loaded: null });
+        granted: null, consentAt: null, gas: null, loaded: null });
       return json(200, { scriptId, title: body.title });
     }
     const match = path.match(/^\/v1\/projects\/([^/]+)(?:\/(content|versions|deployments)(?:\/([^/]+))?)?$/);
@@ -288,6 +303,8 @@ export function withGoogle(world: FakeWorld & { google?: FakeGoogle }): FakeGoog
     const project = [...google.projects.values()].find(p => p.deployments.has(deploymentId));
     let version = project?.deployments.get(deploymentId);
     if (!project || version === undefined) return new Response('Sorry, unable to open the file at this time.', { status: 404 });
+    // The user may have finished the consent since the page was opened.
+    applyConsent(project);
     if (project.granted === null) {
       return new Response('<html>Authorization is required to perform that action.</html>', { status: 403, headers: { 'content-type': 'text/html' } });
     }

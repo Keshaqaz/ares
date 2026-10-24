@@ -309,8 +309,9 @@ test('a consent without the external services box answers scopes for the running
   const world = fakeWorld();
   const gas = await fakeAppsScript({ world, scopes: () => ['scriptapp'] });
   assert.equal(post(gas, 'rules', { rules: RULES }).ok, true);
-  // The triggers read, so the status answers; every action that reaches a site does not.
-  assert.equal(post(gas, 'status').ok, true);
+  // The status itself says the consent is not complete: its authorization check names the granted
+  // scopes without a request, so the CLI can wait for the missing one at the consent (issue 29).
+  assert.deepEqual(post(gas, 'status'), { ok: false, error: 'scopes' });
   assert.deepEqual(post(gas, 'login', { login: { id: 'login-1', session: world.login() } }), { ok: false, error: 'scopes' });
   assert.deepEqual(post(gas, 'trial'), { ok: false, error: 'scopes' });
   assert.deepEqual(post(gas, 'wake'), { ok: false, error: 'scopes' });

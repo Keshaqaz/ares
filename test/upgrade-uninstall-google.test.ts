@@ -66,6 +66,16 @@ test('upgrade on Google with a sign-in Google ended opens the sign-in and goes o
   assert.match(io.lines.at(-1) ?? '', /^Воркер обновлён до версии/);
 });
 
+// The review of issue 29: a script whose consent lost a box answers 'scopes' after the deploy, and
+// upgrade says to redo the consent at `aures setup` instead of a vague failure.
+test('upgrade on Google over a consent without every box says to redo the consent', async () => {
+  const { project, run } = await onGoogle();
+  project.granted = ['scriptapp'];
+  const { code, io } = await run(upgrade);
+  assert.equal(code, 1, io.output());
+  assert.match(io.output(), /Скрипту воркера на согласии выданы не все доступы: отмечены не все галочки\. Запустите `aures setup`/);
+});
+
 // The web app keeps answering with the previous version of the deployment for a few seconds;
 // the upgrade waits it out instead of trusting the first answer (issue 20).
 test('upgrade on Google waits out a web app still serving the previous version', async () => {

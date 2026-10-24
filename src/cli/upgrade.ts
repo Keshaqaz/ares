@@ -5,7 +5,7 @@ import { workflowYaml, workflowMinute } from '../worker/workflow.ts';
 import { GoogleFailure } from '../google/api.ts';
 import { CommandFailed, unfinished, connectGitHub, installedWorker, command } from './common.ts';
 import type { CommandOptions, Sleep } from './common.ts';
-import { connectGoogle, deployWorker, askAfterDeploy, readSecret } from './google.ts';
+import { connectGoogle, deployWorker, askAfterDeploy, workerDid, readSecret } from './google.ts';
 import type { GoogleWorker } from './watch-files.ts';
 import type { Migration, Rules } from '../worker/state-file.ts';
 import { t } from './language.ts';
@@ -108,10 +108,14 @@ export async function redeployGoogle({ fetch, googleKeychain, secretKeychain, io
   }
   // The web app of the just-updated deployment can still serve the previous version, answering
   // forbidden to the fresh secret; askAfterDeploy waits that out. The new version answers to the
-  // new secret, unless Google wants the script allowed anew.
+  // new secret — or says the script was not given every scope at its consent (issue 29), which
+  // tells the user to redo the consent instead of a vague success.
   const secret = await readSecret(secretKeychain);
-  if (!secret || !await askAfterDeploy({ fetch, url, secret, now, sleep, io, command: 'upgrade' })) {
+  const reply = secret && await askAfterDeploy({ fetch, url, secret, now, sleep, io, command: 'upgrade' });
+  if (!reply) {
     throw new CommandFailed(t('The worker is updated, but the script has to be allowed to run again: run `aures setup`.',
       'Воркер обновлён, но скрипту нужно снова разрешить работать: запустите `aures setup`.'));
   }
+  // A reply that is not ok tells its own story: 'scopes' says to redo the consent at `aures setup`.
+  workerDid(reply, 'upgrade');
 }
