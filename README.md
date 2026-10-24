@@ -49,7 +49,7 @@ aures setup
 
 <img src="docs/assets/setup-en.png" alt="aures setup on Google Apps Script: the platform, the Google sign-in, the Apps Script API switch, rules, the ChatGPT sign-in and a trial run">
 
-The CLI speaks English; for Russian press `l` on the screen or run `aures language ru`.
+The CLI speaks your Mac's language — Russian on a Russian locale, English on any other; `l` on the screen or `aures language` switches it.
 
 Full guide, including installing from source: [docs/installation.en.md](docs/installation.en.md).
 

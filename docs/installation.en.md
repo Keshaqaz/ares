@@ -2,7 +2,7 @@
 
 **English** · [Русский](installation.md)
 
-The CLI speaks English. For Russian press `l` on the screen or run `aures language ru`.
+The CLI speaks the language of your Mac: Russian on a Russian locale, English on any other. Press `l` on the screen or run `aures language` to switch.
 
 ## What you need
 

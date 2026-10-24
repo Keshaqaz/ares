@@ -17,7 +17,7 @@ import { GitHubTokenKeychain, KeychainEntry, GOOGLE_TOKEN_ACCOUNT, WORKER_SECRET
 import { openInBrowser, copyToClipboard } from './browser.ts';
 import { liveLine } from './live-line.ts';
 import type { CommandOptions } from './common.ts';
-import { t, setLanguage, isLanguage } from './language.ts';
+import { t, setLanguage, startLanguage, readSystemLanguage, isLanguage } from './language.ts';
 import pkg from '../../package.json' with { type: 'json' };
 
 // The worker bundles that setup and upgrade deploy: `npm run build:worker`.
@@ -83,7 +83,9 @@ async function main(): Promise<number> {
     return 0;
   }
   const files = new WatchFiles();
-  setLanguage(await files.readLanguage());
+  // The pick in settings.json wins; without one the language follows the system, and only
+  // the pick is written — by `aures language` below or `l` on the screen.
+  setLanguage(startLanguage(await files.readLanguage(), await readSystemLanguage()));
   const [choice] = rest;
   if (name === 'language' && rest.length === 1 && isLanguage(choice)) {
     setLanguage(choice);
