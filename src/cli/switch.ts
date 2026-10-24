@@ -337,9 +337,12 @@ const prepareGoogle: Prepare = async ({ fetch, googleKeychain, secretKeychain, i
   let status: WorkerReply | null = await askAfterDeploy({ fetch, url: deployed.url, secret, now, sleep, io, command: null });
   if (status === null) {
     io.print(t(`Let the worker script run: ${deployed.url}`, `Разрешите скрипту воркера работать: ${deployed.url}`));
-    io.print(t('Pick your account, pass «Google hasn\'t verified this app» through «Advanced» and click «Allow». aures goes on by itself.',
-      'Выберите свой аккаунт, пройдите «Google не проверял это приложение» через «Дополнительные настройки» и нажмите «Разрешить». ' +
-        'aures продолжит сам.'));
+    io.print(t('The page that opens is in English, «aures-worker (Unverified)»: click «Review permissions», and the consent opens in a popup window.',
+      'Открывшаяся страница будет на английском, «aures-worker (Unverified)»: нажмите «Review permissions», согласие откроется во всплывающем окне.'));
+    io.print(t('In the window pick the same account, click «Advanced» and then «Go to aures-worker (unsafe)», tick both boxes (or «Select all») ' +
+      'and click «Continue». aures goes on by itself.',
+    'В окне выберите тот же аккаунт, нажмите «Дополнительные настройки» и «Перейти на страницу "aures-worker" (небезопасно)», ' +
+      'отметьте обе галочки (или «Выбрать все») и нажмите «Продолжить». aures продолжит сам.'));
     await open(deployed.url);
     io.wait(t('Waiting for the script to be allowed…', 'Ждём, когда скрипту разрешат работать…'));
     try {

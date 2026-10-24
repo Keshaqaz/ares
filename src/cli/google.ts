@@ -48,8 +48,12 @@ export async function connectGoogle({ fetch, keychain, io, open, now, files, fre
     } catch (error) { if (!(error instanceof GoogleFailure && error.reason === 'invalid_grant')) throw error; }
   }
   for (;;) {
-    io.print(t('Sign in to Google in the browser. On the consent page tick every box, or press «Select all».',
-      'Вход в Google в браузере. На странице согласия отметьте все галочки или нажмите «Выбрать все».'));
+    io.print(t('Sign in to Google in the browser. On the «Google hasn\'t verified this app» screen click «Continue», ' +
+      'then «Continue» again on the «Sign in to aures» screen.',
+    'Вход в Google в браузере. На экране «Эксперты Google не проверяли это приложение» нажмите «Продолжить», ' +
+      'затем ещё раз «Продолжить» на экране «Вход в сервис "aures"».'));
+    io.print(t('Then tick every box (or «Select all») and click «Continue».',
+      'Затем отметьте все галочки (или «Выбрать все») и нажмите «Продолжить».'));
     try {
       const grant = await googleLogin({ fetch, now, open: url => {
         io.print(t(`If the browser did not open: ${url}`, `Если браузер не открылся: ${url}`));

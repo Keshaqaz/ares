@@ -38,11 +38,19 @@ test('setup on Google goes from nothing to a scheduled worker and ends with a tr
   assert.match(io.output(), /1\. GitHub Actions — .*за 8 часов/);
   assert.match(io.output(), /2\. Google Apps Script — .*каждые 5 минут.*непроверенном приложении/);
   assert.doesNotMatch(io.output(), /рекоменд/i);
-  // Both «unverified app» screens are told before the first sign-in.
-  const warned = io.lines.findIndex(line => line.includes('нажмите «Дополнительные настройки», затем «Перейти… (небезопасно)»'));
+  // The general warning about both «unverified app» screens comes before the first sign-in.
+  const warned = io.lines.findIndex(line => line.includes('два предупреждения о непроверенном приложении'));
   const signIn = io.lines.findIndex(line => line.startsWith('Вход в Google в браузере'));
   assert.ok(warned >= 0 && warned < signIn, io.output());
-  assert.match(io.output(), /дважды покажет «Google не проверял это приложение»/);
+  // The sign-in hint names the buttons of the real screens, and there is no «Allow» to press (issue 21).
+  assert.match(io.output(), /«Эксперты Google не проверяли это приложение» нажмите «Продолжить»/);
+  assert.match(io.output(), /«Вход в сервис "aures"»/);
+  assert.match(io.output(), /отметьте все галочки \(или «Выбрать все»\) и нажмите «Продолжить»/);
+  // The consent hint walks the «aures-worker (Unverified)» page and the popup with its boxes.
+  assert.match(io.output(), /«aures-worker \(Unverified\)»: нажмите «Review permissions», согласие откроется во всплывающем окне/);
+  assert.match(io.output(), /«Перейти на страницу "aures-worker" \(небезопасно\)»/);
+  assert.match(io.output(), /отметьте обе галочки \(или «Выбрать все»\) и нажмите «Продолжить»/);
+  assert.doesNotMatch(io.output(), /«Разрешить»|«Allow»/);
   assert.match(io.output(), /Перед истечением \(в последний час\) — включено/);
 
   const project = deployed(cli);
@@ -115,6 +123,10 @@ test('setup stopped while the script waits to be allowed goes on with the consen
   assert.equal(world.google.opened.filter(href => href.startsWith(GOOGLE_LOGIN)).length, 1, 'one Google sign-in');
   assert.equal(await googleKeychain.read(), token);
   assert.match(io.output(), /Разрешите скрипту воркера работать: https:\/\/script\.google\.com\/macros\/s\/.*\/exec/);
+  // The consent hint again names the real screens, and no «Allow» button exists on them (issue 21).
+  assert.match(io.output(), /«aures-worker \(Unverified\)»: нажмите «Review permissions»/);
+  assert.match(io.output(), /«Дополнительные настройки» и «Перейти на страницу "aures-worker" \(небезопасно\)»/);
+  assert.doesNotMatch(io.output(), /«Разрешить»|«Allow»/);
   assert.deepEqual(project.gas?.triggers, [{ handler: 'tick', minutes: 5 }]);
   assert.match(io.lines.at(-1) ?? '', /^Воркер работает\./);
   noViolations(cli);
