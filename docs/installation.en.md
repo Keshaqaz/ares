@@ -282,17 +282,17 @@ Then remove the program: `brew uninstall aures`. Installed from source, delete t
 
 `uninstall` asks you to confirm and removes the worker from the platform it runs on, together with everything of it on this Mac.
 
-**On GitHub** `uninstall` asks you to sign in to GitHub once more: deleting a repository needs a separate permission, which the CLI does not keep. It then revokes the worker's ChatGPT sign-in and deletes the repository. Next it removes the Mac check agent, revokes the Mac's ChatGPT sign-in and deletes its files and log, and finally removes the GitHub sign-in from the Keychain. Open the GitHub page it links and click **Revoke** to close access completely.
+**On GitHub** `uninstall` asks you to sign in to GitHub once more: deleting a repository needs a separate permission, which the CLI does not keep. The sign-in is asked for after a move to Google too: the earlier worker's GitHub sign-in stays in the Keychain and its repository is deleted as well, and `uninstall` prints a line about it before the second sign-in. It then revokes the worker's ChatGPT sign-in and deletes the repository. Next it removes the Mac check agent, revokes the Mac's ChatGPT sign-in and deletes its files and log, and finally removes the GitHub sign-in from the Keychain. Open the GitHub page it links and click **Revoke** to close access completely.
 
-**On Google** `uninstall` stops the worker — takes off its schedule, revokes its ChatGPT sign-in and the script's own access — deletes the web app, revokes aures' Google sign-in and removes the Google sign-in and the worker secret from the Keychain. After that nothing comes from the project (checked on the owner's account on 21 October 2026): the script's entry disappears from "Third-party apps" (myaccount.google.com/connections) by itself, a trigger left in the project's list no longer fires, and the web app, without the script's access, answers with a sign-in page only. The script project itself the CLI cannot delete: the Apps Script API has no call for it, and its Drive access (drive.file) does not extend to a standalone script project. So the last thing it prints are the manual steps:
+**On Google** `uninstall` stops the worker — takes off its schedule, revokes its ChatGPT sign-in and the script's own access — deletes the web app, revokes aures' Google sign-in and removes the Google sign-in and the worker secret from the Keychain. After that nothing comes from the project (checked on the owner's account on 21 October 2026): the script's entry disappears from "Third-party apps" (myaccount.google.com/connections) by itself, a trigger left in the project's list no longer fires, and the web app, without the script's access, answers with a sign-in page only. A live removal on 24 October 2026 confirmed it: once the worker is stopped, neither `aures-worker` nor the `aures` client remains on myaccount.google.com/connections — there is nothing left to check there. The script project itself the CLI cannot delete: the Apps Script API has no call for it, and its Drive access (drive.file) does not extend to a standalone script project. So the last thing it prints is one step:
 
 ```
-Left to do by hand:
-  1. Delete the project aures-worker on https://script.google.com/home/projects/…
-  2. If https://myaccount.google.com/connections still lists aures-worker, remove its access.
+Last step: delete the project aures-worker on https://script.google.com/home/projects/…
 ```
 
 Move the project to the trash on script.google.com yourself — or leave it: with no schedule, sign-in or access it does nothing.
+
+When the worker on Google does not answer `uninstall` (its web app already deleted, say), one more step is printed — take back the access of `aures-worker` on myaccount.google.com/connections by hand.
 
 If the program is already gone and the agent is still there, it's best to install the program again and run `uninstall`: only it revokes the Mac's ChatGPT sign-in. To remove the agent and the files by hand, without revoking the sign-in:
 

@@ -126,11 +126,11 @@ async function removeGoogle(options: CommandOptions & { now: () => number }, goo
   if (google) {
     steps.push(t(`delete the project ${PROJECT_TITLE} on ${projectUrl(google.scriptId)}`,
       `удалите проект ${PROJECT_TITLE} на странице ${projectUrl(google.scriptId)}`));
-    // A script never deployed was never allowed to run. Whether the authorization the script
-    // dropped leaves its entry on the connections page, probe 02 has to tell.
-    if (google.url) steps.push(stopped ? t(`if ${CONNECTIONS} still lists ${PROJECT_TITLE}, remove its access.`,
-      `если на странице ${CONNECTIONS} осталась запись ${PROJECT_TITLE}, удалите у неё доступ.`) :
-      t(`take back the access of ${PROJECT_TITLE} on ${CONNECTIONS}`, `закройте доступ ${PROJECT_TITLE} на странице ${CONNECTIONS}`));
+    // The stopped worker has dropped its authorization itself (doPost uninstall), and the live
+    // removal of 2026-10-24 left nothing of it on the connections page; one that did not answer
+    // keeps its entry there for the user to take back.
+    if (google.url && !stopped) steps.push(t(`take back the access of ${PROJECT_TITLE} on ${CONNECTIONS}`,
+      `закройте доступ ${PROJECT_TITLE} на странице ${CONNECTIONS}`));
   }
   if (!ended) steps.push(t(`take back the access of ${GOOGLE_APP} on ${CONNECTIONS}`, `закройте доступ ${GOOGLE_APP} на странице ${CONNECTIONS}`));
   return steps;
@@ -169,6 +169,10 @@ export async function uninstall(options: CommandOptions): Promise<number> {
     });
     let github: { api: GitHubApi; repo: Repository } | null = null;
     if (onGitHub) {
+      // A worker moved to Google keeps its GitHub sign-in in the Keychain; without this line the
+      // sign-in below asks for GitHub out of nowhere.
+      if (install?.platform === 'google') io.print(t('The Keychain still keeps the GitHub sign-in of the earlier worker; its repository is deleted too.',
+        'В Связке ключей остался вход в GitHub от прежнего воркера; его репозиторий тоже будет удалён.'));
       // The token in the Keychain cannot delete repositories; this one is used once and not kept.
       io.print(t('To delete the repository GitHub asks for a separate permission: sign in once more.',
         'Для удаления репозитория GitHub просит отдельное разрешение: войдите ещё раз.'));
